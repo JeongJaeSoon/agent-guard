@@ -2578,10 +2578,19 @@ hook_policy_dependencies_ready() {
 # through the infrastructure policy instead of treating the scan as clean.
 HOOK_SCANNER_UNAVAILABLE=0
 
+# $1 = scan when no secret scan ran on text crossing the agent's boundary in
+# this event (tool input, the prompt, tool output), or when a hook could not
+# start its checks at all: text the agent has read cannot be taken back. With
+# the variable unset that case is closed and every other infrastructure
+# failure is open: the changed-file and written-file scans after a tool call,
+# Stop, and a commit the gate could not resolve or whose diff is over the scan
+# cap. Withholding output does nothing for files on disk, and an over-cap diff
+# would block every call until it is split. open or closed, once set, applies
+# to both.
 infrastructure_failure_mode() {
-  case "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" in
-    open|closed) printf '%s\n' "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" ;;
-    *) printf '%s\n' open ;;
+  case "${AGENT_GUARD_INFRA_FAILURE_MODE:-}" in
+    open|closed) printf '%s\n' "$AGENT_GUARD_INFRA_FAILURE_MODE" ;;
+    *) if [ "${1:-}" = scan ]; then printf '%s\n' closed; else printf '%s\n' open; fi ;;
   esac
 }
 
@@ -2693,14 +2702,23 @@ begin_infrastructure_failure() {
   # The repeat interval applies only to the open warning. Each closed
   # block carries its own reason: a bare exit 2 reaches the host as a denial
   # with no verdict or explanation.
-  if [ "$(infrastructure_failure_mode)" = closed ]; then
+  if [ "$(infrastructure_failure_mode "${3:-}")" = closed ]; then
     audit_reason infra-failure-closed
-    info "$bif_detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
+    # The default block names what did not run, never the setting that would
+    # let it pass: the model reads this message.
+    if [ "${AGENT_GUARD_INFRA_FAILURE_MODE:-}" = closed ]; then
+      info "$bif_detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
+    else
+      info "$bif_detail Blocking because the secret scan did not run (the default when AGENT_GUARD_INFRA_FAILURE_MODE is unset)."
+    fi
     withhold_post_tool_output
     exit 2
   fi
+  bif_open='continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default).'
+  [ "${AGENT_GUARD_INFRA_FAILURE_MODE:-}" != open ] \
+    || bif_open='continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open.'
   if hook_warning_due "${1:-}"; then
-    INFRA_FAILURE_NOTICE="$bif_detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
+    INFRA_FAILURE_NOTICE="$bif_detail $bif_open"
     info "$INFRA_FAILURE_NOTICE"
   fi
   return 0
@@ -2730,7 +2748,7 @@ handle_hook_infrastructure_failure() {
     hif_scanner=$(degraded_hook_message scanner)
     [ "$hif_detail" = "$hif_scanner" ] || hif_detail="$hif_scanner $hif_detail"
   fi
-  begin_infrastructure_failure "${2:-}" "$hif_detail"
+  begin_infrastructure_failure "${2:-}" "$hif_detail" "${4:-}"
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
   [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
   case "$(hook_host):$hif_event" in
@@ -2923,18 +2941,24 @@ degraded_hook_message() {
   [ -z "$degraded_probe_reason" ] \
     || printf ' Scanner readiness: %s.' "$degraded_probe_reason"
   cli_ref_init
-  printf ' Run %s (or %s setup), approve any required installation, verify with %s check and smoke-test, then restart the host;' \
-    "$setup_ref" "$AG_CLI_REF_HOOK" "$AG_CLI_REF_HOOK"
+  # A probe that only missed its deadline needs another try, not an install.
+  if [ "$degraded_probe_reason" = timeout ]; then
+    printf ' gitleaks is installed but did not answer its version check in time, which a heavily loaded machine causes: retry the call, and run %s doctor if it keeps failing;' \
+      "$AG_CLI_REF_HOOK"
+  else
+    printf ' Run %s doctor to see what failed; to install or repair it run %s (or %s setup), approve any required installation (setup --install with the checksum it prints), verify with %s check and smoke-test, then restart the host;' \
+      "$AG_CLI_REF_HOOK" "$setup_ref" "$AG_CLI_REF_HOOK" "$AG_CLI_REF_HOOK"
+  fi
 }
 
 emit_degraded_hook_warning() {
-  handle_hook_infrastructure_failure "$1" "${2:-}" "$(degraded_hook_message)"
+  handle_hook_infrastructure_failure "$1" "${2:-}" "$(degraded_hook_message)" scan
 }
 
 # PostToolUse may still emit one redaction response after an open git-backstop
 # failure. Warn on stderr only here so the hook never emits two JSON responses.
 handle_git_infrastructure_failure() {
-  begin_infrastructure_failure "${1:-}" "$2"
+  begin_infrastructure_failure "${1:-}" "$2" "${3:-}"
   return 0
 }
 
@@ -4906,6 +4930,12 @@ esac
 # untracked content. Giving each one third keeps their aggregate under the budget.
 SCAN_COMPONENT_MAX_BYTES=$((SCAN_INPUT_MAX_BYTES / 3))
 
+# $3 is the failure kind infrastructure_failure_mode takes for a scan that
+# could not run; left out, it is scan, for text on its way into or out of the
+# agent. The git gate passes an empty one: there "could not run" is a directory
+# that is no repository, or a diff over the scan cap, which lasts until the
+# change is split. A scanner that ran and failed is scan for every caller: the
+# gate is the last check before a push, and a push cannot be taken back.
 block_on_scan_status() {
   status=$1
   message=$2
@@ -4916,11 +4946,11 @@ block_on_scan_status() {
       # hook_pre_tool reports a missing scanner once, after every other check.
       [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return 0
       handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
-        "$PROGRAM: scanner infrastructure could not verify the command;"
+        "$PROGRAM: scanner infrastructure could not verify the command;" "${3-scan}"
       ;;
     *)
       handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
-        "$PROGRAM: scanner infrastructure failed before it could verify the command;"
+        "$PROGRAM: scanner infrastructure failed before it could verify the command;" scan
       ;;
   esac
 }
@@ -5162,8 +5192,9 @@ scan_commit_candidate() {
     status=$?
     [ "$status" -eq 0 ] || return "$status"
   fi
-  [ "$untracked_status" -eq 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
-  return 0
+  # As it is: over the budget stays "could not run", a scanner that failed
+  # stays a scanner error, and the gate's default differs between them.
+  return "$untracked_status"
 }
 
 # $1 = ignored also lists gitignored files, for a same-command `git add -f`.
@@ -8190,6 +8221,21 @@ search_operand_spans() {
     # table knows, so no option can take that word as its value or turn it
     # into a file operand (-f).
     function pline(kind, j) { return "P " kind " " ws[pw[j]] " " we[pw[j]] " " wv[pw[j]] "\n" }
+    # The kind of the perl program word after pw[j], its -e option. "pls"
+    # when the command is perl -pe or perl -ne and its other options are
+    # only -l, -0 and -C: perl then loops over its input, and the program
+    # alone decides what else runs (perl_script_without_regex). perl reads
+    # options after the program as well (-i, a second -e), so none may follow.
+    function perl_kind(j,   k, v, loop) {
+      loop = 0
+      for (k = 2; k <= j; k++) {
+        v = wv[pw[k]]
+        if (v !~ (k < j ? "^-([lnp]|0[0-7]*|C[0-9IOEioASDLa]*)$" : "^-(0[0-7]*)?[lnp]*e$")) return "pl"
+        if (v !~ /^-C/ && v ~ /[np]/) loop = 1
+      }
+      for (k = j + 2; k <= pn; k++) if (substr(wv[pw[k]], 1, 1) == "-") return "pl"
+      return loop ? "pls" : "pl"
+    }
     # pw[1..pn] are the words of the segment, the command name first, without
     # the redirections that name no file (`2>&1`, `2>/dev/null`). Any other
     # redirection or non-literal word gives the segment up: a `<` word would
@@ -8265,8 +8311,8 @@ search_operand_spans() {
       if (h == "perl") {
         for (j = 2; j <= pn; j++) {
           v = wv[pw[j]]
-          if (v ~ /^-[lnpaw0-9]*[eE]$/) return j < pn ? pline("pl", j + 1) : ""
-          if (v !~ /^-(l|n|p|a|w|0[0-7]*)$/) return ""
+          if (v ~ /^-[lnpaw0-9]*[eE]$/) return j < pn ? pline(perl_kind(j), j + 1) : ""
+          if (v !~ /^-(l|n|p|a|w|0[0-7]*|C[0-9IOEioASDLa]*)$/) return ""
         }
         return ""
       }
@@ -8977,6 +9023,67 @@ sed_script_without_regex() {
       out = out ";"
       i++
     }
+    printf "%s", out
+  }'
+}
+
+# Print $1, the program of perl -pe or perl -ne, without its regexes when it
+# is made only of s/regex/replacement/flags statements separated by `;`. Such
+# a program opens no file and runs no command, so its regex text names no
+# path; the replacement stays as written. Return 1, and the caller keeps
+# every byte, for anything else:
+# - a statement that is not a substitution, a comment, a second line;
+# - a delimiter other than the fixed characters below: a bracketing pair
+#   nests, and a quote changes how perl reads the text. An escaped delimiter
+#   loses its backslash before perl looks for names, so `:` is not one of
+#   them: `@\:\:x[...]` would be the array `@::x` and its subscript code;
+# - a flag other than g, i, m, s and x: e and ee run the replacement as code;
+# - a code block in a pattern, or a backtick anywhere;
+# - text perl may interpolate. In a pattern `$` stays only where it is an
+#   anchor (before `)`, `|` or the end) and `@` only before a character that
+#   starts no array name there. In a replacement `@` never stays, and `$`
+#   only as $1 to $9 with no subscript, package or digit after it. `\1` to
+#   `\9` there are the same variables to perl, under the same limit;
+# - `\c`, which takes the next byte even when that is a backslash, so the
+#   escape pairs counted here would be off by one.
+# Bytes are counted as in sed_script_without_regex, with its multibyte
+# refusal.
+perl_script_without_regex() {
+  PERL_SCRIPT=$1 LC_ALL=C awk '
+  BEGIN {
+    t = ENVIRON["PERL_SCRIPT"]; n = length(t); i = 1; out = ""
+    if (t ~ /[^ -~\t\n][@-~]/ || t ~ /[`\n]/ || t ~ /\((\?+[a-z]*|\*)\{/) exit 1
+    while (1) {
+      while (i <= n && substr(t, i, 1) == " ") i++
+      if (i > n) break
+      d = substr(t, i + 1, 1)
+      if (substr(t, i, 1) != "s" || d == "" || index("/|#,!%", d) == 0) exit 1
+      for (i += 2; i <= n && (c = substr(t, i, 1)) != d; i++) {
+        x = substr(t, i + 1, 1)
+        if (c == "\\") { if (x == "c") exit 1; i++; continue }
+        if (c == "$" && x != d && x != ")" && x != "|") exit 1
+        if (c == "@" && (x ~ /[A-Za-z0-9_:\047{$]/ || x !~ /[ -~]/)) exit 1
+      }
+      if (i > n) exit 1
+      out = out "s" d d
+      for (i++; i <= n && (c = substr(t, i, 1)) != d; i++) {
+        x = substr(t, i + 1, 1)
+        if (c == "$" && x !~ /[1-9]/ || c == "@" || c == "\\" && x == "c") exit 1
+        # perl reads \1 in a replacement as $1.
+        if ((c == "$" || c == "\\" && x ~ /[1-9]/) && index("[{:-0123456789", substr(t, i + 2, 1))) exit 1
+        if (c == "\\") { out = out c x; i++; continue }
+        out = out c
+      }
+      if (i > n) exit 1
+      out = out d
+      for (i++; i <= n && index("gimsx", substr(t, i, 1)); i++) out = out substr(t, i, 1)
+      while (i <= n && substr(t, i, 1) == " ") i++
+      if (i > n) break
+      if (substr(t, i, 1) != ";") exit 1
+      out = out ";"
+      i++
+    }
+    if (out == "") exit 1
     printf "%s", out
   }'
 }
@@ -10173,6 +10280,8 @@ program_text_bare_suffixes() (
 # - jq: the field names of the filter (jq_filter_without_field_names).
 # - sed: the regexes of a script made only of s and print commands
 #   (sed_script_without_regex); any other script keeps its text.
+# - pls (perl -pe or -ne, see perl_kind): the regexes of a program made only
+#   of s statements (perl_script_without_regex); any other keeps its text.
 # - py, js: member names in code outside string literals (`row.key`,
 #   `process.env.PORT`). Only where the quoting can be followed for sure: a
 #   python program without a comment or a triple quote, a node program
@@ -10187,6 +10296,7 @@ program_text_residual() {
     # A script outside that grammar may run a command (the e command and
     # flag) or name a file (r, w): it keeps every byte.
     sed) pr_text=$(sed_script_without_regex "$pr_text") || return 1 ;;
+    pls) pr_text=$(perl_script_without_regex "$pr_text") || return 1 ;;
   esac
   PT_TEXT=$pr_text LC_ALL=C awk -v kind="$1" -v suffixes="$3" '
     function chains(t,   out, n, i, c, q, p) {
@@ -13764,9 +13874,18 @@ U
           IFS=$git_ifs
           scan_git_command_group "${workdir:-$(pwd)}" "$git_group"
           git_group_status=$?
-          if [ "$git_group_status" -eq 1 ] || [ "$git_scan_status" -eq 0 ]; then
-            git_scan_status=$git_group_status
-          fi
+          # A finding outranks every other status. A scanner that failed
+          # outranks a scan that could not run, whose default is open.
+          case "$git_scan_status:$git_group_status" in
+            1:*|*:0) ;;
+            *:1|0:*) git_scan_status=$git_group_status ;;
+            "$SCAN_STATUS_UNAVAILABLE":*|"$GIT_SCAN_STATUS_NO_REPOSITORY":*)
+              case "$git_group_status" in
+                "$SCAN_STATUS_UNAVAILABLE"|"$GIT_SCAN_STATUS_NO_REPOSITORY") ;;
+                *) git_scan_status=$git_group_status ;;
+              esac
+              ;;
+          esac
         fi
         git_in_group=1
         git_group=
@@ -13784,7 +13903,7 @@ U
         "$PROGRAM: a git commit or push runs in a directory that does not exist or is not a git repository when the hook runs, such as one this command creates, so what it commits could not be scanned; create the repository in one Bash call and commit or push in the next;"
       return $?
     fi
-    block_on_scan_status "$git_scan_status" "$git_scan_message"
+    block_on_scan_status "$git_scan_status" "$git_scan_message" ''
   fi
 }
 
@@ -13849,6 +13968,297 @@ GIT_DIR='*|'
   set +f
   scan_commit_candidate "$group_stage_all" "$group_untracked" "$@"
 )
+
+# Print, one per line, the variable names whose value a Bash command writes to
+# a file (#497): a $NAME or @{NAME} expansion in a pipeline or command group
+# whose standard output ends in a file, or in the body of a here-document
+# whose delimiter is not quoted and whose command does not send its output to
+# /dev/null. A single-quoted or escaped name is text and @{#NAME} is a length.
+# Redirects apply in order (2> f >&2 reaches f; > f >/dev/null does not), and
+# a descriptor, /dev/null, /dev/stdout, /dev/stderr or /dev/tty is no file. A
+# pipeline is one unit: in 'echo "$X" | cat > f' the value reaches the file.
+# A group, ( ), { }, $( ), if/fi, a loop or case, passes every name inside it
+# to the command around it, so a redirect after the group covers them; the
+# program word of sh -c or bash -c is read as such a group.
+bash_file_write_env_names() {
+  printf '%s\n' "$1" | LC_ALL=C awk '
+    { text = text (NR > 1 ? "\n" : "") $0 }
+    # A word ends at an unquoted blank or operator; quotes and escapes keep
+    # their text in the word (> "a b").
+    function word_end(s, p,   c, q) {
+      while (p <= length(s)) {
+        c = substr(s, p, 1)
+        if (c == "\\") { p += 2; continue }
+        if (c == "\047") {
+          q = index(substr(s, p + 1), "\047")
+          p = q ? p + q + 1 : length(s) + 1
+          continue
+        }
+        if (c == "\"") {
+          for (p++; p <= length(s) && substr(s, p, 1) != "\""; p++)
+            if (substr(s, p, 1) == "\\") p++
+          p++
+          continue
+        }
+        if (c ~ /[ \t\n;|&<>()]/) break
+        p++
+      }
+      return p
+    }
+    function add(name, into_out) {
+      if (into_out) out[name] = 1
+      else if (no_out[d]) return
+      else names[d] = names[d] " " name
+    }
+    # Read the expansion whose "$" is at p; record its name; return the
+    # position after it.
+    function dollar(s, p, into_out,   q, c, name, braced) {
+      q = p + 1
+      c = substr(s, q, 1)
+      braced = (c == "{")
+      if (braced) {
+        q++
+        if (substr(s, q, 1) == "#" || substr(s, q, 1) == "!") return q
+      } else if (c !~ /[A-Za-z_]/) {
+        return q
+      }
+      name = ""
+      while (q <= length(s) && substr(s, q, 1) ~ /[A-Za-z0-9_]/) {
+        name = name substr(s, q, 1)
+        q++
+      }
+      # ${NAME:+word} and ${NAME+word} give the word, never the value.
+      if (braced && (substr(s, q, 2) == ":+" || substr(s, q, 1) == "+")) return q
+      if (name != "") add(name, into_out)
+      return q
+    }
+    function emit(list,   k, a, m) {
+      m = split(list, a, " ")
+      for (k = 1; k <= m; k++) out[a[k]] = 1
+    }
+    # End one command of a pipeline: its final standard output decides.
+    # End one command: the names that flowed into it reach a file when its
+    # standard output ends in one, stop at /dev/null or a device, and else
+    # flow on to the next command of the pipeline.
+    function end_cmd(   h, f) {
+      if (fdk[d, 1] == "file") emit(names[d])
+      if (fdk[d, 1] == "inherit2") err_names[d] = err_names[d] names[d]
+      if (fdk[d, 1] != "") names[d] = ""
+      # Names sent to the standard error a group inherits (>&2) reach a file
+      # when the command around the group sends its 2 to one.
+      if (fdk[d, 2] == "file") emit(err_names[d])
+      if (fdk[d, 2] != "") err_names[d] = ""
+      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = (fdk[d, 1] == "null")
+      hd_mark = hd_n
+      for (f = 0; f <= 9; f++) fdk[d, f] = ""
+      shell_word[d] = want_prog[d] = eval_word[d] = no_out[d] = 0
+    }
+    # End a pipeline. Inside a group its names wait for the group to close.
+    function flush() {
+      end_cmd()
+      if (d > 0) { held[d] = held[d] names[d]; held_err[d] = held_err[d] err_names[d] }
+      names[d] = err_names[d] = ""
+      cmdpos = 1
+    }
+    function open_group(in_dq, kind,   f) {
+      d++
+      names[d] = held[d] = err_names[d] = held_err[d] = ""
+      for (f = 0; f <= 9; f++) fdk[d, f] = ""
+      shell_word[d] = want_prog[d] = eval_word[d] = no_out[d] = 0
+      dq_group[d] = in_dq
+      case_group[d] = (kind == "case")
+      cmdpos = 1
+    }
+    function close_group(   all, err, was_dq) {
+      if (d == 0) return 0
+      flush()
+      all = held[d]
+      err = held_err[d]
+      was_dq = dq_group[d]
+      d--
+      names[d] = names[d] all
+      err_names[d] = err_names[d] err
+      cmdpos = 0
+      return was_dq
+    }
+    # Consume the bodies of the queued here-documents from p; return the
+    # position after the last delimiter line.
+    function bodies(s, p,   h, nl, line, cmp, j) {
+      for (h = 1; h <= hd_n; h++) {
+        while (p <= length(s)) {
+          nl = index(substr(s, p), "\n")
+          line = nl ? substr(s, p, nl - 1) : substr(s, p)
+          p = nl ? p + nl : length(s) + 1
+          cmp = line
+          if (hd_strip[h]) sub(/^\t+/, "", cmp)
+          if (cmp == hd_delim[h]) break
+          if (!hd_expand[h] || hd_null[h]) continue
+          for (j = 1; j <= length(line); j++) {
+            if (substr(line, j, 1) == "\\") j++
+            else if (substr(line, j, 1) == "$") j = dollar(line, j, 1) - 1
+          }
+        }
+      }
+      hd_n = hd_mark = 0
+      return p
+    }
+    # Point descriptor fd of the current command at kind: file, null, dev, or
+    # "" for where it pointed when the command started.
+    function set_fd(fd, kind) { fdk[d, fd] = kind }
+    END {
+      s = text
+      n = length(s)
+      sq = dq = 0
+      hd_n = hd_mark = 0
+      d = 0
+      for (f = 0; f <= 9; f++) fdk[0, f] = ""
+      cmdpos = 1
+      i = 1
+      while (i <= n) {
+        c = substr(s, i, 1)
+        if (sq) { if (c == "\047") sq = 0; i++; continue }
+        if (c == "\\") { i += 2; cmdpos = 0; continue }
+        if (dq) {
+          if (c == "\"") dq = 0
+          else if (c == "$" && substr(s, i + 1, 1) == "(") { dq = 0; open_group(1); i += 2; continue }
+          else if (c == "$") { i = dollar(s, i, 0); continue }
+          i++
+          continue
+        }
+        # A newline right after a pipe continues the pipeline.
+        if (c != " " && c != "\t" && c != "\n") pipe_open = 0
+        if ((c == "\047" || c == "\"") && (want_prog[d] || eval_word[d])) {
+          # The program of sh -c or an eval word: read its text as a group in
+          # place.
+          if (c == "\047") {
+            e = index(substr(s, i + 1), "\047")
+            e = e ? i + e : n + 1
+            prog = substr(s, i + 1, e - i - 1)
+          } else {
+            prog = ""
+            for (e = i + 1; e <= n && substr(s, e, 1) != "\""; e++) {
+              if (substr(s, e, 1) == "\\" && index("\"$`\\", substr(s, e + 1, 1))) e++
+              prog = prog substr(s, e, 1)
+            }
+          }
+          want_prog[d] = 0
+          s = substr(s, 1, i - 1) "(" prog "\n)" substr(s, e + 1)
+          n = length(s)
+          continue
+        }
+        if (c == "\047") { sq = 1; cmdpos = 0; i++; continue }
+        if (c == "\"") { dq = 1; cmdpos = 0; i++; continue }
+        if (c == "$") {
+          if (substr(s, i + 1, 1) == "(") { open_group(0); i += 2; continue }
+          i = dollar(s, i, 0)
+          cmdpos = 0
+          continue
+        }
+        if (c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[ \t\n;|&(]/)) {
+          while (i <= n && substr(s, i, 1) != "\n") i++
+          continue
+        }
+        if (c == "\n") {
+          if (!pipe_open) flush()
+          i = hd_n ? bodies(s, i + 1) : i + 1
+          continue
+        }
+        if (c == ";" || (c == "&" && substr(s, i + 1, 1) != ">") || (c == "|" && substr(s, i + 1, 1) == "|")) {
+          flush()
+          i += (c != ";" && substr(s, i + 1, 1) == c) ? 2 : 1
+          continue
+        }
+        if (c == "|") { end_cmd(); pipe_open = 1; cmdpos = 1; i++; continue }
+        if (c == "(") { open_group(0); i++; continue }
+        # In a case group a ) ends a pattern, not the group.
+        if (c == ")" && d > 0 && case_group[d]) { flush(); i++; continue }
+        if (c == ")") { if (close_group()) dq = 1; i++; continue }
+        if ((i == 1 || substr(s, i - 1, 1) ~ /[ \t\n;|&()]/) && c ~ /[A-Za-z_.\/{}!\[-]/) {
+          e = word_end(s, i)
+          w = substr(s, i, e - i)
+          if (cmdpos) {
+            if (w ~ /^(\{|if|while|until|for|case|select)$/) { open_group(0, w); i = e; continue }
+            # An assignment before the command goes to its environment, not
+            # its output. One that runs code ($( or a backquote) is read.
+            if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && w !~ /[$]\(|`/) { i = e; continue }
+            if (w ~ /^(\}|fi|done|esac)$/) { flush(); close_group(); i = e; continue }
+            if (w ~ /^(then|do|else|elif|!)$/) { flush(); i = e; continue }
+          }
+          bw = w
+          sub(/.*\//, "", bw)
+          # A condition check prints nothing of its operands.
+          if (cmdpos && bw ~ /^(test|\[|\[\[)$/) no_out[d] = 1
+          if (bw ~ /^(sh|bash|zsh|dash|ksh)$/) shell_word[d] = 1
+          else if (bw == "eval" && cmdpos) eval_word[d] = 1
+          else if (shell_word[d] && w ~ /^-[A-Za-z]*c$/) want_prog[d] = 1
+          # Only the first character is read here: the rest of the word may
+          # hold an expansion (token=$X).
+          cmdpos = 0
+          i++
+          continue
+        }
+        if (c == "<" && substr(s, i, 3) == "<<<") { i += 3; continue }
+        if (c == "<" && substr(s, i + 1, 1) == "<") {
+          j = i + 2
+          strip = 0
+          if (substr(s, j, 1) == "-") { strip = 1; j++ }
+          while (substr(s, j, 1) ~ /[ \t]/) j++
+          e = word_end(s, j)
+          w = substr(s, j, e - j)
+          hd_n++
+          hd_strip[hd_n] = strip
+          hd_expand[hd_n] = (w !~ /[\047"\\]/)
+          hd_null[hd_n] = 0
+          gsub(/[\047"\\]/, "", w)
+          hd_delim[hd_n] = w
+          i = e
+          continue
+        }
+        if (c == "&" || c == ">") {
+          j = i + 1
+          both = (c == "&")
+          if (both) j++
+          else if (substr(s, j, 1) == ">" || substr(s, j, 1) == "|") j++
+          if (substr(s, j, 1) == "(") { i = j; continue }
+          fd = "1"
+          if (!both) {
+            num = ""
+            for (b = i - 1; b >= 1 && substr(s, b, 1) ~ /[0-9]/; b--) num = substr(s, b, 1) num
+            if (num != "" && (b < 1 || substr(s, b, 1) ~ /[ \t\n;|&(]/)) fd = num
+          }
+          if (!both && substr(s, j, 1) == "&") {
+            # Duplication: >&2 points this descriptor where 2 points now.
+            j++
+            m = ""
+            while (substr(s, j, 1) ~ /[0-9]/) { m = m substr(s, j, 1); j++ }
+            if (m == "2" && fd == "1" && fdk[d, 2] == "") { set_fd(1, "inherit2"); i = j; continue }
+            # gawk aborts when a missing array element is passed to a function
+            # that writes the same array, so copy it first.
+            if (m != "") { kind = (((d, m) in fdk) ? fdk[d, m] : ""); set_fd(fd, kind); i = j; continue }
+            if (substr(s, j, 1) == "-") { set_fd(fd, "null"); i = j + 1; continue }
+          }
+          while (substr(s, j, 1) ~ /[ \t]/) j++
+          e = word_end(s, j)
+          t = substr(s, j, e - j)
+          gsub(/[\047"]/, "", t)
+          if (t == "/dev/null") kind = "null"
+          else if (t ~ /^\/dev\/(stdout|stderr|tty|fd\/[0-9]+)$/) kind = "dev"
+          else kind = "file"
+          if (both) { fdk[d, 1] = fdk[d, 2] = kind }
+          else set_fd(fd, kind)
+          i = e
+          continue
+        }
+        if (c != " " && c != "\t") cmdpos = 0
+        i++
+      }
+      flush()
+      while (d > 0) close_group()
+      flush()
+      for (k in out) if (k != "") print k
+    }
+  '
+}
 
 check_bash_command() {
   input=$1
@@ -14013,6 +14423,57 @@ $joined_cmd"
     esac
   else
     rm -f "$patterns"
+  fi
+
+  # A secret-named variable's value written to a file (#497) is blocked like a
+  # printenv of that name: the file can be read back or committed later.
+  # A quoted word that a shell runs (bash -c '...', eval) is read the same way.
+  sw_texts=$raw_cmd
+  case "$raw_cmd" in
+    *[\'\"]*)
+      case "$raw_cmd" in
+        *sh[[:space:]]*|*eval[[:space:]]*|*trap[[:space:]]*|*watch[[:space:]]*|*su[[:space:]]*)
+          sw_program=$(bash_shell_program_texts "$raw_cmd") || {
+            info "$PROGRAM: secret variable write check failed; refusing to allow command"
+            exit 2
+          }
+          # sh -c and eval programs are read in place below; this adds ssh,
+          # trap, watch and su words, whose own redirects still count.
+          [ -z "$sw_program" ] || sw_texts="$raw_cmd
+$sw_program"
+          ;;
+      esac
+      ;;
+  esac
+  sw_names=$(bash_file_write_env_names "$sw_texts") || {
+    info "$PROGRAM: secret variable write check failed; refusing to allow command"
+    exit 2
+  }
+  if [ -n "$sw_names" ]; then
+    # Names hold only [A-Za-z0-9_], so the unquoted list splits safely.
+    # shellcheck disable=SC2086
+    env_names_include_secretish $sw_names
+    case "$?" in
+      0)
+        sw_hit=
+        for sw_name in $sw_names; do
+          env_names_include_secretish "$sw_name" && sw_hit="$sw_hit $sw_name"
+        done
+        info "$PROGRAM: blocked shell command that writes a secret-named variable's value to a file"
+        info "$PROGRAM: reason=bash_secret_env_value_file_write; the value of$sw_hit reaches a > or >> file redirect or an unquoted here-document body; command was not executed"
+        case "$(hook_host)" in
+          codex) sw_text='write text that only names the variable with apply_patch' ;;
+          *) sw_text='write text that only names the variable with the Write tool' ;;
+        esac
+        info "$PROGRAM: do not retry it in another form. Let the program that needs the secret read it from its own environment; $sw_text; if the value itself must be in a file, ask the user."
+        exit 2
+        ;;
+      1) ;;
+      *)
+        info "$PROGRAM: secret variable name check failed; refusing to allow command"
+        exit 2
+        ;;
+    esac
   fi
 
   # Run the deny-path check inside the event workdir. bash_strip_allowed_tokens
@@ -14231,7 +14692,7 @@ hook_pre_tool() {
   if ! hook_dependencies_ready; then
     # A scan that cannot run is not clean, but it does not stop the checks
     # that need no scanner. The closed policy still blocks every call here.
-    if [ "$(infrastructure_failure_mode)" = closed ] \
+    if [ "$(infrastructure_failure_mode scan)" = closed ] \
       || ! hook_policy_dependencies_ready; then
       emit_degraded_hook_warning PreToolUse "$input"
       return 0
@@ -14305,7 +14766,7 @@ hook_pre_tool() {
 finish_pre_tool_scanner_unavailable() {
   [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ] || return 0
   handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
-    "$(degraded_hook_message scanner)"
+    "$(degraded_hook_message scanner)" scan
 }
 
 is_mutation_tool() {
@@ -17151,20 +17612,26 @@ printenv_requests_secretish_name() {
   [ "$cmd_name" = printenv ] || return 1
   shift
   [ "${1:-}" = "--" ] && shift
+  env_names_include_secretish "$@"
+}
+
+# Return 0 when an argument is a variable name the output masker treats as
+# secret-bearing, 1 when none is, and 2 when the detector failed.
+env_names_include_secretish() {
   [ "$#" -gt 0 ] || return 1
-  {
-    for name do
-      case "$name" in
-        [A-Za-z_]*)
-          case "$name" in *[!A-Za-z0-9_]*) continue ;; esac
-          printf '%s=%s\n' "$name" agent_guard_printenv_probe
+  sen_found=$({
+    for sen_name do
+      case "$sen_name" in
+        ([A-Za-z_]*)
+          case "$sen_name" in (*[!A-Za-z0-9_]*) continue ;; esac
+          printf '%s=%s\n' "$sen_name" agent_guard_printenv_probe
           ;;
       esac
     done
   } \
     | frame_plaintext_leaf \
-    | secretish_env_values framed \
-    | grep -q .
+    | secretish_env_values framed) || return 2
+  [ -n "$sen_found" ]
 }
 
 # Set rust_core to the native redactor redact_tool_response_json may run: an
@@ -20086,14 +20553,14 @@ post_tool_failure_context() {
 # reports every unverified failure to the model instead of only the first one
 # per session, which is what the open policy does.
 post_tool_failure_unverified() {
-  if [ "$(infrastructure_failure_mode)" = closed ]; then
+  if [ "$(infrastructure_failure_mode scan)" = closed ]; then
     audit_note degraded
-    unverified_message="$2 the failed tool output was NOT checked for secret-like values and was not masked. A failed tool result cannot be blocked or replaced, so this is reported because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
+    unverified_message="$2 the failed tool output was NOT checked for secret-like values and was not masked. A failed tool result cannot be blocked or replaced, so this is reported each time (AGENT_GUARD_INFRA_FAILURE_MODE is unset or closed)."
     info "$unverified_message"
     post_tool_failure_context "$unverified_message"
     return 0
   fi
-  handle_hook_infrastructure_failure PostToolUseFailure "$1" "$2"
+  handle_hook_infrastructure_failure PostToolUseFailure "$1" "$2" scan
 }
 
 hook_post_tool_failure() {
@@ -20130,7 +20597,7 @@ hook_post_tool_failure() {
   # right for a rewrite, but here it would report an exposure nobody saw.
   if output_scan_input_exceeds_cap "$failure_output"; then
     post_tool_failure_unverified "$input" \
-      "$PROGRAM: the failed tool output exceeds the output scan cap;"
+      "$PROGRAM: the failed tool output is too large to scan (over $OUTPUT_SCAN_MAX_BYTES bytes), so ask for less at a time, such as a smaller read, head or a file range;"
     return 0
   fi
   if is_figma_mcp_tool "$(json_value '.tool_name // empty' "$input" 2>/dev/null)"; then
@@ -20373,7 +20840,7 @@ hook_user_prompt() {
     # The assignment check below needs only jq and awk, so a scanner that
     # could not start must not skip it too (#617). As in hook_pre_tool, the
     # gitleaks scan then reports "could not run" and the open policy says so.
-    if [ "$(infrastructure_failure_mode)" = closed ] || [ -z "$input" ] \
+    if [ "$(infrastructure_failure_mode scan)" = closed ] || [ -z "$input" ] \
       || ! command -v jq >/dev/null 2>&1 || ! command -v awk >/dev/null 2>&1; then
       emit_degraded_hook_warning UserPromptSubmit "$input"
       return 0
@@ -20387,7 +20854,7 @@ hook_user_prompt() {
   # the default open policy emits one host-shaped notice and returns.
   if ! prompt=$(json_value '.prompt // empty' "$input" 2>/dev/null); then
     begin_infrastructure_failure "$input" \
-      "$PROGRAM: the prompt hook input could not be parsed;"
+      "$PROGRAM: the prompt hook input could not be parsed;" scan
     notice=$INFRA_FAILURE_NOTICE
     emit_prompt_response "$notice" '' "$notice"
     return 0
@@ -20421,16 +20888,16 @@ hook_user_prompt() {
     1) found=1; found_by='a value matching a gitleaks rule'; found_reason=secret-rule ;;
     "$SCAN_STATUS_UNAVAILABLE")
       if [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ]; then
-        begin_infrastructure_failure "$input" "$(degraded_hook_message scanner)"
+        begin_infrastructure_failure "$input" "$(degraded_hook_message scanner)" scan
       else
         begin_infrastructure_failure "$input" \
-          "$PROGRAM: scanner infrastructure could not verify the prompt;"
+          "$PROGRAM: scanner infrastructure could not verify the prompt;" scan
       fi
       notice=$INFRA_FAILURE_NOTICE
       ;;
     *)
       begin_infrastructure_failure "$input" \
-        "$PROGRAM: the prompt scanner failed;"
+        "$PROGRAM: the prompt scanner failed;" scan
       notice=$INFRA_FAILURE_NOTICE
       ;;
   esac
@@ -20444,7 +20911,7 @@ hook_user_prompt() {
     # open warns (at most once per interval) and keeps the gitleaks verdict; closed blocks.
     if output_scan_input_exceeds_cap "$prompt"; then
       begin_infrastructure_failure "$input" \
-        "$PROGRAM: the prompt exceeds the assignment-probe scan cap (gitleaks rules were still applied);"
+        "$PROGRAM: the prompt is too large for the assignment check (over $OUTPUT_SCAN_MAX_BYTES bytes; gitleaks rules were still applied), so send it in smaller parts or point to a file instead of pasting it;" scan
       notice=${notice:-$INFRA_FAILURE_NOTICE}
     else
       prompt_probe_status=0
@@ -20454,7 +20921,7 @@ hook_user_prompt() {
         1) ;;
         *)
           begin_infrastructure_failure "$input" \
-            "$PROGRAM: the prompt assignment probe failed;"
+            "$PROGRAM: the prompt assignment probe failed;" scan
           notice=${notice:-$INFRA_FAILURE_NOTICE}
           ;;
       esac
@@ -20472,7 +20939,7 @@ hook_user_prompt() {
     # looks like a clean scan (#617). The notice already goes to stderr when
     # due, so every other pass that skipped a check says so there too.
     [ -z "$prompt_unsaid" ] \
-      || info "$prompt_unsaid continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
+      || info "$prompt_unsaid $bif_open"
     emit_prompt_response "$notice" '' "$infra_notice"
     return 0
   fi

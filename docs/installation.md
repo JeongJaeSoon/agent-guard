@@ -154,10 +154,10 @@ is present. `setup --install` checks for one before downloading anything: with
 no isolation tool it does not download or overwrite gitleaks, prints the install
 command for the missing tool, and re-checks full gitleaks readiness after the
 install. Runtime hooks do not treat this state as a clean scan; they apply the
-`open` or `closed` policy of `AGENT_GUARD_INFRA_FAILURE_MODE`. Under `open`,
-the PreToolUse protected-path and deny-pattern checks still run without
-gitleaks and only their secret scan is skipped; the other hooks still pass
-without their checks.
+policy of `AGENT_GUARD_INFRA_FAILURE_MODE`, which blocks by default when the
+secret scan cannot run. Under `open`, the PreToolUse protected-path and
+deny-pattern checks still run without gitleaks and only their secret scan is
+skipped; the other hooks still pass without their checks.
 
 If `agent-guard` is already installed as a standalone or Homebrew command, it
 can delegate plugin installation to the official host managers:
@@ -324,7 +324,7 @@ with `codex` and the event's hook subcommand. Only that subcommand differs
 between the agent-guard hooks. For `Stop` it is:
 
 ```sh
-sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo "agent-guard: PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ "$m" = closed ] && exit 2; exit 0'
+sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; while read -r l; do :; done; m=${AGENT_GUARD_INFRA_FAILURE_MODE:-}; case $m:hook-stop in open:*|closed:*) ;; *:hook-s*) m=open ;; *) m=unset ;; esac; a=blocking; [ $m = open ] && a=continuing; echo "agent-guard: PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ $m = open ] && exit 0; exit 2'
 ```
 
 The other hooks use `hook-pre-tool`, `hook-post-tool`, `hook-session-start`,
