@@ -966,5 +966,86 @@
     "tests": [
       "tests/secret-env-file-write.sh"
     ]
+  },
+  {
+    "id": "key-file-path-segment",
+    "rule": "key_file_path: no segment may be a value",
+    "old": "        if (credential_shaped(parts[i]) || value_word(parts[i])) return 0",
+    "new": "        if (0) return 0",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "key-file-path-unquoted-tail",
+    "rule": "emit_value: text after an unquoted path must be prose",
+    "old": "          if (!path_tail(assignment, substr(raw, length(token) + 1))) return 0",
+    "new": "          return 0",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "key-file-path-quoted-tail",
+    "rule": "emit_value: text after a quoted path must be prose",
+    "old": "          if (!path_tail(assignment, substr(raw, end + 1))) return 0",
+    "new": "          return 0",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "empty-quotes-glued-word",
+    "rule": "emit_value: a word glued to empty quotes is the value",
+    "old": "        if (value == \"\" && substr(raw, end + 1) ~ /^[A-Za-z0-9]/)\n          return emit_value(",
+    "new": "        if (0)\n          return emit_value(",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "your-placeholder-words",
+    "rule": "fill_in_placeholder: every word after your is a placeholder word",
+    "old": "      for (i = 2; i <= n; i++) if (!(words[i] in placeholder_word)) return 0",
+    "new": "      for (i = 2; i <= n; i++) if (0) return 0",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "key-file-path-root",
+    "rule": "key_file_path: an absolute path starts at a filesystem root",
+    "old": "      if (value ~ /^\\// && value !~ /^\\/(run|etc|var|home|Users|opt|srv|tmp|mnt|secrets|usr)\\//) return 0\n",
+    "new": "",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "path-tail-fence-only",
+    "rule": "path_tail: only a bare fence line is left out",
+    "old": "        if (lines[i] !~ /^[ \\t]*```[ \\t\\r]*$/)",
+    "new": "        if (lines[i] !~ /^[ \\t]*```/)",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "path-raw-probe-unquoted",
+    "rule": "emit_value: a raw probe keeps an unquoted path or placeholder",
+    "old": "        if (record_mode != \"probe_raw\" \\\n            && (key_file_path(value) || fill_in_placeholder(value))) {\n          if (!path_tail(assignment, substr(raw, length(token) + 1))) return 0",
+    "new": "        if ((key_file_path(value) || fill_in_placeholder(value))) {\n          if (!path_tail(assignment, substr(raw, length(token) + 1))) return 0",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "path-raw-probe-quoted",
+    "rule": "emit_value: a raw probe keeps a quoted path or placeholder",
+    "old": "        if (record_mode != \"probe_raw\" \\\n            && (key_file_path(value) || fill_in_placeholder(value))) {\n          if (!path_tail(assignment, substr(raw, end + 1))) return 0",
+    "new": "        if ((key_file_path(value) || fill_in_placeholder(value))) {\n          if (!path_tail(assignment, substr(raw, end + 1))) return 0",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
   }
 ]

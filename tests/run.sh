@@ -3014,6 +3014,8 @@ run_expect 0 "a failed quoted-bracket normalization keeps the protected-path ver
   sh "$ROOT/tests/quoted-bracket-fallback.sh"
 run_expect 0 "status words and named placeholders are prose, real values still block" \
   sh "$ROOT/tests/prompt-prose-placeholder.sh"
+run_expect 0 "empty values, key-file paths and obvious placeholders are not values, real ones still block" \
+  sh "$ROOT/tests/prompt-empty-path-placeholder.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \
