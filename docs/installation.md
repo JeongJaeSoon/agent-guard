@@ -52,18 +52,32 @@ Each scan normally starts a new gitleaks process, and most of its time is
 start-up. The warm helper keeps one compiled gitleaks 8.30.1 detector in
 memory per user and config, shared by all sessions, and exits after ten idle
 minutes. It is a separate release asset for Linux x64/arm64 and macOS arm64,
-not part of the release archive, Homebrew package or plugin. One command
-downloads it, for a plugin, Homebrew or standalone install alike:
+not part of the release archive, Homebrew package or plugin.
+
+`agent-guard setup --install` installs it together with gitleaks. It
+downloads the helper when the gitleaks in use is the one that command puts in
+the private directory, at version 8.30.1. If you installed gitleaks that way
+before, run `agent-guard setup --install` again to get the helper; it
+downloads nothing when this version's helper is already installed. A helper
+that cannot be downloaded or does not match is a warning: gitleaks is
+installed and the command does not fail. With any other gitleaks (one from
+`PATH` such as a Homebrew build, `AGENT_GUARD_GITLEAKS_BIN`, or another
+version) the command installs no helper and prints one line saying why. On a
+platform without a helper asset it says nothing. To skip the helper, set
+`AGENT_GUARD_GITLEAKS_HELPER=off` when you run the command.
+
+One command installs only the helper, for a plugin, Homebrew or standalone
+install alike, and fails if it cannot:
 
 ```sh
 agent-guard setup --install-gitleaks-helper
 ```
 
-The command installs the helper only when both of its binaries match the
+Either command installs the helper only when both of its binaries match the
 SHA-256 values built into this Agent Guard version, into `gitleaks-helper`
 beside the private gitleaks (`~/.agent-guard/bin` by default). Once installed it is used
 by default: no variable is needed, and a running host uses it from its next
-scan. Run the command again after you update Agent Guard; a helper installed
+scan. Run either command again after you update Agent Guard; a helper installed
 for another version is not used. To turn it off:
 
 ```sh

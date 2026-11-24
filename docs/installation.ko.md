@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: ebd8abd77e731467a634d74740234b751ec2ed21 -->
+<!-- translated-from: docs/installation.md; source-blob: 4ff04373a1982fc933fa88048cea513b7d9b720a -->
 
 <a id="installing-agent-guard"></a>
 
@@ -43,18 +43,31 @@ codex plugin add agent-guard@agent-guard
 warm helper는 컴파일한 gitleaks 8.30.1 detector 하나를 사용자·설정마다
 메모리에 두고 모든 세션이 함께 쓰며, 10분 동안 요청이 없으면 스스로 끝납니다.
 Linux x64/arm64와 macOS arm64용 별도 릴리스 asset이고, 릴리스 아카이브·Homebrew
-패키지·플러그인에는 들어 있지 않습니다. 플러그인·Homebrew·단독 설치 모두 명령
-하나로 받습니다.
+패키지·플러그인에는 들어 있지 않습니다.
+
+`agent-guard setup --install`은 gitleaks와 함께 helper도 설치합니다. 사용 중인
+gitleaks가 이 명령이 private 디렉터리에 설치하는 것이고 버전이 8.30.1이면
+helper를 내려받습니다. 예전에 그렇게 gitleaks를 설치했다면
+`agent-guard setup --install`을 다시 실행해 helper를 받으세요. 이 버전의 helper가
+이미 설치되어 있으면 아무것도 내려받지 않습니다. helper를 내려받지 못하거나
+값이 맞지 않으면 경고만 냅니다. gitleaks는 설치되고 명령은 실패하지 않습니다.
+그 밖의 gitleaks(Homebrew 빌드처럼 `PATH`에 있는 것, `AGENT_GUARD_GITLEAKS_BIN`,
+다른 버전)를 쓰고 있으면 helper를 설치하지 않고 이유를 한 줄로 알립니다.
+helper asset이 없는 플랫폼에서는 아무 말도 하지 않습니다. helper를 건너뛰려면
+명령을 실행할 때 `AGENT_GUARD_GITLEAKS_HELPER=off`를 두세요.
+
+helper만 설치하는 명령도 있습니다. 플러그인·Homebrew·단독 설치 모두 같고,
+설치하지 못하면 실패합니다.
 
 ```sh
 agent-guard setup --install-gitleaks-helper
 ```
 
-이 명령은 두 바이너리가 이 Agent Guard 버전에 들어 있는 SHA-256 값과 모두 맞을
+두 명령 모두 두 바이너리가 이 Agent Guard 버전에 들어 있는 SHA-256 값과 모두 맞을
 때만 helper를 설치합니다. 위치는 private gitleaks(기본값 `~/.agent-guard/bin`) 옆의
 `gitleaks-helper`입니다. 설치하면 기본으로 사용합니다. 변수를 둘 필요가 없고,
-실행 중인 호스트도 다음 스캔부터 씁니다. Agent Guard를 업데이트한 뒤에는 명령을
-다시 실행하세요. 다른 버전용으로 설치된 helper는 쓰지 않습니다. 끄려면 다음과
+실행 중인 호스트도 다음 스캔부터 씁니다. Agent Guard를 업데이트한 뒤에는 두 명령 중
+하나를 다시 실행하세요. 다른 버전용으로 설치된 helper는 쓰지 않습니다. 끄려면 다음과
 같이 합니다.
 
 ```sh

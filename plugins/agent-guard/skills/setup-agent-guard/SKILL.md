@@ -42,6 +42,7 @@ Make Agent Guard operational without silently changing the machine. Diagnose fir
    - Determine the target OS and architecture.
    - Fetch the official checksum list for the version reported by `agent-guard setup`.
    - Select the checksum for the exact archive name and show the version, archive, source URL, checksum, and destination.
+   - Say that the same command also downloads Agent Guard's warm gitleaks helper for this platform from the Agent Guard release, that it is installed only when it matches the checksums built into the CLI, and that running the command with `AGENT_GUARD_GITLEAKS_HELPER=off` skips it.
    - Ask for explicit approval before downloading or installing.
    - After approval, run:
 

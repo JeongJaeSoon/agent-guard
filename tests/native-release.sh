@@ -93,6 +93,11 @@ done
 jq -e '.targets == ["x86_64-unknown-linux-musl","aarch64-unknown-linux-musl","aarch64-apple-darwin"]' \
   "$case_dir/good/native-validation.json" >/dev/null
 printf 'ok - exact successful main artifacts are selected\n'
+run_row() { jq -nc --arg sha "$sha" --argjson id "$1" --arg status "$2" --arg conclusion "$3" \
+  '{id:$id,head_sha:$sha,head_branch:"main",event:"push",status:$status,conclusion:(if $conclusion == "" then null else $conclusion end)}'; }
+{ run_row 1 completed success; run_row 2 queued ''; } | jq -s '{workflow_runs:.}' > "$case_dir/runs.json"
+sh "$prepare" "$sha" "$case_dir/unfinished-newer" > /dev/null
+printf 'ok - a newer unfinished run does not hide the earlier successful run\n'
 reject() {
   if sh "$prepare" "$sha" "$case_dir/reject-$1" > "$case_dir/out" 2> "$case_dir/err"; then
     echo "release gate accepted $1" >&2; exit 1
@@ -101,6 +106,8 @@ reject() {
 }
 write_run "$sha" failure
 reject failed-workflow
+{ run_row 1 completed success; run_row 2 completed failure; } | jq -s '{workflow_runs:.}' > "$case_dir/runs.json"
+reject failed-newest-run
 write_run 1123456789012345678901234567890123456789 success
 reject wrong-workflow-commit
 write_run "$sha" success

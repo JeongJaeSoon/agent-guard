@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: ebd8abd77e731467a634d74740234b751ec2ed21 -->
+<!-- translated-from: docs/installation.md; source-blob: 4ff04373a1982fc933fa88048cea513b7d9b720a -->
 
 <a id="installing-agent-guard"></a>
 
@@ -43,18 +43,33 @@ codex plugin add agent-guard@agent-guard
 warm helperは、コンパイル済みのgitleaks 8.30.1 detectorをユーザーと設定ごとに
 1つだけメモリに保持してすべてのセッションで共有し、10分間リクエストがなければ
 自ら終了します。Linux x64/arm64とmacOS arm64向けの別のリリースassetで、リリース
-アーカイブ、Homebrewパッケージ、プラグインには含まれません。プラグイン、Homebrew、
-単独インストールのいずれでも、コマンド1つで取得します。
+アーカイブ、Homebrewパッケージ、プラグインには含まれません。
+
+`agent-guard setup --install` はgitleaksと一緒にhelperもインストールします。
+使用中のgitleaksがこのコマンドがprivateディレクトリに入れるもので、バージョンが
+8.30.1であれば、helperをダウンロードします。以前その方法でgitleaksを
+インストールした場合は、`agent-guard setup --install` をもう一度実行してhelperを
+取得してください。このバージョンのhelperがすでにインストールされていれば、
+何もダウンロードしません。helperをダウンロードできない場合や値が一致しない場合は
+警告だけを出します。gitleaksはインストールされ、コマンドは失敗しません。
+それ以外のgitleaks（Homebrewビルドのように `PATH` にあるもの、
+`AGENT_GUARD_GITLEAKS_BIN`、別のバージョン）を使っている場合は、helperを
+インストールせず、理由を1行で表示します。helperのassetがないプラットフォームでは
+何も表示しません。helperを省くには、コマンドの実行時に
+`AGENT_GUARD_GITLEAKS_HELPER=off` を設定してください。
+
+helperだけをインストールするコマンドもあります。プラグイン、Homebrew、
+単独インストールのいずれでも同じで、インストールできなければ失敗します。
 
 ```sh
 agent-guard setup --install-gitleaks-helper
 ```
 
-このコマンドは、2つのバイナリがこのAgent Guardバージョンに組み込まれたSHA-256値と
+どちらのコマンドも、2つのバイナリがこのAgent Guardバージョンに組み込まれたSHA-256値と
 どちらも一致する場合にだけhelperをインストールします。場所はprivateなgitleaks
 （既定では `~/.agent-guard/bin`）の隣の `gitleaks-helper` です。インストールすると既定で
 使われます。変数は不要で、実行中のhostも次のスキャンから使います。Agent Guardを
-更新した後はコマンドをもう一度実行してください。別のバージョン用にインストール
+更新した後はどちらかのコマンドをもう一度実行してください。別のバージョン用にインストール
 されたhelperは使われません。無効にするには次のようにします。
 
 ```sh

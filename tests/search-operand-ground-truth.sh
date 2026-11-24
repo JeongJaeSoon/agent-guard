@@ -17,6 +17,12 @@ canary=agcanary$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')
 for f in .env .env.local state.env tls.key; do
   printf 'VALUE=%s\n' "$canary" >"$W/$f"
 done
+# A home of its own for the home-relative rows (#636): a log and a key file.
+HOME=$CASE/h
+export HOME
+mkdir -p "$HOME/logs"
+printf 'accepted [10.0.0.1:443]\n' >"$HOME/logs/app.log"
+printf 'VALUE=%s\n' "$canary" >"$HOME/logs/tls.key"
 printf '%s\n' .env x.pem notes VALUE >"$W/list.txt"
 printf 'const p = process.env.PORT\n' >"$W/src/a.ts"
 printf 'see https://example.net/docs\n' >"$W/notes.txt"
@@ -28,6 +34,11 @@ printf 'const p = process.env.PORT\n' >"$W/g/src/a.ts"
 printf 'VALUE=%s\n' "$canary" >"$W/g/.env"
 (cd "$W/g" && git init -q . && git add -f .) >/dev/null 2>&1 || { printf 'not ok - could not build the git fixture\n'; exit 1; }
 
+# An inherited L names a protected file: an assignment the shell may skip or
+# runs in a subshell must not stand for its value (#636). Every other row
+# that reads $L assigns it first.
+L=.env
+export L
 pass=0 fail=0 n=0
 ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$1"; }
 bad() { fail=$((fail + 1)); printf 'not ok - %s\n' "$1"; }
@@ -102,7 +113,22 @@ allow ls -a . | grep -E '^\.env' | awk '{print $1}'
 allow grep -E '\.pem$' list.txt | awk -F. -v n=1 '{ print $n }'
 allow grep -c -- '\.env' list.txt | awk '$1 > 0'
 allow grep -E '\.env' list.txt | awk -F : '{ printf "%s\n", $1 }' | head -3
+allow L=~/logs/app.log; grep -c accepted $L; grep accepted $L | sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' | sort | uniq -c
+allow cd ~/logs; grep accepted app.log | sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' | sort | uniq -c | sort -rn | head -15
+allow cd ~; grep accepted logs/app.log | sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' | sort
+allow L=~/logs/app.log; sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' "$L" | sort
+allow L=~/logs/app.log; jq -R -r '.tls.key' $L 2>/dev/null | head -1
 read cat .env
+read S=.env; sed 's/x/y/' $S
+read false && L=notes.txt; sed 's/.env/x/' "$L"
+read L=notes.txt | cat; sed 's/.env/x/' "$L"
+read true || L=notes.txt; grep -E 'x|VALUE' $L | sed -E 's/.env//'
+read L=~/logs/tls.key; grep -E 'x|VALUE' $L | sed -E 's/^x//'
+read grep -E 'x|VALUE' ~/logs/tls.key | sed -E 's/^x//'
+read cd ~/logs; grep -E 'x|VALUE' tls.key | sed -E 's/^x//'
+read L=~/logs/tls.key; jq -R . $L
+read L=tls.key; cd ~/logs; grep -E 'x|VALUE' $L | sed -E 's/^x//'
+read L=~/logs/app.log; L=~/logs/tls.key; grep -E 'x|VALUE' $L | sed -E 's/^x//'
 read grep -E '^VALUE=' .env
 read cut -d= -f2 state.env
 read grep -e VALUE .env
@@ -202,8 +228,14 @@ held sed 's/.env/x/' -e p
 held sed 's/.env/x/w .env' notes.txt
 held sed '/.env/r .env' list.txt
 held cp notes.txt n2.txt; sed 's/.env/x/' n2.txt
-held S=a; sed 's/.env/x/' list.txt
+allow S=a; sed 's/.env/x/' list.txt
 held echo $S; sed 's/.env/x/' list.txt
+held cd ~fixture/logs; grep accepted app.log | sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' | sort
+held cd ~/$D; grep accepted app.log | sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' | sort
+held L=$(printf %s app.log); grep accepted $L | sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' | sort
+held L=$HOME/logs/app.log; grep accepted $L | sed -E 's/.env/x/' | sort
+held L=s/.env/x/; sed $L list.txt
+held PATH=d; sed 's/.env/x/' list.txt
 held gh api x; jq -n '.tls.key'
 held git restore . && grep .env
 held echo x >p; grep .env
