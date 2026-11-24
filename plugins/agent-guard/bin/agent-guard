@@ -15064,6 +15064,21 @@ secretish_env_values() {
     # root directory, so a
     # password that only starts with a slash keeps masking, and a segment
     # that could itself be a value (`/run/secrets/<random>`) keeps masking.
+    # exempt_tail for the text after a key-file path, with the lines that only
+    # open or close a markdown code fence left out: a path is usually quoted in
+    # one, and a fence line holds no value.
+    function path_tail(assignment, tail, saved, n, lines, i, kept, found) {
+      saved = leaf_tail
+      kept = ""
+      n = split(leaf_tail, lines, "\n")
+      for (i = 1; i <= n; i++)
+        if (lines[i] !~ /^[ \t]*```[a-z]*[ \t\r]*$/)
+          kept = kept (kept == "" ? "" : "\n") lines[i]
+      leaf_tail = kept
+      found = exempt_tail(assignment, tail)
+      leaf_tail = saved
+      return found
+    }
     function key_file_path(value, n, parts, i) {
       if (value !~ /^(~|\.\.?)?\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/) return 0
       # A route (`/v1/providers`) is not a file location and stays a value.
@@ -15775,7 +15790,12 @@ secretish_env_values() {
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (interpolated_reference(value)) return 0
-        if (key_file_path(value) && prose_words(substr(raw, end + 1)) >= 0) return 0
+        # The old reading blocked the prompt for a path, which also covered a
+        # value after it on the line or below, as for operator_reference.
+        if (key_file_path(value)) {
+          if (!path_tail(assignment, substr(raw, end + 1))) return 0
+          refused_span = substr(raw, end + 1) "\n" leaf_tail
+        }
         if (!main_reading && operator_reference(value)) {
           if (!exempt_tail(assignment, substr(raw, end + 1))) return 0
           refused_span = substr(raw, end + 1) "\n" leaf_tail
@@ -15917,7 +15937,10 @@ secretish_env_values() {
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (config_literal(value)) return 0
-        if (key_file_path(value) && prose_words(substr(raw, length(token) + 1)) >= 0) return 0
+        if (key_file_path(value)) {
+          if (!path_tail(assignment, substr(raw, length(token) + 1))) return 0
+          refused_span = substr(raw, length(token) + 1) "\n" leaf_tail
+        }
         if (prose_status_word(value)) return 0
         if (masked_placeholder(value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
