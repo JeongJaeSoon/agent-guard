@@ -2,7 +2,9 @@
 # Synthetic hook inputs only: none of the command strings below are executed.
 # A file operand of a reading program, or an input redirect, that is built from
 # a command substitution or a variable the guard cannot resolve may name a
-# protected file, so it is blocked in both infrastructure-failure modes (#507).
+# protected file (#507). That check could not run, so it warns and passes by
+# default and blocks under AGENT_GUARD_INFRA_FAILURE_MODE=closed. An operand
+# resolved to a protected file blocks in every mode.
 # A literal assignment earlier in the same command is followed, and a dynamic
 # directory before a literal /name tail is left to the raw-text scan.
 set -u
@@ -11,25 +13,46 @@ GUARD=${AGENT_GUARD_TEST_BINARY:-$ROOT/plugins/agent-guard/bin/agent-guard}
 CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-unresolved.XXXXXX") || exit 1
 trap 'rm -rf "$CASE_ROOT"' EXIT HUP INT TERM
 export AGENT_GUARD_LOG_MODE=off AGENT_GUARD_RELEASE_CHECK=off
+export AGENT_GUARD_WARNING_DIR="$CASE_ROOT/warnings"
 export AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks"
 failed=0
 checked=0
+# Expected u: an operand that stays unknown warns and passes by default
+# and blocks under the closed policy. 2 blocks and 0 passes in every mode.
 check() {
   expected=$1
   label=$2
   command=$3
-  for check_mode in ${MODES:-open closed}; do
+  for check_mode in ${MODES:-default closed}; do
     checked=$((checked + 1))
-    jq -nc --arg c "$command" --arg w "$CASE_ROOT" \
-      '{session_id:"unresolved-operand",tool_name:"Bash",tool_input:{command:$c,workdir:$w}}' \
-      | AGENT_GUARD_HOOK_HOST=${HOST:-claude} AGENT_GUARD_INFRA_FAILURE_MODE=$check_mode \
-        "$GUARD" hook-pre-tool > "$CASE_ROOT/out" 2> "$CASE_ROOT/err"
+    want=$expected
+    [ "$expected" != u ] || { [ "$check_mode" = closed ] && want=2 || want=0; }
+    jq -nc --arg c "$command" --arg w "$CASE_ROOT" --arg s "unresolved-operand-$checked" \
+      '{session_id:$s,tool_name:"Bash",tool_input:{command:$c,workdir:$w}}' \
+      | if [ "$check_mode" = default ]; then
+          env -u AGENT_GUARD_INFRA_FAILURE_MODE AGENT_GUARD_HOOK_HOST=${HOST:-claude} "$GUARD" hook-pre-tool
+        else
+          AGENT_GUARD_HOOK_HOST=${HOST:-claude} AGENT_GUARD_INFRA_FAILURE_MODE=$check_mode "$GUARD" hook-pre-tool
+        fi > "$CASE_ROOT/out" 2> "$CASE_ROOT/err"
     status=$?
-    if [ "$status" -eq "$expected" ]; then
+    verdict=ok
+    [ "$status" -eq "$want" ] || verdict="expected $want got $status"
+    # A pass carries the warning exactly when the operand stayed unknown.
+    if [ "$verdict" = ok ] && [ "$want" -eq 0 ]; then
+      warned=0
+      jq -e '.hookSpecificOutput.additionalContext | contains("reason=bash_protected_path_'"$R"';") and contains("continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open")' \
+        "$CASE_ROOT/out" >/dev/null 2>&1 && warned=1
+      if [ "$expected" = u ] && [ "$warned" -ne 1 ]; then
+        verdict="no unresolved-operand warning in additionalContext"
+      elif [ "$expected" != u ] && grep -Fq "bash_protected_path_$R" "$CASE_ROOT/out" "$CASE_ROOT/err"; then
+        verdict="an unexpected unresolved-operand warning"
+      fi
+    fi
+    if [ "$verdict" = ok ]; then
       printf 'ok - unresolved operand %s: %s (%s)\n' "$checked" "$label" "$check_mode"
     else
-      printf 'not ok - unresolved operand %s: %s (%s): expected %s got %s\n' "$checked" "$label" "$check_mode" "$expected" "$status"
-      sed 's/^/#   /' "$CASE_ROOT/err"
+      printf 'not ok - unresolved operand %s: %s (%s): %s\n' "$checked" "$label" "$check_mode" "$verdict"
+      sed 's/^/#   /' "$CASE_ROOT/err" "$CASE_ROOT/out"
       failed=$((failed + 1))
     fi
   done
@@ -51,90 +74,90 @@ NL='
 S='"$(printf %s .e; printf nv)"'
 R=unresolved_operand
 
-check 2 "cat of a command substitution" "cat $S"
+check u "cat of a command substitution" "cat $S"
 says "the block names its reason" "reason=bash_protected_path_$R;"
-check 2 "cat of a backquoted substitution" 'cat `printf %s .e; printf nv`'
-check 2 "cat of an unquoted substitution" 'cat $(printf %s .e; printf nv)'
-check 2 "cat of an unset variable" 'cat "$F"'
-check 2 "cat of an unquoted variable" 'cat $F'
-check 2 "cat of a braced variable with a default" 'cat "${F:-x}"'
-check 2 "cat of a positional parameter" 'cat "$1"'
-check 2 "a variable joined to a literal suffix" 'cat "${F}nv"'
-check 2 "head of a substitution" "head -n 1 $S"
-check 2 "sed of a substitution after its script" "sed -n p $S"
-check 2 "base64 of a substitution" "base64 $S"
-check 2 "input redirect from a substitution" "cat < $S"
-check 2 "input redirect without a blank" "wc -l <$S"
-check 2 "input redirect of a loop" "while read -r l; do :; done < \"\$F\""
-check 2 "cat behind command" 'command cat "$F"'
-check 2 "cat by full path" '/bin/cat "$F"'
-check 2 "cat behind env with an assignment" 'env A=1 cat "$F"'
-check 2 "cat after a pipe" 'true | cat "$F"'
-check 2 "cat after if then" 'if true; then cat "$F"; fi'
-check 2 "cat inside a substitution" 'echo "$(cat "$F")"'
-check 2 "cat inside a git commit message substitution" 'git commit -m "$(cat "$F")"'
-check 2 "cat inside a process substitution" 'diff <(cat "$F") README.md'
-check 2 "grep pattern file from a variable" 'grep -f "$F" README.md'
-check 2 "grep file operand after its pattern" 'grep -n x "$F"'
-check 2 "cp source from a variable" 'cp "$F" copy.txt'
-check 2 "dot command of a variable" '. "$F"'
-check 2 "a variable assigned from a substitution" 'f=$(printf %s .e; printf nv); cat "$f"'
+check u "cat of a backquoted substitution" 'cat `printf %s .e; printf nv`'
+check u "cat of an unquoted substitution" 'cat $(printf %s .e; printf nv)'
+check u "cat of an unset variable" 'cat "$F"'
+check u "cat of an unquoted variable" 'cat $F'
+check u "cat of a braced variable with a default" 'cat "${F:-x}"'
+check u "cat of a positional parameter" 'cat "$1"'
+check u "a variable joined to a literal suffix" 'cat "${F}nv"'
+check u "head of a substitution" "head -n 1 $S"
+check u "sed of a substitution after its script" "sed -n p $S"
+check u "base64 of a substitution" "base64 $S"
+check u "input redirect from a substitution" "cat < $S"
+check u "input redirect without a blank" "wc -l <$S"
+check u "input redirect of a loop" "while read -r l; do :; done < \"\$F\""
+check u "cat behind command" 'command cat "$F"'
+check u "cat by full path" '/bin/cat "$F"'
+check u "cat behind env with an assignment" 'env A=1 cat "$F"'
+check u "cat after a pipe" 'true | cat "$F"'
+check u "cat after if then" 'if true; then cat "$F"; fi'
+check u "cat inside a substitution" 'echo "$(cat "$F")"'
+check u "cat inside a git commit message substitution" 'git commit -m "$(cat "$F")"'
+check u "cat inside a process substitution" 'diff <(cat "$F") README.md'
+check u "grep pattern file from a variable" 'grep -f "$F" README.md'
+check u "grep file operand after its pattern" 'grep -n x "$F"'
+check u "cp source from a variable" 'cp "$F" copy.txt'
+check u "dot command of a variable" '. "$F"'
+check u "a variable assigned from a substitution" 'f=$(printf %s .e; printf nv); cat "$f"'
 check 2 "a literal assignment that names a protected file" 'f=.e; cat "${f}nv"'
 check 2 "a literal assignment that names an ssh key" 'd=.ssh; cat ~/"$d/id_ed25519"'
-check 2 "an assignment only on the command's environment" 'F=README.md cat "$F"'
-check 2 "an assignment inside a branch" 'if true; then f=README.md; fi; cat "$f"'
-check 2 "a dynamic name after a literal directory" 'cat "docs/$F"'
-check 2 "a dynamic name after a dynamic directory" 'cat "$D/$F"'
-check 2 "grep pattern attached to -e" 'grep -ex "$F"'
-check 2 "sed script attached to -e in a cluster" 'sed -nep "$F"'
-check 2 "grep pattern file attached to -f" 'grep -f"$F" README.md'
-check 2 "grep pattern file as --file=" 'grep --file="$F" README.md'
-check 2 "uniq input from a variable" 'uniq "$F"'
-check 2 "a comment after the operand" 'cat "$F" # note'
-check 2 "a command on the line after a comment" "# note${NL}cat \"\$F\""
-check 2 "source script from a variable" 'source "$F" x'
-check 2 "cp source after a long target directory" 'cp --target-directory "$DEST" "$F"'
-check 2 "cp source after an attached long target directory" 'cp --target-directory="$DEST" "$F"'
-check 2 "jq data argument that runs a substitution" "jq -n --args '\$ARGS.positional' \"\$(cat \"\$F\")\""
-check 2 "an assignment inside a substitution stays inside" 'echo "$(f=README.md)"; cat "$f"'
+check u "an assignment only on the command's environment" 'F=README.md cat "$F"'
+check u "an assignment inside a branch" 'if true; then f=README.md; fi; cat "$f"'
+check u "a dynamic name after a literal directory" 'cat "docs/$F"'
+check u "a dynamic name after a dynamic directory" 'cat "$D/$F"'
+check u "grep pattern attached to -e" 'grep -ex "$F"'
+check u "sed script attached to -e in a cluster" 'sed -nep "$F"'
+check u "grep pattern file attached to -f" 'grep -f"$F" README.md'
+check u "grep pattern file as --file=" 'grep --file="$F" README.md'
+check u "uniq input from a variable" 'uniq "$F"'
+check u "a comment after the operand" 'cat "$F" # note'
+check u "a command on the line after a comment" "# note${NL}cat \"\$F\""
+check u "source script from a variable" 'source "$F" x'
+check u "cp source after a long target directory" 'cp --target-directory "$DEST" "$F"'
+check u "cp source after an attached long target directory" 'cp --target-directory="$DEST" "$F"'
+check u "jq data argument that runs a substitution" "jq -n --args '\$ARGS.positional' \"\$(cat \"\$F\")\""
+check u "an assignment inside a substitution stays inside" 'echo "$(f=README.md)"; cat "$f"'
 check 2 "a protected value reaches a substitution" 'f=.e; echo "$(cat "${f}nv")"'
-check 2 "sort file list from a variable" 'sort --files0-from "$F"'
-check 2 "a quoted -- ends the options" 'cat "--" "$F"'
-check 2 "local without a value resets a variable" 'f=README.md; local f; cat "$f"'
-check 2 "an environment-only chain stays unresolved" 'f=README.md g=$f cat "$g"'
+check u "sort file list from a variable" 'sort --files0-from "$F"'
+check u "a quoted -- ends the options" 'cat "--" "$F"'
+check u "local without a value resets a variable" 'f=README.md; local f; cat "$f"'
+check u "an environment-only chain stays unresolved" 'f=README.md g=$f cat "$g"'
 check 2 "a compound assignment changes the value" 'f=.e; f+=nv; cat "$f"'
-check 2 "a subshell attached to the reader" "(cat $S)"
-check 2 "a line continuation after the reader" "cat \\${NL} $S"
-check 2 "nice with a priority value" "nice -n 5 cat $S"
-check 2 "timeout with a signal and a duration" "timeout -s KILL 5 cat $S"
-check 2 "sudo with a user" "sudo -u root cat $S"
-check 2 "sh -c program text" "sh -c 'cat \"\$F\"'"
-check 2 "bash -c program text after options" "bash -e -c 'cat \"\$F\"'"
-check 2 "eval of a reader" "eval 'cat \"\$F\"'"
-check 2 "sh -c program with a variable operand" 'sh -c "cat $F"'
-check 2 "a reader right before a line continuation" "cat\\${NL} $S"
-check 2 "awk file operand after an assignment operand" 'awk 1 v=1 "$F"'
-check 2 "diff exclude list from a variable" 'diff -X "$F" a b'
-check 2 "a redirect after a [[ ]] test" '[[ "$a" < "$b" ]] && cat < "$F"'
-check 2 "a multi-line substitution in a heredoc body reads a variable" "cat <<EOF${NL}\$(${NL}cat \"\$F\"${NL})${NL}EOF"
-check 2 "printf -v forgets only its target" 'f=README.md; printf -v f %s x; cat "$f"'
-check 2 "env with an unset option before the reader" 'env -u OTHER cat "$F"'
-check 2 "env -S code with a variable operand" "env -S 'cat \"\$F\"'"
+check u "a subshell attached to the reader" "(cat $S)"
+check u "a line continuation after the reader" "cat \\${NL} $S"
+check u "nice with a priority value" "nice -n 5 cat $S"
+check u "timeout with a signal and a duration" "timeout -s KILL 5 cat $S"
+check u "sudo with a user" "sudo -u root cat $S"
+check u "sh -c program text" "sh -c 'cat \"\$F\"'"
+check u "bash -c program text after options" "bash -e -c 'cat \"\$F\"'"
+check u "eval of a reader" "eval 'cat \"\$F\"'"
+check u "sh -c program with a variable operand" 'sh -c "cat $F"'
+check u "a reader right before a line continuation" "cat\\${NL} $S"
+check u "awk file operand after an assignment operand" 'awk 1 v=1 "$F"'
+check u "diff exclude list from a variable" 'diff -X "$F" a b'
+check u "a redirect after a [[ ]] test" '[[ "$a" < "$b" ]] && cat < "$F"'
+check u "a multi-line substitution in a heredoc body reads a variable" "cat <<EOF${NL}\$(${NL}cat \"\$F\"${NL})${NL}EOF"
+check u "printf -v forgets only its target" 'f=README.md; printf -v f %s x; cat "$f"'
+check u "env with an unset option before the reader" 'env -u OTHER cat "$F"'
+check u "env -S code with a variable operand" "env -S 'cat \"\$F\"'"
 check 2 "eval code assembled into a protected name" 'f=.e; eval "cat ${f}nv"'
 check 2 "sh -c code assembled into a protected name" 'f=.e; sh -c "cat ${f}nv"'
 check 2 "a resolved option names a protected pattern file" 'o=--file=.e; grep "${o}nv" README.md'
-check 2 "env override reaches nested code" "f=README.md; env f=\"\$X\" sh -c 'cat \"\$f\"'"
-check 2 "a prefix assignment reaches nested code" "f=README.md; f=\"\$X\" sh -c 'cat \"\$f\"'"
-check 2 "an input redirect attached to the command" 'cat<"$F"'
-check 2 "an input redirect attached to wc" 'wc<"$F"'
-check 2 "printf -v into a variable named at run time" "f=README.md; v=f; printf -v \"\$v\" '%s%s' .e nv; cat \"\$f\""
-check 2 "read into a variable named at run time" 'f=README.md; v=f; read "$v"; cat "$f"'
-check 2 "rg search root from a substitution" 'rg -n x "$(git rev-parse --show-toplevel)"'
+check u "env override reaches nested code" "f=README.md; env f=\"\$X\" sh -c 'cat \"\$f\"'"
+check u "a prefix assignment reaches nested code" "f=README.md; f=\"\$X\" sh -c 'cat \"\$f\"'"
+check u "an input redirect attached to the command" 'cat<"$F"'
+check u "an input redirect attached to wc" 'wc<"$F"'
+check u "printf -v into a variable named at run time" "f=README.md; v=f; printf -v \"\$v\" '%s%s' .e nv; cat \"\$f\""
+check u "read into a variable named at run time" 'f=README.md; v=f; read "$v"; cat "$f"'
+check u "rg search root from a substitution" 'rg -n x "$(git rev-parse --show-toplevel)"'
 check 2 "the working directory before a protected name" 'cat "$(pwd)/.e""nv"'
 check 2 "PWD before a protected name" 'cat "$PWD/.e""nv"'
-check 2 "the working directory after a cd" 'cd docs; cat "$PWD"'
-check 2 "a working directory joined to a dynamic name" 'cat "$(pwd)/$F"'
-check 2 "pwd with an argument is not resolved" 'cat "$(pwd -P)x"'
+check u "the working directory after a cd" 'cd docs; cat "$PWD"'
+check u "a working directory joined to a dynamic name" 'cat "$(pwd)/$F"'
+check u "pwd with an argument is not resolved" 'cat "$(pwd -P)x"'
 
 check 0 "rg search root is the working directory" 'rg -n x "$(pwd)"'
 check 0 "rg search root is PWD" 'rg -n x "$PWD"'
@@ -218,41 +241,41 @@ check 2 "a loop whose later word resolves to a protected file" 'p=.e; for f in R
 says "the later loop word is the resolved operand" "matched deny-read-paths entry"
 check 0 "a loop over words resolved to ordinary files" 'p=notes; for f in README.md "${p}.txt"; do cat "$f"; done'
 check 0 "a loop over a bare glob reads what the glob typed as an operand reads" 'for f in *; do cat "$f"; done'
-check 2 "a loop over a brace expansion" 'for f in {a,b}; do cat "$f"; done'
-check 2 "a loop over a substitution" 'for f in $(ls); do cat "$f"; done'
-check 2 "a loop over the positional parameters" 'for f; do cat "$f"; done'
-check 2 "a loop variable reassigned in the body" 'for f in README.md; do f=$(printf x); cat "$f"; done'
-check 2 "a loop variable read back" 'for f in README.md; do read f; cat "$f"; done'
-check 2 "a loop variable joined with a second one" 'for f in a; do for g in b; do cat "$f$g"; done; done'
-check 2 "a loop value copied to another variable" 'for f in README.md; do g=$f; cat "$g"; done'
-check 2 "a loop value after a loop that may not run" "f=$S; if false; then for f in README.md; do :; done; fi; cat \"\$f\""
-check 2 "a loop value after a loop in a pipeline" "f=$S; for f in README.md; do :; done | true; cat \"\$f\""
-check 2 "an empty loop word before an unresolved part" 'for f in ""; do cat "$F$f"; done'
-check 2 "a loop over an unquoted expansion that splits" 'p=".e x"; for f in $p; do cat "${f}nv"; done'
-check 2 "a loop value globbed at an unquoted use" 'p=".*"; for f in "$p"; do cat $f; done'
-check 2 "a select variable may be empty" "F=$S; select f in /README.md; do cat \"\$F\$f\"; break; done"
-check 2 "an indexed write to the loop variable" 'for f in README.md; do printf -v "f[0]" %s .e; cat "${f}nv"; done'
-check 2 "an indexed write to an assigned variable" 'f=README.md; printf -v "f[0]" %s .e; cat "${f}nv"'
-check 2 "an assigned value globbed at an unquoted use" 'p=".*"; cat $p'
+check u "a loop over a brace expansion" 'for f in {a,b}; do cat "$f"; done'
+check u "a loop over a substitution" 'for f in $(ls); do cat "$f"; done'
+check u "a loop over the positional parameters" 'for f; do cat "$f"; done'
+check u "a loop variable reassigned in the body" 'for f in README.md; do f=$(printf x); cat "$f"; done'
+check u "a loop variable read back" 'for f in README.md; do read f; cat "$f"; done'
+check u "a loop variable joined with a second one" 'for f in a; do for g in b; do cat "$f$g"; done; done'
+check u "a loop value copied to another variable" 'for f in README.md; do g=$f; cat "$g"; done'
+check u "a loop value after a loop that may not run" "f=$S; if false; then for f in README.md; do :; done; fi; cat \"\$f\""
+check u "a loop value after a loop in a pipeline" "f=$S; for f in README.md; do :; done | true; cat \"\$f\""
+check u "an empty loop word before an unresolved part" 'for f in ""; do cat "$F$f"; done'
+check u "a loop over an unquoted expansion that splits" 'p=".e x"; for f in $p; do cat "${f}nv"; done'
+check u "a loop value globbed at an unquoted use" 'p=".*"; for f in "$p"; do cat $f; done'
+check u "a select variable may be empty" "F=$S; select f in /README.md; do cat \"\$F\$f\"; break; done"
+check u "an indexed write to the loop variable" 'for f in README.md; do printf -v "f[0]" %s .e; cat "${f}nv"; done'
+check u "an indexed write to an assigned variable" 'f=README.md; printf -v "f[0]" %s .e; cat "${f}nv"'
+check u "an assigned value globbed at an unquoted use" 'p=".*"; cat $p'
 check 0 "an assigned glob value quoted at its use" 'p="*.md"; cat "$p"'
-check 2 "a literal marker byte in an operand" "F=$S; cat \"\$F$(printf '\005')\""
+check u "a literal marker byte in an operand" "F=$S; cat \"\$F$(printf '\005')\""
 check 0 "a loop list that reads the old value of its variable" 'f=README.md; for f in "$f"; do cat "$f"; done'
 check 2 "an assignment keeps a value with a space" 'p="some dir/.ssh"; q=$p; cat "$q/config"'
-check 2 "a loop list split by a changed IFS" 'IFS=x; p=.exREADME.md; for f in $p; do cat "${f}nv"; done'
-check 2 "an operand split by a changed IFS" 'IFS=x; p=READMEx.e; cat ${p}nv'
-check 2 "an ANSI-C escape in a loop word" "for f in \$'\\056e'; do cat \"\${f}nv\"; done"
-check 2 "an ANSI-C escape in an assignment" "p=\$'\\056e'; cat \"\${p}nv\""
+check u "a loop list split by a changed IFS" 'IFS=x; p=.exREADME.md; for f in $p; do cat "${f}nv"; done'
+check u "an operand split by a changed IFS" 'IFS=x; p=READMEx.e; cat ${p}nv'
+check u "an ANSI-C escape in a loop word" "for f in \$'\\056e'; do cat \"\${f}nv\"; done"
+check u "an ANSI-C escape in an assignment" "p=\$'\\056e'; cat \"\${p}nv\""
 check 0 "an ANSI-C word without escapes" "p=\$'README'; cat \"\${p}.md\""
-check 2 "an unquoted loop use after IFS changed" 'IFS=x; p=id_; for f in "${p}rsaxREADME"; do cat ${f}; done'
-check 2 "a loop over IFS itself" 'p=id_; for IFS in x; do for f in "${p}rsaxREADME"; do cat $f; done; done'
-check 2 "a locale-quoted loop word" 'for f in .e$"nv"; do cat "$f"; done'
-check 2 "a locale-quoted assignment" 'p=.e$"nv"; cat "$p"'
-check 2 "a function that rewrites the loop variable" "g(){ f=$S; }; for f in README.md; do g; cat \"\$f\"; done"
-check 2 "a function that rewrites an assigned variable" "g(){ f=$S; }; f=README.md; g; cat \"\$f\""
-check 2 "a function keyword definition" "function g { f=$S; }; for f in README.md; do g; cat \"\$f\"; done"
-check 2 "a trap that rewrites the loop variable" "trap 'f=$S' DEBUG; for f in README.md; do cat \"\$f\"; done"
-check 2 "a default assignment on an empty loop word" 'p=.e; for f in ""; do : "${f:=${p}nv}"; cat "./$f"; done'
-check 2 "a default assignment on an empty variable" 'p=.e; f=; : "${f:=${p}nv}"; cat "./$f"'
+check u "an unquoted loop use after IFS changed" 'IFS=x; p=id_; for f in "${p}rsaxREADME"; do cat ${f}; done'
+check u "a loop over IFS itself" 'p=id_; for IFS in x; do for f in "${p}rsaxREADME"; do cat $f; done; done'
+check u "a locale-quoted loop word" 'for f in .e$"nv"; do cat "$f"; done'
+check u "a locale-quoted assignment" 'p=.e$"nv"; cat "$p"'
+check u "a function that rewrites the loop variable" "g(){ f=$S; }; for f in README.md; do g; cat \"\$f\"; done"
+check u "a function that rewrites an assigned variable" "g(){ f=$S; }; f=README.md; g; cat \"\$f\""
+check u "a function keyword definition" "function g { f=$S; }; for f in README.md; do g; cat \"\$f\"; done"
+check u "a trap that rewrites the loop variable" "trap 'f=$S' DEBUG; for f in README.md; do cat \"\$f\"; done"
+check u "a default assignment on an empty loop word" 'p=.e; for f in ""; do : "${f:=${p}nv}"; cat "./$f"; done'
+check u "a default assignment on an empty variable" 'p=.e; f=; : "${f:=${p}nv}"; cat "./$f"'
 check 0 "a loop variable inside its body after a nested loop" 'for f in README.md; do for g in a; do :; done; cat "$f"; done'
 
 # Narrowing (#638): a value the guard can follow is checked as that value, and
@@ -287,36 +310,36 @@ check 2 "a loop glob that can name a protected file" 'for f in e*; do cat ".$f";
 check 2 "a loop glob that can name a protected file inside a substitution" 'for f in e*; do echo "$(cat ".$f")"; done'
 check 2 "a loop glob after a resolved protected prefix" 'p=.e; for f in "$p"*; do cat "$f"; done'
 check 2 "a loop glob after a literal word, the glob protected" 'for f in README.md e*; do cat ".$f"; done'
-check 2 "a glob loop value split at an unquoted use" 'for f in docs/*; do cat $f; done'
-check 2 "a glob loop value split at an unquoted use inside a substitution" 'for f in docs/*; do echo "$(cat $f)"; done'
-check 2 "a loop glob after an unknown directory" 'for f in "$D"*; do cat "$f"; done'
-check 2 "a loop list with a variable" 'for f in a.md "$X"; do cat "$f"; done'
-check 2 "a loop list with a substitution" 'for f in a.md $(ls); do cat "$f"; done'
-check 2 "a loop word behind another tilde form" 'for f in ~+/a.md; do cat "$f"; done'
-check 2 "a loop variable after its loop, inside a substitution" 'for f in a.md; do :; done; echo "$(cat "$f")"'
-check 2 "a loop variable reassigned inside a substitution" 'for f in a.md; do echo "$(f=$X; cat "$f")"; done'
-check 2 "an assignment inside a subshell" '(p=docs/a.md); cat "$p"'
-check 2 "a variable reassigned from a substitution before the read" 'p=docs/a.md; p=$(ls | head -1); cat "$p"'
-check 2 "a variable read back before the read" 'p=docs/a.md; read -r p; cat "$p"'
-check 2 "a substitution inside a here-string" 'cat <<<"$(cat "$F")"'
-check 2 "a file operand next to a here-string" 'grep x "$F" <<<"$f"'
-check 2 "a function defined before a substitution that calls it" "g(){ f=$S; }; echo \"\$(f=README.md; g; cat \"\$f\")\""
-check 2 "an IFS change before a substitution" 'IFS=x; p=id_; q="${p}rsaxREADME"; echo "$(cat ${q})"'
-check 2 "a table separator byte in an assigned value" "p=\"a$(printf '\004')f$(printf '\003')README.md\"; echo \"\$(cat \"\$f\")\""
-check 2 "a table separator byte in a loop word" "for g in \"a$(printf '\004')f$(printf '\003')README.md\"; do echo \"\$(cat \"\$f\")\"; done"
-check 2 "a table separator byte in a loop variable name" "for \"x$(printf '\004')f$(printf '\003')README.md\" in a; do echo \"\$(cat \"\$f\")\"; done"
-check 2 "a substitution in an assignment after a reassignment on the same line" 'f=README.md; f=$X g=$(cat "$f")'
-check 2 "a loop variable reassigned on the same line as a substitution" 'for f in a.md; do f=$X g=$(cat "$f"); done'
-check 2 "a quoted assignment word of export" 'f=README.md; export "f=$X"; cat "$f"'
-check 2 "an export word that holds an assignment" 'f=README.md; kv="f=$X"; export $kv; cat "$f"'
-check 2 "a quoted assignment word of declare" 'f=README.md; declare "f=.e"; cat "${f}nv"'
+check u "a glob loop value split at an unquoted use" 'for f in docs/*; do cat $f; done'
+check u "a glob loop value split at an unquoted use inside a substitution" 'for f in docs/*; do echo "$(cat $f)"; done'
+check u "a loop glob after an unknown directory" 'for f in "$D"*; do cat "$f"; done'
+check u "a loop list with a variable" 'for f in a.md "$X"; do cat "$f"; done'
+check u "a loop list with a substitution" 'for f in a.md $(ls); do cat "$f"; done'
+check u "a loop word behind another tilde form" 'for f in ~+/a.md; do cat "$f"; done'
+check u "a loop variable after its loop, inside a substitution" 'for f in a.md; do :; done; echo "$(cat "$f")"'
+check u "a loop variable reassigned inside a substitution" 'for f in a.md; do echo "$(f=$X; cat "$f")"; done'
+check u "an assignment inside a subshell" '(p=docs/a.md); cat "$p"'
+check u "a variable reassigned from a substitution before the read" 'p=docs/a.md; p=$(ls | head -1); cat "$p"'
+check u "a variable read back before the read" 'p=docs/a.md; read -r p; cat "$p"'
+check u "a substitution inside a here-string" 'cat <<<"$(cat "$F")"'
+check u "a file operand next to a here-string" 'grep x "$F" <<<"$f"'
+check u "a function defined before a substitution that calls it" "g(){ f=$S; }; echo \"\$(f=README.md; g; cat \"\$f\")\""
+check u "an IFS change before a substitution" 'IFS=x; p=id_; q="${p}rsaxREADME"; echo "$(cat ${q})"'
+check u "a table separator byte in an assigned value" "p=\"a$(printf '\004')f$(printf '\003')README.md\"; echo \"\$(cat \"\$f\")\""
+check u "a table separator byte in a loop word" "for g in \"a$(printf '\004')f$(printf '\003')README.md\"; do echo \"\$(cat \"\$f\")\"; done"
+check u "a table separator byte in a loop variable name" "for \"x$(printf '\004')f$(printf '\003')README.md\" in a; do echo \"\$(cat \"\$f\")\"; done"
+check u "a substitution in an assignment after a reassignment on the same line" 'f=README.md; f=$X g=$(cat "$f")'
+check u "a loop variable reassigned on the same line as a substitution" 'for f in a.md; do f=$X g=$(cat "$f"); done'
+check u "a quoted assignment word of export" 'f=README.md; export "f=$X"; cat "$f"'
+check u "an export word that holds an assignment" 'f=README.md; kv="f=$X"; export $kv; cat "$f"'
+check u "a quoted assignment word of declare" 'f=README.md; declare "f=.e"; cat "${f}nv"'
 check 0 "a substitution in an assignment reads an earlier value" 'f=README.md; g=$(cat "$f"); echo "$g"'
 check 0 "an export of another name keeps the value" 'f=README.md; export OTHER="$X"; cat "$f"'
-check 2 "an env override of the loop variable reaches nested code" "for f in a.md; do env f=\"\$X\" sh -c 'cat \"\$f\"'; done"
-check 2 "a prefix assignment of the loop variable reaches nested code" "for f in a.md; do f=\"\$X\" sh -c 'cat \"\$f\"'; done"
-check 2 "a prefix assignment of the loop variable reaches eval code" "for f in a.md; do f=\"\$X\" eval 'cat \"\$f\"'; done"
+check u "an env override of the loop variable reaches nested code" "for f in a.md; do env f=\"\$X\" sh -c 'cat \"\$f\"'; done"
+check u "a prefix assignment of the loop variable reaches nested code" "for f in a.md; do f=\"\$X\" sh -c 'cat \"\$f\"'; done"
+check u "a prefix assignment of the loop variable reaches eval code" "for f in a.md; do f=\"\$X\" eval 'cat \"\$f\"'; done"
 check 0 "a loop variable reaches nested shell code" "for f in a.md b.md; do sh -c 'cat \"\$f\"'; done"
-check 2 "a declaration word whose unquoted value may split into more assignments" 'g=README.md; declare "f"=$X; cat "$g"'
+check u "a declaration word whose unquoted value may split into more assignments" 'g=README.md; declare "f"=$X; cat "$g"'
 check 2 "an env override does not change the loop value the shell expands" 'for f in .ssh; do env f=safe cat "$f/config"; done'
 check 2 "a prefix assignment does not change the loop value the shell expands" 'for f in .ssh; do f=safe cat "$f/config"; done'
 check 2 "an env override does not change the assigned value the shell expands" 'd=.ssh; env d=safe cat "$d/config"'
@@ -325,22 +348,35 @@ check 0 "an env override beside a loop over ordinary names" 'for f in docs; do e
 check 0 "a locale prefix before a reader in a loop" 'for f in a.md b.md; do LC_ALL=C sort "$f"; done'
 check 2 "a prefix assignment does not change the value eval code is built from" 'd=.ssh; d=safe eval "cat $d/config"'
 check 2 "a loop word that turns an operand into a file option" 'for o in --file=.e; do grep "${o}nv" README.md; done'
-check 2 "a loop word that is a file option" 'for o in -f; do grep "$o" "$HOME/pats.txt" README.md; done'
+check u "a loop word that is a file option" 'for o in -f; do grep "$o" "$HOME/pats.txt" README.md; done'
 check 0 "a loop over line counts after a count option" 'for n in 5 10; do head -n "$n" README.md; done'
 check 0 "a loop over line counts attached to a count option" 'for n in 5 10; do head -n"$n" README.md; tail -$n README.md; done'
 check 0 "a quoted assignment word of export leaves other names" 'g=README.md; export "f=$X"; cat "$g"'
 check 0 "a single-quoted assignment word of declare leaves other names" "g=README.md; declare 'f=\$X'; cat \"\$g\""
 check 0 "a loop over standard input and a file" 'for f in - README.md; do cat "$f"; done'
-check 2 "a dash loop word after jq --args is still an option" "for a in -hello; do jq -n --args '\$ARGS.positional' \"\$a\"; done"
-check 2 "a loop word that is a jq file option after --args" 'for o in --rawfile; do jq -n --args . "$o" x "$F"; done'
-check 2 "a quoted declaration word with all positional parameters" 'g=README.md; export "f=$@"; cat "$g"'
-check 2 "a quoted declaration word with all array elements" 'g=README.md; export "f=${a[@]}"; cat "$g"'
-check 2 "a quoted declaration word with a splitting expansion flag" 'g=README.md; export "f=${=X}"; cat "$g"'
+check u "a dash loop word after jq --args is still an option" "for a in -hello; do jq -n --args '\$ARGS.positional' \"\$a\"; done"
+check u "a loop word that is a jq file option after --args" 'for o in --rawfile; do jq -n --args . "$o" x "$F"; done'
+check u "a quoted declaration word with all positional parameters" 'g=README.md; export "f=$@"; cat "$g"'
+check u "a quoted declaration word with all array elements" 'g=README.md; export "f=${a[@]}"; cat "$g"'
+check u "a quoted declaration word with a splitting expansion flag" 'g=README.md; export "f=${=X}"; cat "$g"'
 check 0 "a quoted declaration word with a substitution and a braced name" 'g=README.md; export "f=$(date) ${HOME}"; cat "$g"'
 check 0 "a dash word as a script argument in a loop" 'for a in --verbose; do source ./script.sh "$a"; done'
 
+# The mode decides only for an operand that stays unknown: one resolved to a
+# protected file blocks with the open policy too, also when an unknown operand
+# comes first, and an explicit open warns like the default.
+MODES="default open closed"
+check 2 "a literal protected name in every mode" 'cat .e"nv"'
+check 2 "a fixed-list loop word that names a protected file in every mode" 'for f in nv; do cat ".e$f"; done'
+check 2 "a literal assignment that names a protected file in every mode" 'f=.e; cat "${f}nv"'
+check 2 "a resolved protected operand after an unknown one" 'cat "$F"; f=.e; cat "${f}nv"'
+check 2 "a resolved protected operand after an unknown one in a substitution" 'echo "$(cat "$F")"; f=.e; cat "${f}nv"'
+check 2 "a loop option word that names a protected file" 'for o in --file=.e; do grep "${o}nv" README.md; done'
+check u "an unknown operand" 'cat "$F"'
+MODES=
+
 HOST=codex
-check 2 "codex: cat of a command substitution" "cat $S"
+check u "codex: cat of a command substitution" "cat $S"
 says "codex: the block names its reason" "reason=bash_protected_path_$R;"
 check 0 "codex: a literal assignment of an ordinary file" 'f=README.md; cat "$f"'
 HOST=

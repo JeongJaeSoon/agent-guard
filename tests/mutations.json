@@ -1050,9 +1050,9 @@
   },
   {
     "id": "bash-unresolved-operand-unwired",
-    "rule": "check_bash_command: an operand only known at run time blocks the command",
-    "old": "    bash_unresolved_read_operand \"$raw_cmd\" && exit 3\n",
-    "new": "",
+    "rule": "check_bash_command: an operand only known at run time is checked",
+    "old": "    bash_unresolved_read_operand \"$raw_cmd\"\n    uo_status=$?\n",
+    "new": "    uo_status=1\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -1069,8 +1069,62 @@
   {
     "id": "bash-unresolved-operand-no-nesting",
     "rule": "bash_unresolved_read_operand: the code of a command substitution is read too",
-    "old": "        bash_unresolved_read_operand \"$uo_body\" \"$((uo_depth + 1))\" \"$uo_moved\" \"$uo_tab\" && exit 0\n",
-    "new": "",
+    "old": "        bash_unresolved_read_operand \"$uo_body\" \"$((uo_depth + 1))\" \"$uo_moved\" \"$uo_tab\"\n        uo_status=$?\n",
+    "new": "        uo_status=1\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-mode-ignored",
+    "rule": "check_bash_command: an operand that stays unknown blocks under the closed policy",
+    "old": "  if [ \"$bash_path_status\" -eq 3 ] && [ \"${AGENT_GUARD_INFRA_FAILURE_MODE:-}\" != closed ]; then\n",
+    "new": "  if [ \"$bash_path_status\" -eq 3 ]; then\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-mode-on-resolved",
+    "rule": "check_bash_command: a resolved operand that names a protected file blocks in every mode",
+    "old": "  if [ \"$bash_path_status\" -eq 3 ] && [ \"${AGENT_GUARD_INFRA_FAILURE_MODE:-}\" != closed ]; then\n",
+    "new": "  if [ \"$bash_path_status\" -ge 3 ] && [ \"${AGENT_GUARD_INFRA_FAILURE_MODE:-}\" != closed ]; then\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-stops-at-unknown",
+    "rule": "bash_unresolved_read_operand: operands after an unknown one are still matched",
+    "old": "      U) uo_unknown=1 ;;\n",
+    "new": "      U) exit 3 ;;\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-option-unmatched",
+    "rule": "bash_unresolved_read_operand: a loop word that becomes an option is matched as written",
+    "old": "loopopt(ow)) { operand(w); print \"U\"; return }",
+    "new": "loopopt(ow)) { print \"U\"; return }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-no-warning",
+    "rule": "finish_pre_tool_scanner_unavailable: an unknown operand passed by the open policy warns",
+    "old": "  if [ -n \"${PRE_TOOL_UNRESOLVED_READ:-}\" ]; then\n",
+    "new": "  if false; then\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-warning-not-carried",
+    "rule": "handle_hook_infrastructure_failure: an earlier notice carries the unresolved-operand warning",
+    "old": "    || hif_detail=\"$hif_detail $PRE_TOOL_UNRESOLVED_READ\"\n",
+    "new": "    || :\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
