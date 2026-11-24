@@ -663,15 +663,6 @@
     ]
   },
   {
-    "id": "change-me-anchored",
-    "rule": "obvious_word_placeholder: changeme matches the whole value",
-    "old": "          || v ~ /^(change|replace)[-_]?(me|this)$/ \\",
-    "new": "          || v ~ /^(change|replace)[-_]?(me|this)/ \\",
-    "tests": [
-      "tests/prompt-empty-path-placeholder.sh"
-    ]
-  },
-  {
     "id": "x-run-anchored",
     "rule": "obvious_word_placeholder: an x run matches the whole value",
     "old": "          || v ~ /^xxx+$/ \\",

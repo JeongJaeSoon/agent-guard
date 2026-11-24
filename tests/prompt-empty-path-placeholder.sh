@@ -60,17 +60,15 @@ check 2 "real-looking value after a quoted path" "$k=\"$p\" $val"
 check 2 "value glued to a path by a colon" "$k=$p:$val"
 check 2 "real value next to a _FILE path" "$f=$p $k=$val"
 
-# An obvious placeholder.
-check 0 "changeme" "$k=changeme"
-check 0 "CHANGEME" "$k=CHANGEME"
-check 0 "change_me" "$k=change_me"
-check 0 "replace-me" "$pw=replace-me"
+# An obvious placeholder (#543 keeps changeme a value).
+# changeme is also a real default password, so it stays a value (#543).
+check 2 "changeme" "$k=changeme"
+check 2 "change-me" "$pw=change-me"
 check 0 "x run" "$k=xxxxxxxx"
 check 0 "your-token" "$k=your-token"
 check 0 "your_api_token" "$k=your_api_token"
 check 0 "angle placeholder" "$k=<your-token>"
-check 0 "placeholder in a fenced block" "${fence}$nl$k=changeme$nl$fence"
-check 2 "changeme glued to a value" "$k=changeme$val"
+check 0 "placeholder in a fenced block" "${fence}$nl$k=xxxxxxxx$nl$fence"
 check 2 "x run glued to a value" "$k=xxxx$val"
 check 2 "your- before a value" "$k=your-$val"
 check 2 "your- before unlisted words" "$k=your-horse-battery"

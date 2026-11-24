@@ -14615,7 +14615,6 @@ secretish_env_values() {
       return v ~ /^(example|dummy)[_-]?(token|key|secret|password)$/ \
           || v ~ /^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$/ \
           || v ~ /^redacted$/ \
-          || v ~ /^(change|replace)[-_]?(me|this)$/ \
           || v ~ /^xxx+$/ \
           || your_here_placeholder(v) \
           || angle_placeholder(v)
