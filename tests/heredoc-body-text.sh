@@ -245,5 +245,70 @@ check 0 "document, then an Orca CLI word message command that does not name it" 
 ORCA_CLI_COMMAND=/bin/sh check 2 "the hook's environment names another program for the Orca CLI word" \
   "${RUN}\"\${ORCA_CLI_COMMAND:-orca}\" orchestration send --to a --subject s --body-file $D/r.md"
 
+# A file the command writes can be run without being named again: by a loop
+# over a glob, in a condition, or by a shell that follows a reserved word.
+SCRIPT="cat > $D/run.sh <<'EOF'${NL}cat ./key.p8${NL}EOF${NL}"
+NOTE="cat > $D/a.md <<'EOF'${NL}see ./key.p8${NL}EOF${NL}"
+check 2 "script run by a loop over a glob" "${SCRIPT}for f in $D/*; do sh \"\$f\"; done"
+check 2 "script sourced by a loop over a glob" "${SCRIPT}for f in $D/*; do . \"\$f\"; done"
+check 2 "script run as the loop variable itself" "${SCRIPT}for f in $D/*; do \"\$f\"; done"
+check 2 "script run by a shell in a condition" "${SCRIPT}if sh $D/r*; then echo ok; fi"
+check 2 "script run by a shell after then" "${SCRIPT}if true; then sh $D/r*; fi"
+check 2 "script run by a shell after else" "${SCRIPT}if false; then :; else sh $D/r*; fi"
+check 2 "script run by a shell after elif" "${SCRIPT}if false; then :; elif sh $D/r*; then :; fi"
+check 2 "script run by a shell in an until condition" "${SCRIPT}until sh $D/r*; do break; done"
+check 2 "script run by a shell in a while loop" "${SCRIPT}while read f; do bash \"\$f\"; done < $D/list"
+check 2 "script run by a negated shell" "${SCRIPT}! sh $D/r*"
+check 0 "document, then a loop that only prints" "${NOTE}for f in a b; do echo \"\$f\"; done"
+check 0 "document, then a condition that runs a script of another name" "${NOTE}if true; then ./build.sh; fi"
+check 0 "document, then a loop over a glob that lists names" "${NOTE}for f in $D/*; do ls -l \"\$f\"; done"
+
+# A redirection with a file descriptor number names a written file too.
+BODY="<<'EOF'${NL}cat ./key.p8${NL}EOF${NL}"
+check 2 "fd-numbered target is the command run next" "cat 1>$D/gh ${BODY}gh pr view 5"
+check 2 "fd-numbered append target is the command run next" "cat 1>>$D/gh ${BODY}gh pr view 5"
+check 2 "fd number, then a blank before the target" "cat 1> $D/gh ${BODY}gh pr view 5"
+check 2 "second target behind an fd number" "cat > $D/r.md 1>$D/gh ${BODY}gh pr view 5"
+check 2 "plain target is the command run next" "cat >$D/gh ${BODY}gh pr view 5"
+check 2 "two targets in one word" "cat >$D/gh>$D/r.md ${BODY}gh pr view 5"
+check 2 "target opened for reading and writing" "cat 1<>$D/gh ${BODY}gh pr view 5"
+check 0 "fd-numbered target that is not named again" "cat 1>$D/a.md <<'EOF'${NL}see ./key.p8${NL}EOF"
+check 0 "stderr sent to /dev/null beside the target and again later" \
+  "cat > $D/a.md 2>/dev/null <<'EOF'${NL}see ./key.p8${NL}EOF${NL}ls $D 2>/dev/null"
+check 0 "target glued to the here-document operator" "cat >$D/a.md<<'EOF'${NL}see ./key.p8${NL}EOF"
+
+# Ground truth for the two shapes above: the command is judged by the hook,
+# then run in a sandbox whose protected file holds a canary. A blocked
+# command must print it when run, which proves the row is a real read; an
+# allowed one must not.
+SANDBOX=$CASE_ROOT/sandbox
+mkdir -p "$SANDBOX/notes" "$SANDBOX/pbin"
+canary=agcanary$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')
+printf 'VALUE=%s\n' "$canary" > "$SANDBOX/key.p8"
+printf '#!/bin/sh\nexit 0\n' > "$SANDBOX/pbin/tool"
+chmod +x "$SANDBOX/pbin/tool"
+truth() {
+  WORKDIR=$SANDBOX
+  check "$1" "$2" "$3"
+  unset WORKDIR
+  checked=$((checked + 1))
+  (cd "$SANDBOX" && PATH="$SANDBOX/pbin:$PATH" sh -c "$3") < /dev/null > "$CASE_ROOT/run" 2>&1
+  if grep -Fq "$canary" "$CASE_ROOT/run"; then leaked=2; else leaked=0; fi
+  if [ "$leaked" -eq "$1" ]; then
+    printf 'ok - heredoc body %s: run matches the verdict: %s\n' "$checked" "$2"
+  else
+    printf 'not ok - heredoc body %s: run does not match the verdict: %s\n' "$checked" "$2"
+    failed=$((failed + 1))
+  fi
+}
+truth 2 "script in a directory that a loop over a glob runs" \
+  "cat > notes/run.sh <<'EOF'${NL}cat ./key.p8${NL}EOF${NL}for f in notes/*; do sh \"\$f\"; done"
+truth 2 "fd-numbered target on PATH that is run by its name" \
+  "cat 1>pbin/tool <<'EOF'${NL}cat ./key.p8${NL}EOF${NL}tool"
+truth 0 "document behind an fd-numbered target" \
+  "cat 1>notes/a.md <<'EOF'${NL}see ./key.p8${NL}EOF"
+truth 0 "document, then a loop over a glob that prints names" \
+  "cat > notes/b.md <<'EOF'${NL}see ./key.p8${NL}EOF${NL}for f in notes/*.md; do echo \"\$f\"; done"
+
 printf '%s heredoc body checks, %s failed\n' "$checked" "$failed"
 [ "$failed" -eq 0 ]
