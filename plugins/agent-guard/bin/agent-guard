@@ -15434,11 +15434,20 @@ secretish_env_values() {
       if (line_depth) line_record[record] = 1
       return 0
     }
+    # A value the copy scan_line reads found, spelled as the line has it:
+    # with the backslashes the copy removed, when that spelling is there.
+    function line_spelling(value,   escaped) {
+      if (!copy_reading || !index(value, "\"")) return value
+      escaped = value
+      gsub(/"/, "\\\"", escaped)
+      return index(copy_source, escaped) ? escaped : value
+    }
     function emit_record(value) {
       if (main_reading) {
         dry_found = 1
         return
       }
+      value = line_spelling(value)
       if (line_seen("S" value)) return
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
@@ -15460,6 +15469,7 @@ secretish_env_values() {
     # mask exactly as before.
     function emit_extent(value) {
       if (main_reading || record_mode != "json") return
+      value = line_spelling(value)
       if (line_seen("E" value)) return
       print "{\"literal\":\"" json_escape(value) \
         "\",\"replacement\":\"[REDACTED]\",\"agent_guard_extent\":true}"
@@ -16249,6 +16259,7 @@ secretish_env_values() {
       }
       if (copy == line) return
       copy_line = copy
+      copy_source = line
       saved_quote = open_quote
       saved_open = open_value
       saved_guard = open_guard
