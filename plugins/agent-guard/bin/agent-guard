@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=3.13.4
+VERSION=3.13.5
 
 # Where releases are published and what the host plugin managers call them.
 AG_REPO=JeongJaeSoon/agent-guard
@@ -2081,10 +2081,16 @@ gitleaks_probe_error() {
 # The file lives in the private state directory audit_begin validated, so
 # diagnostics (check, doctor, setup) always probe, as does
 # AGENT_GUARD_LOG_MODE=off without AGENT_GUARD_SCAN_CACHE=on.
+#
+# A verdict that expired less than one TTL ago is not a hit, but its version is
+# kept for prepare_gitleaks: the key still names this exact file, so only "can
+# it run now" is unknown.
 GITLEAKS_PROBE_CACHE_KEY=
+GITLEAKS_PROBE_CACHE_EXPIRED_VERSION=
 
 gitleaks_probe_cache_lookup() {
   GITLEAKS_PROBE_CACHE_KEY=
+  GITLEAKS_PROBE_CACHE_EXPIRED_VERSION=
   state_cache_ready || return 1
   ag_gl_cache_bin=$1
   case "$ag_gl_cache_bin" in /*) ;; *) return 1 ;; esac
@@ -2118,9 +2124,18 @@ gitleaks_probe_cache_lookup() {
       && IFS= read -r ag_gl_cached_version; } <"$ag_gl_cache_file" 2>/dev/null \
     || return 1
   [ "$ag_gl_cached_key" = "$GITLEAKS_PROBE_CACHE_KEY" ] || return 1
-  state_cache_fresh "$ag_gl_cached_time" || return 1
   case "$ag_gl_cached_version" in ''|*[!0-9.]*) return 1 ;; esac
   semver_at_least "$ag_gl_cached_version" "$GITLEAKS_MIN_VERSION" || return 1
+  if ! state_cache_fresh "$ag_gl_cached_time"; then
+    # Expired by less than one more TTL: long enough to outlast a stall, and
+    # short enough that a gitleaks which really hangs is reported again.
+    case "$ag_gl_cached_time" in ''|0*|*[!0-9]*|?????????????*) return 1 ;; esac
+    ag_gl_cached_age=$((AG_AUDIT_START - ag_gl_cached_time))
+    [ "$ag_gl_cached_age" -ge 0 ] \
+      && [ "$ag_gl_cached_age" -lt $((STATE_CACHE_TTL_SECONDS * 2)) ] || return 1
+    GITLEAKS_PROBE_CACHE_EXPIRED_VERSION=$ag_gl_cached_version
+    return 1
+  fi
   GITLEAKS_PROBE_STATE=ready
   GITLEAKS_PROBE_VERSION=$ag_gl_cached_version
   GITLEAKS_PROBE_DETAIL=
@@ -2483,7 +2498,25 @@ prepare_gitleaks() {
     GITLEAKS_READY_BIN=$GITLEAKS_BIN
     return 0
   fi
-  probe_gitleaks "$GITLEAKS_BIN" || return 1
+  if ! probe_gitleaks "$GITLEAKS_BIN"; then
+    # A stalled machine holds every process for seconds at a time, so a probe
+    # that missed its deadline says nothing about gitleaks, and a second one
+    # started at once lands in the same stall (#617). When the expired verdict
+    # is for this same file, its version stands in and the scan that follows
+    # is the proof that gitleaks runs: a scan that fails is reported as a
+    # failed scan. Only a timeout qualifies; a probe that ran and failed, or
+    # found another version, is believed. Nothing is stored, so the next
+    # process probes again, and the key is dropped so that no cached clean
+    # verdict answers in place of that scan.
+    [ "$GITLEAKS_PROBE_STATE:$GITLEAKS_PROBE_DETAIL" = runtime-failure:timeout ] \
+      && [ -n "$GITLEAKS_PROBE_CACHE_EXPIRED_VERSION" ] || return 1
+    GITLEAKS_PROBE_CACHE_KEY=
+    GITLEAKS_PROBE_STATE=ready
+    GITLEAKS_PROBE_VERSION=$GITLEAKS_PROBE_CACHE_EXPIRED_VERSION
+    GITLEAKS_PROBE_DETAIL=
+    GITLEAKS_READY_BIN=$GITLEAKS_BIN
+    return 0
+  fi
   gitleaks_probe_cache_store
   GITLEAKS_READY_BIN=$GITLEAKS_BIN
   return 0
@@ -3085,6 +3118,17 @@ setup_install_gitleaks() {
   esac
 }
 
+# The release target of the warm gitleaks helper for this platform, in
+# helper_target. Fails where no helper is released.
+gitleaks_helper_target() {
+  case "$(uname -s):$(uname -m)" in
+    Linux:x86_64|Linux:amd64) helper_target=x86_64-unknown-linux-musl ;;
+    Linux:aarch64|Linux:arm64) helper_target=aarch64-unknown-linux-musl ;;
+    Darwin:arm64) helper_target=aarch64-apple-darwin ;;
+    *) return 1 ;;
+  esac
+}
+
 # Install the released warm gitleaks helper for this platform (#569). Both
 # binaries must match the checksums this CLI pins in
 # config/gitleaks-helper.sha256 before anything is installed, so a release
@@ -3092,12 +3136,8 @@ setup_install_gitleaks() {
 # where gitleaks_helper_installed finds them. Any failure leaves an earlier
 # installed helper as it was.
 setup_install_gitleaks_helper() {
-  case "$(uname -s):$(uname -m)" in
-    Linux:x86_64|Linux:amd64) helper_target=x86_64-unknown-linux-musl ;;
-    Linux:aarch64|Linux:arm64) helper_target=aarch64-unknown-linux-musl ;;
-    Darwin:arm64) helper_target=aarch64-apple-darwin ;;
-    *) die "setup: no warm gitleaks helper is released for this platform ($(uname -s) $(uname -m))" ;;
-  esac
+  gitleaks_helper_target \
+    || die "setup: no warm gitleaks helper is released for this platform ($(uname -s) $(uname -m))"
   need_cmd curl
   need_cmd shasum
   need_cmd tar
@@ -3163,6 +3203,54 @@ setup_install_gitleaks_helper() {
   unset AG_GITLEAKS_HELPER_INSTALLED
   info "$PROGRAM: installed the warm gitleaks helper at $helper_dir"
   info "$PROGRAM: scans use it from now on; AGENT_GUARD_GITLEAKS_HELPER=off turns it off"
+}
+
+# `setup --install` installs the helper as well, when the gitleaks it manages
+# is the one scans run: the private gitleaks, at the version the helper links.
+# The helper answers for no other scanner, so any other gets one line saying
+# why nothing was downloaded. It is skipped without a word where the status
+# line has already said it: turned off or replaced by the user's own client
+# (AGENT_GUARD_GITLEAKS_HELPER set), no helper released for this platform, or
+# this version's helper already installed. The helper is optional: a failed
+# download or checksum is a warning and never fails the gitleaks install.
+# Call it after setup_gitleaks_status_line found a ready scanner; it reads
+# that probe's version and runs no probe of its own.
+setup_install_gitleaks_helper_with_gitleaks() {
+  [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] || return 0
+  gitleaks_helper_target || return 0
+  ! gitleaks_helper_installed || return 0
+  cli_ref_init
+  # The order of resolve_gitleaks: the variable, the private gitleaks, PATH.
+  if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
+    helper_reason='AGENT_GUARD_GITLEAKS_BIN selects the scanner'
+  elif [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ]; then
+    helper_reason='the selected gitleaks comes from PATH, such as a Homebrew build'
+  elif [ "${GITLEAKS_PROBE_VERSION:-}" != "$GITLEAKS_DEFAULT_VERSION" ]; then
+    helper_reason="the installed gitleaks is ${GITLEAKS_PROBE_VERSION:-of an unknown version}, not $GITLEAKS_DEFAULT_VERSION"
+  else
+    helper_reason=
+  fi
+  if [ -n "$helper_reason" ]; then
+    info "$PROGRAM: gitleaks helper  not installed  ($helper_reason; the helper only answers the gitleaks $GITLEAKS_DEFAULT_VERSION that $AG_CLI_REF setup --install puts in $GITLEAKS_PRIVATE_BIN_DIR when no other gitleaks is selected)"
+    return 0
+  fi
+  # In a subshell, so that the installer's fatal errors end only this step.
+  # A subshell starts with this shell's traps reset: it removes its own
+  # temporary directory, also when a signal ends it (without the two signal
+  # traps dash would die there and skip the EXIT trap), and leaves this
+  # shell's directory alone.
+  if (
+    AG_EXIT_TMP_DIR=
+    trap '[ -z "$AG_EXIT_TMP_DIR" ] || rm -rf "$AG_EXIT_TMP_DIR"' 0
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    setup_install_gitleaks_helper
+  ); then
+    unset AG_GITLEAKS_HELPER_INSTALLED
+  else
+    info "$PROGRAM: warning: the warm gitleaks helper was not installed; scans run gitleaks directly, as without it. To try again: $AG_CLI_REF setup --install-gitleaks-helper"
+  fi
+  return 0
 }
 
 # One line on the warm gitleaks helper, from files and variables only. It
@@ -3249,6 +3337,11 @@ Pass --install to download gitleaks. The checksum is required and must
 match the published value at:
   https://github.com/gitleaks/gitleaks/releases/download/vX.Y.Z/gitleaks_X.Y.Z_checksums.txt
 
+--install also installs the warm gitleaks helper, which keeps gitleaks
+loaded between scans, when the gitleaks in use is the one --install puts in
+the private directory. A helper that cannot be downloaded or does not match
+is a warning only. AGENT_GUARD_GITLEAKS_HELPER=off skips it.
+
 Pass --install-gitleaks-helper to download this version's warm gitleaks
 helper for this platform from the Agent Guard release. It is installed only
 when it matches the checksums built into this CLI, and scans then use it
@@ -3293,6 +3386,7 @@ EOF
         setup_suggest_gitleaks_runtime_repair || :
       fi
     fi
+    [ "$gitleaks_runtime_ok" -eq 0 ] || setup_install_gitleaks_helper_with_gitleaks
     if [ "$jq_ok" -eq 0 ]; then
       info "$PROGRAM: jq is not auto-installed; use your system package manager:"
       setup_suggest_pkg_install jq https://stedolan.github.io/jq/download/
@@ -6915,6 +7009,13 @@ path_entries_absolute() {
   case ":${PATH-}:" in *::*|*:[!/]*) return 1 ;; esac
 }
 
+# Succeed when $HOME is one absolute word with no glob, blank or `..` step,
+# so a bare `~` or `~/path` expands to that word and nothing else.
+home_is_plain_path() {
+  case ${HOME-} in /*) ;; *) return 1 ;; esac
+  case $HOME in *[!A-Za-z0-9_./@%+,:-]*|*/../*|*/..) return 1 ;; esac
+}
+
 # The commands message_value_records and search_operand_spans accept before a
 # later command name, and literal_consumers_inert accepts as text consumers:
 # none of them can rebind a name (no builtin that assigns, no loop variable)
@@ -7808,6 +7909,7 @@ bash_strip_literal_message_values() (
 # when everything its pipeline feeds is a plain text filter (sink_ok).
 search_operand_spans() {
   printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
+    -v home_ok="$(home_is_plain_path && echo 1)" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_INERT_COMMAND"'
     function bail() { failed = 1; exit }
     function start_word() {
@@ -7822,6 +7924,20 @@ search_operand_spans() {
     }
     function bad(k) { return wdyn[k] || wuns[k] || wred[k] }
     function span(k) { return ws[k] " " we[k] "\n" }
+    # A bare assignment of a home-relative path to a short name
+    # (`L=~/logs/a.log`): the shell expands the tilde to a $HOME that
+    # home_ok says is one plain absolute word. No `~user`, no expansion.
+    function tilde_assign(k) {
+      return home_ok == "1" && !wdyn[k] && !wred[k] && raw(k) == wv[k] \
+        && wv[k] ~ /^[A-Za-z][A-Za-z0-9]?=~(\/[A-Za-z0-9_.\/:@%+,=-]*)?$/
+    }
+    # Word k is `$x` or `"$x"` alone, and x got its value from the only
+    # assignment of x in this command, outside any loop and before word k.
+    function plain_var(k,   t) {
+      if (wred[k] || raw(k) !~ /^(\$[A-Za-z][A-Za-z0-9]?|"\$[A-Za-z][A-Za-z0-9]?")$/) return 0
+      t = raw(k); gsub(/["$]/, "", t)
+      return vcnt[t] == 1 && !(t in vbad) && (t in vfrom) && vfrom[t] < k
+    }
     # Stop reading: a segment that is not inert comes before whatever
     # follows. A condition runs each segment once at most, and in order, so
     # the words held inside one stand while it closes as close_ok asks; a
@@ -8078,14 +8194,16 @@ search_operand_spans() {
     # the redirections that name no file (`2>&1`, `2>/dev/null`). Any other
     # redirection or non-literal word gives the segment up: a `<` word would
     # shift which word is the program.
+    # A file operand of sed or jq may also be a plain_var word (pvar), but
+    # never the program word or an option value.
     function program_scan(a, b,   k, j, v, h, out, sawe, script, prev, wasi) {
-      pn = 0
+      pn = 0; h = wv[a]
       for (k = a; k <= b; k++) {
         if (wv[k] ~ /^(2>&1|[12]?>\/dev\/null)$/ && !wdyn[k] && k > a) continue
-        if (bad(k)) return ""
+        pvar[k] = k > a && h ~ /^(sed|jq)$/ && plain_var(k)
+        if (bad(k) && !pvar[k]) return ""
         pw[++pn] = k
       }
-      h = wv[a]
       # The command name as written, with no quoting or escape in it.
       if (we[a] - ws[a] + 1 != length(h)) return ""
       if (h == "jq") {
@@ -8093,6 +8211,7 @@ search_operand_spans() {
         for (j = 2; j <= pn; j++) if (wv[pw[j]] ~ /^-[A-Za-z]*f/ || wv[pw[j]] == "--from-file") return ""
         for (j = 2; j <= pn; j++) {
           v = wv[pw[j]]
+          if (pvar[pw[j]]) return ""
           if (v ~ /^--(arg|argjson|slurpfile|rawfile)$/) { j += 2; continue }
           if (v == "--indent" || v == "-L") { j++; continue }
           if (v ~ /^-[nRscrjaSCMe]+$/ || v ~ /^--(null-input|raw-input|slurp|compact-output|raw-output|raw-output0|join-output|ascii-output|sort-keys|color-output|monochrome-output|tab|unbuffered|exit-status|stream|stream-errors|seq|args|jsonargs)$/) continue
@@ -8105,8 +8224,9 @@ search_operand_spans() {
         out = ""; sawe = 0; script = 0; wasi = 0
         for (j = 2; j <= pn; j++) {
           v = wv[pw[j]]
+          if (pvar[pw[j]]) { if (!script && !sawe) return ""; wasi = 0; continue }
           if (v == "--expression" || v ~ /^-[nErsuz]*e$/) {
-            if (++j > pn) return ""
+            if (++j > pn || pvar[pw[j]]) return ""
             out = out pline("sed", j); sawe = 1; wasi = 0
             continue
           }
@@ -8158,19 +8278,22 @@ search_operand_spans() {
         }
         return ""
       }
-      if (h == "gh" && !nojq && (k = gh_jq_option(a, b))) return "P jq " ws[k + 1] " " we[k + 1] " " wv[k + 1] "\n"
+      if (h == "gh" && !nojq && (k = gh_jq_option(a, b))) {
+        if (wv[k] ~ /^--jq=/) return "P jq " (ws[k] + 5) " " we[k] " " substr(wv[k], 6) "\n"
+        return "P jq " ws[k + 1] " " we[k + 1] " " wv[k + 1] "\n"
+      }
       return ""
     }
-    # The index of the --jq word of a built-in gh query when it is that
-    # option for sure, as in bash_neutralize_first_pipeline: every word
+    # The index of the --jq (or -q) word of a built-in gh query when it is
+    # that option for sure, as in bash_neutralize_first_pipeline: every word
     # literal, no `--` before it, and the word before it no option that could
-    # take --jq as its value. Its value, the next word, is a jq filter gh
-    # runs itself. 0 otherwise.
+    # take it as its value. Its value, the next word or what a bare `--jq=`
+    # leads, is a jq filter gh runs itself. 0 otherwise.
     function gh_jq_option(a, b,   k, prev) {
       if (!gh_query(a, b, 1)) return 0
-      for (k = a + 2; k < b; k++) {
+      for (k = a + 2; k <= b; k++) {
         if (wv[k] == "--") return 0
-        if (wv[k] != "--jq") continue
+        if (!(substr(raw(k), 1, 5) == "--jq=" && length(wv[k]) > 5) && (k == b || wv[k] != "--jq" && wv[k] != "-q")) continue
         prev = wv[k - 1]
         if (substr(prev, 1, 1) == "-" && prev !~ /^(--paginate|--slurp|--include|-i|--silent|--verbose)$/) return 0
         return k
@@ -8410,6 +8533,7 @@ search_operand_spans() {
         if (c == ";" || c == "|" || c == "&" && substr(s, i + 1, 1) == "&") {
           flush_word()
           segpipe[nseg] = (c == "|" && substr(s, i + 1, 1) != "|")
+          segsemi[nseg + 1] = (c == ";")
           nseg++
           if (c != ";" && substr(s, i + 1, 1) == c) i++
           continue
@@ -8472,8 +8596,10 @@ search_operand_spans() {
       # its own (a prefix, an argument of export): a reference to it is
       # refused. An assigned name must also be one or two characters long:
       # no shell reads such a name as a setting (PATH, IFS). vfrom: the first
-      # assignment outside any loop or condition, which has run for every
-      # word after it. A `for` variable holds a list word from its `for`
+      # assignment outside any loop or condition, which has run in this shell
+      # for every word after it: its segment starts the line or follows a `;`
+      # (not `&&` or `||`, which may skip it) and feeds no pipe (a subshell).
+      # A `for` variable holds a list word from its `for`
       # (ffrom) to its `done` (fto), and after it too when the loop is
       # inside no other (fdep).
       d = 0; nvar = 0; nfor = 0
@@ -8485,7 +8611,7 @@ search_operand_spans() {
         }
         h = lead(k, e); d += dc
         if (h < e && kw(h) == "for") {
-          name = wv[h + 1]; nvar++; vname[name] = 1
+          name = wv[h + 1]; nvar++; vname[name] = 1; vcnt[name]++
           c = h + 3 <= e && kw(h + 1) != "" && kw(h + 2) == "in"
           for (r = h + 3; c && r <= e; r++) if (!list_word(r)) c = 0
           if (c) { fname[++nfor] = name; ffrom[nfor] = h; fdep[nfor] = d; fto[nfor] = 0 }
@@ -8496,10 +8622,13 @@ search_operand_spans() {
         for (r = k; r <= e; r++) {
           v = raw(r)
           if (!match(v, /^[A-Za-z_][A-Za-z0-9_]*=/)) continue
-          name = substr(v, 1, RLENGTH - 1); nvar++; vname[name] = 1
-          if (a <= e || r < h || name !~ /^[A-Za-z][A-Za-z0-9]?$/ || name == "TZ" || bad(r) || v != wv[r] \
-              || substr(v, RLENGTH + 1) !~ /^[A-Za-z0-9_.\/:@%+,=][A-Za-z0-9_.\/:@%+,=-]*$/) vbad[name] = 1
-          else if (d == 0 && !(name in vfrom)) vfrom[name] = r
+          name = substr(v, 1, RLENGTH - 1); nvar++; vname[name] = 1; vcnt[name]++
+          if (a <= e || r < h || name !~ /^[A-Za-z][A-Za-z0-9]?$/ || name == "TZ" \
+              || !tilde_assign(r) && (bad(r) || v != wv[r] \
+                || substr(v, RLENGTH + 1) !~ /^[A-Za-z0-9_.\/:@%+,=][A-Za-z0-9_.\/:@%+,=-]*$/)) vbad[name] = 1
+          else if (d == 0 && !(name in vfrom) && (wseg[r] == 1 || segsemi[wseg[r]]) && !segpipe[wseg[r]]) {
+            vfrom[name] = r; vval[name] = substr(v, RLENGTH + 1)
+          }
         }
       }
       # An expansion can assign as well (${x:=v}, ${x::=v}, $[x=1]), to any
@@ -8541,6 +8670,10 @@ search_operand_spans() {
               else if (wv[k] == "rg") got = grep_scan(k, e, 1)
               else if (git_grep(k, e)) got = grep_scan(k + 1, e, 2)
               else got = program_scan(k, e)
+              # Each plain_var operand of such a segment, as `V start end
+              # value`: the scan after the rewrite reads the value there.
+              for (r = k; got != "" && r <= e; r++)
+                if (plain_var(r)) { name = raw(r); gsub(/["$]/, "", name); got = got "V " ws[r] " " we[r] " " vval[name] "\n" }
             }
           }
           # A pattern selects the lines a later command receives, so what the
@@ -8563,15 +8696,15 @@ search_operand_spans() {
         # PATH entry resolves it to, so list the inert ones.
         for (r = k; r <= e; r++) if (wred[r] && !quiet(r) || mode == "trusted" && bad(r)) stop()
         for (h = k; h <= e && kw(h) ~ /^(do|then|else|elif|if|while|until|done|fi|!)$/; h++) ;
-        for (a = h; h <= e && wv[h] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && !bad(h); h++) ;
+        for (a = h; h <= e && wv[h] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && (!bad(h) || tilde_assign(h)); h++) ;
         if (h > e) {
           if (a > e) continue
           # Assignments alone: each of one plain word to a short name.
-          for (r = a; r <= e && mode == ""; r++) {
+          for (r = a; r <= e && mode ~ /^(program)?$/; r++) {
             name = raw(r); sub(/=.*/, "", name)
             if (name in vbad) break
           }
-          if (mode == "" && r > e) continue
+          if (mode ~ /^(program)?$/ && r > e) continue
           stop()
         }
         if (bad(h)) stop()
@@ -10179,14 +10312,26 @@ bash_strip_program_text() (
   }
   pt_spans=$(printf '%s\n' "$pt_spans" | LC_ALL=C awk '
     /^P / { n = $3; sub(/^P /, ""); print n " " $0; next }
+    /^V / { print $2 " " $0; next }
     /^[0-9]/ { print $1 " pat " $0 }' | sort -rn)
   # Where the shell reads relative names from is decided without the program
   # words: a `$1` or a `cd` in awk or python text moves nothing in the shell,
   # and text that changes the program's own directory keeps its suffixes
   # (program_text_residual).
-  pt_shape=$(printf '%s\n' "$pt_spans" | PT_CMD=$pt_cmd LC_ALL=C awk '
+  # A cd to a bare home-relative path goes where $HOME says, when that is one
+  # plain word (home_is_plain_path).
+  pt_home=
+  if home_is_plain_path; then pt_home=$HOME; fi
+  pt_shape=$(printf '%s\n' "$pt_spans" | PT_CMD=$pt_cmd PT_HOME=$pt_home LC_ALL=C awk '
     { s = NR == 1 ? ENVIRON["PT_CMD"] : s; a = $3; b = $4; s = substr(s, 1, a - 1) "_" substr(s, b + 1) }
-    END { printf "%s", s }')
+    END {
+      h = ENVIRON["PT_HOME"]; s = ";" s; out = ""
+      while (h != "" && match(s, /[;&|][ \t]*cd[ \t]+~(\/[A-Za-z0-9_.\/:@%+,=-]*)?([ \t;&|]|$)/)) {
+        t = RSTART + index(substr(s, RSTART, RLENGTH), "~") - 1
+        out = out substr(s, 1, t - 1) h; s = substr(s, t + 1)
+      }
+      printf "%s", substr(out s, 2)
+    }')
   pt_rebase=
   if bash_command_may_rebase_relative_paths "$pt_shape"; then
     pt_rebase=$(bash_command_rebase_target "$pt_shape") || { printf '%s' "$pt_cmd"; exit 0; }
@@ -10203,6 +10348,7 @@ bash_strip_program_text() (
     pt_start=${pt_rest%% *}; pt_rest=${pt_rest#* }
     case "$pt_kind" in
       pat) pt_end=$pt_rest pt_new=_ ;;
+      V) pt_end=${pt_rest%% *} pt_new=${pt_rest#* } ;;
       *)
         pt_end=${pt_rest%% *}; pt_value=${pt_rest#* }
         [ "$pt_end" != "$pt_rest" ] || continue
@@ -10218,7 +10364,7 @@ bash_strip_program_text() (
     esac
     pt_next=$(PT_CMD=$pt_cmd PT_NEW=$pt_new LC_ALL=C awk -v a="$pt_start" -v b="$pt_end" -v kind="$pt_kind" 'BEGIN {
       s = ENVIRON["PT_CMD"]; t = ENVIRON["PT_NEW"]
-      if (kind != "pat") { gsub(/\047/, "\047\\\047\047", t); t = "\047" t "\047" }
+      if (kind != "pat" && kind != "V") { gsub(/\047/, "\047\\\047\047", t); t = "\047" t "\047" }
       printf "%s", substr(s, 1, a - 1) t substr(s, b + 1)
     }') && [ -n "$pt_next" ] || continue
     pt_cmd=$pt_next
@@ -20066,9 +20212,16 @@ prompt_has_secretish_assignment() {
   # Check each stage before consuming its output: a POSIX pipeline otherwise
   # turns producer/detector failure into grep's ordinary no-match status.
   # Framing ends with RS, so command substitution preserves its trailing LFs.
-  prompt_assignment_framed=$(printf '%s' "$1" | frame_plaintext_leaf 2>/dev/null) || return 2
-  prompt_assignment_result=$(printf '%s' "$prompt_assignment_framed" | secretish_env_values probe) || return 2
-  [ -n "$prompt_assignment_result" ]
+  # A stage that fails is tried once more. On a stalled machine an awk can
+  # fail to start in the same call in which the scanner does not answer, and
+  # then this check is all that keeps a pasted value from the open policy.
+  for prompt_assignment_try in 1 2; do
+    prompt_assignment_framed=$(printf '%s' "$1" | frame_plaintext_leaf 2>/dev/null) || continue
+    prompt_assignment_result=$(printf '%s' "$prompt_assignment_framed" | secretish_env_values probe) || continue
+    [ -n "$prompt_assignment_result" ]
+    return
+  done
+  return 2
 }
 
 # Claude Code also runs UserPromptSubmit on messages nobody typed: a background
@@ -20256,9 +20409,12 @@ hook_user_prompt() {
   notice=
   found=0
   found_reason=
-  # begin_infrastructure_failure leaves its reason here; empty at the end
-  # means every check ran.
+  # begin_infrastructure_failure leaves its reason in bif_detail. A check that
+  # did not run says so on stderr in every call. Its notice goes out once per
+  # interval, and a second failure in the same call gets none, so the reasons
+  # no notice carried are kept in prompt_unsaid for the end.
   bif_detail=
+  prompt_unsaid=
   scan_text_direct "user prompt" "$prompt"
   case $? in
     0) ;;
@@ -20278,6 +20434,8 @@ hook_user_prompt() {
       notice=$INFRA_FAILURE_NOTICE
       ;;
   esac
+  [ -n "$notice" ] || prompt_unsaid=$bif_detail
+  bif_detail=
   if [ "$found" -eq 0 ]; then
     # The assignment probe is super-linear on one large leaf (measured ~0.6s at
     # 128KB but ~23s at 874KB), which would burn the 10s host timeout and make
@@ -20302,6 +20460,8 @@ hook_user_prompt() {
       esac
     fi
   fi
+  [ -z "$bif_detail" ] || [ -n "$INFRA_FAILURE_NOTICE" ] \
+    || prompt_unsaid="${prompt_unsaid:+$prompt_unsaid }$bif_detail"
   infra_notice=$notice
   if [ "$found" -ne 1 ] || [ "$prompt_mode" = warn ]; then
     take_blocked_injection_notice "$input"
@@ -20311,8 +20471,8 @@ hook_user_prompt() {
     # The open notice repeats once per interval, and without it this pass
     # looks like a clean scan (#617). The notice already goes to stderr when
     # due, so every other pass that skipped a check says so there too.
-    [ -z "$bif_detail" ] || [ -n "$infra_notice" ] \
-      || info "$bif_detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
+    [ -z "$prompt_unsaid" ] \
+      || info "$prompt_unsaid continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
     emit_prompt_response "$notice" '' "$infra_notice"
     return 0
   fi

@@ -174,6 +174,7 @@ in_navigation_host() {
 
 if in_shard 1; then
 run_expect 0 "CI scope keeps reduced checks separate from release evidence" sh "$ROOT/tests/ci-scope.sh"
+run_expect 0 "workflow_dispatch runs never share a cancellable concurrency group" sh "$ROOT/tests/workflow-concurrency.sh"
 run_expect 0 "CI records completed suite timings and warns on job time budget" sh "$ROOT/tests/ci-timing.sh"
 run_expect 0 "the suites moved off partition 1 to balance the macOS jobs still run in partition 2" sh "$ROOT/tests/partition-membership.sh"
 run_expect 0 "core function contracts" sh "$ROOT/tests/unit-core.sh"
