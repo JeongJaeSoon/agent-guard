@@ -316,6 +316,14 @@ check 2 "an env override of the loop variable reaches nested code" "for f in a.m
 check 2 "a prefix assignment of the loop variable reaches nested code" "for f in a.md; do f=\"\$X\" sh -c 'cat \"\$f\"'; done"
 check 2 "a prefix assignment of the loop variable reaches eval code" "for f in a.md; do f=\"\$X\" eval 'cat \"\$f\"'; done"
 check 0 "a loop variable reaches nested shell code" "for f in a.md b.md; do sh -c 'cat \"\$f\"'; done"
+check 2 "a declaration word whose unquoted value may split into more assignments" 'g=README.md; declare "f"=$X; cat "$g"'
+check 2 "an env override does not change the loop value the shell expands" 'for f in .ssh; do env f=safe cat "$f/config"; done'
+check 2 "a prefix assignment does not change the loop value the shell expands" 'for f in .ssh; do f=safe cat "$f/config"; done'
+check 2 "an env override does not change the assigned value the shell expands" 'd=.ssh; env d=safe cat "$d/config"'
+check 2 "a prefix assignment does not change the assigned value the shell expands" 'd=.ssh; d=safe cat "$d/config"'
+check 0 "an env override beside a loop over ordinary names" 'for f in docs; do env f=safe cat "$f/a.md"; done'
+check 0 "a locale prefix before a reader in a loop" 'for f in a.md b.md; do LC_ALL=C sort "$f"; done'
+check 2 "a prefix assignment does not change the value eval code is built from" 'd=.ssh; d=safe eval "cat $d/config"'
 
 HOST=codex
 check 2 "codex: cat of a command substitution" "cat $S"

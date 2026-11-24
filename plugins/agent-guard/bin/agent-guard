@@ -11033,16 +11033,18 @@ AWK_READ_OPERAND_RECORDS='
   # A loop variable goes as \005name, or \006name when its list holds a glob,
   # and \007 names what ends value following there too: n for a function or
   # trap, i for a changed IFS.
-  function tabrec(   k, s) {
+  function tabrec(child,   k, s) {
     s = ""
-    for (k in tab) if (!stale(k)) s = s k "\003" tab[k] "\004"
-    for (k in loopv) if (!stale(k)) s = s (loopg[k] ? "\006" : "\005") k "\003" loopv[k] "\004"
+    for (k in tab) if (!stale(k, child)) s = s k "\003" tab[k] "\004"
+    for (k in loopv) if (!stale(k, child)) s = s (loopg[k] ? "\006" : "\005") k "\003" loopv[k] "\004"
     if (nofollow || ifsset) s = s "\007\003" (nofollow ? "n" : "") (ifsset ? "i" : "") "\004"
     print "T" s
   }
   # An assignment earlier on the same line, before any command word, has
-  # already changed the name when a later word of that line is expanded.
-  function stale(nm) { return cpos && nm in ptab }
+  # already changed the name when a later word of that line is expanded. One
+  # in front of a command, or made by env, changes it for the code that
+  # command runs (child) and for nothing else.
+  function stale(nm, child) { return (cpos && nm in ptab) || (child && nm in ovr) }
   # One entry of the T record of the code around this one.
   function inherit(nm, v,   c) {
     c = substr(nm, 1, 1)
@@ -11201,7 +11203,7 @@ AWK_READ_OPERAND_RECORDS='
     gsub(/[\002\005]/, "\"$__agent_guard_unknown\"", v)
     # Code with a replaced parameter was never seen by the raw-text scan.
     if (subst) print "C" v
-    tabrec(); print "S" v
+    tabrec(1); print "S" v
   }
   # Position of the first unquoted < or > inside w after its first character,
   # outside substitutions, or 0. A descriptor number before it stays with it.
@@ -11251,6 +11253,8 @@ AWK_READ_OPERAND_RECORDS='
     # The list is expanded before the loop variable changes.
     if (mode ~ /^for(in|list)$/) { delete tab[forname]; delete loopv[forname] }
     if (mode == "forlist" && forok && forl != "" && !nofollow && forname ~ /^[A-Za-z_][A-Za-z0-9_]*$/) { loopv[forname] = forl; loopd[forname] = depth; loopg[forname] = forg }
+    # The words of eval are expanded before its assignments apply.
+    if (mode == "eval" && evalcode != "") code(evalcode)
     for (k = 1; k <= npa; k++) {
       delete loopv[pan[k]]
       if (cmdseen || cond || depth || nofollow || pav[k] == "\002") delete tab[pan[k]]
@@ -11258,7 +11262,7 @@ AWK_READ_OPERAND_RECORDS='
     }
     if (prog == "cp" && cppend != "" && cpt) operand(cppend)
     for (k in ptab) delete ptab[k]
-    if (mode == "eval" && evalcode != "") code(evalcode)
+    for (k in ovr) delete ovr[k]
     if (clearafter) { for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k] }
     clearafter = 0
     npa = 0; cpos = 1; cmdseen = 0; prog = ""; mode = ""; ddash = 0; patdone = 0
@@ -11372,7 +11376,7 @@ AWK_READ_OPERAND_RECORDS='
       # Options of a wrapper that take the return word as their value.
       if (w ~ /^-/ && index(wvopt[wrap], " " w " ")) { skipw = 1; return }
       if (wrap == "env" && w ~ /^(-S|--split-string)$/) { mode = "evalnext"; cpos = 0; cmdseen = 1; return }
-      if (wrap == "env" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { n = substr(w, 1, index(w, "=") - 1); delete tab[n]; delete loopv[n]; return }
+      if (wrap == "env" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { ovr[substr(w, 1, index(w, "=") - 1)] = 1; return }
       if (wrap == "env" && (w ~ /^-/ || w ~ /=/)) return
       if (wrap != "" && w ~ /^-/) return
       if (wrap == "timeout") { wrap = "timeout1"; return }
@@ -11380,8 +11384,9 @@ AWK_READ_OPERAND_RECORDS='
       if (n ~ /^(command|builtin|exec|nohup|sudo|doas|nice|env|stdbuf|timeout)$/) { wrap = n; return }
       cpos = 0; cmdseen = 1; wrap = ""
       # Assignments before the command are its environment, which code it
-      # runs (sh -c, eval) reads; their values are not followed there.
-      for (k = 1; k <= npa; k++) { delete tab[pan[k]]; delete loopv[pan[k]] }
+      # runs (sh -c, eval) reads; their old values are not followed there.
+      # The shell still expands the words of the command with the old values.
+      for (k = 1; k <= npa; k++) ovr[pan[k]] = 1
       if (w ~ /[$`]/) return
       if (n ~ /^(export|readonly|local|declare|typeset)$/) { mode = "decl"; decl = n; return }
       if (n ~ /^(unset|read|mapfile|readarray|getopts)$/) { mode = "forget"; return }
@@ -11424,7 +11429,7 @@ AWK_READ_OPERAND_RECORDS='
     # A word that is not a plain name may hold an assignment ("f=x", $kv).
     if (mode == "decl") {
       if (w ~ /^[A-Za-z_][A-Za-z0-9_]*\+?=/) assign(w, 1)
-      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; gsub(/["\047\\]/, "", n); sub(/\+?=.*/, "", n); forget(n) }
+      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; if (w !~ /[$`]/) { gsub(/["\047\\]/, "", n); sub(/\+?=.*/, "", n) } forget(n) }
       return
     }
     if (mode == "forget") { if (w !~ /^-/) forget(w); return }

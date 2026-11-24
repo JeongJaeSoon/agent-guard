@@ -1204,8 +1204,8 @@
   {
     "id": "bash-unresolved-operand-child-env",
     "rule": "bash_unresolved_read_operand: assignments before a command are not followed into the code it runs",
-    "old": "      for (k = 1; k <= npa; k++) { delete tab[pan[k]]; delete loopv[pan[k]] }\n",
-    "new": "      for (k = 1; k <= npa; k++) delete loopv[pan[k]]\n",
+    "old": "      for (k = 1; k <= npa; k++) ovr[pan[k]] = 1\n",
+    "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -1384,7 +1384,7 @@
   {
     "id": "bash-unresolved-operand-loop-in-substitution",
     "rule": "AWK_READ_OPERAND_RECORDS: a loop variable is known inside the substitutions of the loop body",
-    "old": "    for (k in loopv) if (!stale(k)) s = s (loopg[k] ? \"\\006\" : \"\\005\") k \"\\003\" loopv[k] \"\\004\"\n",
+    "old": "    for (k in loopv) if (!stale(k, child)) s = s (loopg[k] ? \"\\006\" : \"\\005\") k \"\\003\" loopv[k] \"\\004\"\n",
     "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
@@ -1492,8 +1492,8 @@
   {
     "id": "bash-unresolved-operand-stale-assignment",
     "rule": "AWK_READ_OPERAND_RECORDS: a name reassigned earlier on the same line is not passed to a substitution",
-    "old": "  function stale(nm) { return cpos && nm in ptab }\n",
-    "new": "  function stale(nm) { return 0 }\n",
+    "old": "  function stale(nm, child) { return (cpos && nm in ptab) || (child && nm in ovr) }\n",
+    "new": "  function stale(nm, child) { return (child && nm in ovr) }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -1501,8 +1501,8 @@
   {
     "id": "bash-unresolved-operand-export-quoted",
     "rule": "AWK_READ_OPERAND_RECORDS: an export word that is not a plain name forgets the name it may assign",
-    "old": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n); forget(n) }\n",
-    "new": "      else if (w !~ /^-/ && decl !~ /^(export|readonly)$/) { n = w; gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n); forget(n) }\n",
+    "old": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; if (w !~ /[$`]/) { gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n) } forget(n) }\n",
+    "new": "      else if (w !~ /^-/ && decl !~ /^(export|readonly)$/) { n = w; if (w !~ /[$`]/) { gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n) } forget(n) }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -1510,26 +1510,62 @@
   {
     "id": "bash-unresolved-operand-declare-quoted",
     "rule": "AWK_READ_OPERAND_RECORDS: a quoted assignment word of declare forgets the name before its equals sign",
-    "old": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n); forget(n) }\n",
-    "new": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; gsub(/[\"\\047\\\\]/, \"\", n); forget(n) }\n",
+    "old": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; if (w !~ /[$`]/) { gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n) } forget(n) }\n",
+    "new": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; if (w !~ /[$`]/) { gsub(/[\"\\047\\\\]/, \"\", n); } forget(n) }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
   },
   {
-    "id": "bash-unresolved-operand-child-env-loop",
-    "rule": "AWK_READ_OPERAND_RECORDS: a prefix assignment of a loop variable is not passed to the code the command runs",
-    "old": "      for (k = 1; k <= npa; k++) { delete tab[pan[k]]; delete loopv[pan[k]] }\n",
-    "new": "      for (k = 1; k <= npa; k++) delete tab[pan[k]]\n",
+    "id": "bash-unresolved-operand-prefix-keeps-value",
+    "rule": "AWK_READ_OPERAND_RECORDS: a prefix assignment leaves the value the shell expands the command words with",
+    "old": "      for (k = 1; k <= npa; k++) ovr[pan[k]] = 1\n",
+    "new": "      for (k = 1; k <= npa; k++) { ovr[pan[k]] = 1; delete tab[pan[k]]; delete loopv[pan[k]] }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
   },
   {
-    "id": "bash-unresolved-operand-env-loop",
-    "rule": "AWK_READ_OPERAND_RECORDS: an env assignment of a loop variable is not passed to the code env runs",
-    "old": " delete tab[n]; delete loopv[n]; return }",
-    "new": " delete tab[n]; return }",
+    "id": "bash-unresolved-operand-env-override",
+    "rule": "AWK_READ_OPERAND_RECORDS: an env assignment is not passed to the code env runs",
+    "old": "      if (wrap == \"env\" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { ovr[substr(w, 1, index(w, \"=\") - 1)] = 1; return }\n",
+    "new": "      if (wrap == \"env\" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) return\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-env-keeps-value",
+    "rule": "AWK_READ_OPERAND_RECORDS: an env assignment leaves the value the shell expands the command words with",
+    "old": "      if (wrap == \"env\" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { ovr[substr(w, 1, index(w, \"=\") - 1)] = 1; return }\n",
+    "new": "      if (wrap == \"env\" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { n = substr(w, 1, index(w, \"=\") - 1); ovr[n] = 1; delete tab[n]; delete loopv[n]; return }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-override-child-only",
+    "rule": "AWK_READ_OPERAND_RECORDS: an overridden name is kept from nested shell code",
+    "old": "  function stale(nm, child) { return (cpos && nm in ptab) || (child && nm in ovr) }\n",
+    "new": "  function stale(nm, child) { return (cpos && nm in ptab) }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-eval-old-value",
+    "rule": "AWK_READ_OPERAND_RECORDS: eval code is built from the values before the assignments in front of eval",
+    "old": "    if (mode == \"eval\" && evalcode != \"\") code(evalcode)\n    for (k = 1; k <= npa; k++) {\n      delete loopv[pan[k]]\n      if (cmdseen || cond || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]\n      else tab[pan[k]] = pav[k]\n    }\n",
+    "new": "    for (k = 1; k <= npa; k++) {\n      delete loopv[pan[k]]\n      if (cmdseen || cond || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]\n      else tab[pan[k]] = pav[k]\n    }\n    if (mode == \"eval\" && evalcode != \"\") code(evalcode)\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-declare-split",
+    "rule": "AWK_READ_OPERAND_RECORDS: a declaration word with an expansion may split into more assignments",
+    "old": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; if (w !~ /[$`]/) { gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n) } forget(n) }\n",
+    "new": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; { gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n) } forget(n) }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
