@@ -181,6 +181,67 @@ reuse | grep -Fxq reuse=false || fail 'workflow lookup error runs full main CI'
 rm "$case_dir/workflow-api-error"
 printf 'ok - missing, failed, unfinished and unreadable checks fail closed\n'
 
+ci_suite=$(printf '%s' ci.yml | cksum | cut -d ' ' -f1)
+ci_run() { # id event suite status conclusion
+  jq -nc --argjson id "$1" --arg event "$2" --argjson suite "$3" --arg status "$4" --arg conclusion "$5" --arg sha "$head" \
+    '{id:$id,event:$event,head_sha:$sha,path:".github/workflows/ci.yml",check_suite_id:$suite,status:$status,conclusion:(if $conclusion == "" then null else $conclusion end)}'
+}
+ci_runs() { jq -s '[{workflow_runs:.}]' > "$case_dir/ci.yml.json"; }
+good_checks() { sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0; }
+only_ci() { sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0 ci.yml; }
+
+checks
+{ ci_run 1 workflow_dispatch "$ci_suite" completed success; ci_run 9 pull_request 777 completed success; } | ci_runs
+good_checks || fail 'a newer pull_request run does not hide the dispatched run'
+{ ci_run 1 push "$ci_suite" completed success; ci_run 9 pull_request 777 in_progress ''; } | ci_runs
+good_checks || fail 'a newer unfinished pull_request run does not hide the push run'
+printf 'ok - the newest push or workflow_dispatch run is chosen, never a pull_request run\n'
+
+{ ci_run 1 workflow_dispatch "$ci_suite" completed success; ci_run 9 workflow_dispatch 888 queued ''; } | ci_runs
+good_checks || fail 'an earlier successful dispatched run satisfies a queued newer run'
+only_ci || fail 'dispatch step skips a workflow with a successful run'
+printf 'ok - a completed successful run at the exact SHA is reused while a newer run is still queued\n'
+
+{ ci_run 1 workflow_dispatch "$ci_suite" completed success; ci_run 9 workflow_dispatch 888 completed failure; } | ci_runs
+jq -c '.[0].check_runs += [{id:2,name:"Lint",head_sha:"'"$head"'",check_suite:{id:888},app:{slug:"github-actions"},status:"completed",conclusion:"failure"}]' "$case_dir/checks.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/checks.json"
+reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
+grep -Fq 'failed: failure' "$case_dir/rejected.err" || fail 'a failed newest run still fails'
+reject only_ci
+checks
+
+{ ci_run 1 workflow_dispatch "$ci_suite" completed failure; ci_run 9 workflow_dispatch 888 queued ''; } | ci_runs
+reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
+{ ci_run 1 pull_request "$ci_suite" completed success; ci_run 9 workflow_dispatch 888 queued ''; } | ci_runs
+reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
+reject only_ci
+{ ci_run 1 workflow_dispatch "$ci_suite" completed success; ci_run 9 workflow_dispatch 888 queued ''; } | ci_runs
+jq '.[0].check_runs |= map(select(.name != "Lint"))' "$case_dir/checks.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/checks.json"
+reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
+grep -Fq "Required check 'Lint'" "$case_dir/rejected.out" || fail 'an earlier run lacking a required name is not evidence'
+reject only_ci
+checks
+{ ci_run 1 workflow_dispatch "$ci_suite" completed success; ci_run 9 workflow_dispatch 888 queued ''; } | ci_runs
+jq '(.[0].check_runs[] | select(.name == "Lint")).app.slug="other-app"' "$case_dir/checks.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/checks.json"
+reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
+checks
+jq '.[0].workflow_runs[0].head_sha="0000000000000000000000000000000000000000"' "$case_dir/ci.yml.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/ci.yml.json"
+reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
+reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0 not-in-manifest.yml
+checks
+printf 'ok - reuse never accepts failed, partial, foreign-app, pull_request or other-SHA evidence\n'
+
+release_yml="$ROOT/.github/workflows/release.yml"
+awk '/^  verify:/ { on = 1 } /^  publish:/ { on = 0 } on' "$release_yml" > "$case_dir/verify-job"
+grep -Fxq '    timeout-minutes: 180' "$case_dir/verify-job" || fail 'verify job has a long hard upper bound'
+grep -Fq 'release-checks.sh "$SOURCE_SHA" 0 "$workflow"' "$case_dir/verify-job" || fail 'dispatch step skips already successful workflows'
+grep -Fq 'release-checks.sh "$RELEASE_HEAD_SHA" 7200' "$case_dir/verify-job" || fail 'verify waits for a long runner queue'
+grep -Fq 'release-performance.sh "$RELEASE_HEAD_SHA" 3000' "$case_dir/verify-job" || fail 'verify waits for the measurement within the job bound'
+printf 'ok - verify survives a long queue within a hard job bound\n'
+
 jq '.labels=[]' "$case_dir/pr.json" > "$case_dir/changed"
 mv "$case_dir/changed" "$case_dir/pr.json"
 jq -s . "$case_dir/pr.json" > "$case_dir/prs.json"

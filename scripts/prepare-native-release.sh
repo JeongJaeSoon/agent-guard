@@ -20,7 +20,7 @@ gh api "repos/$repo/actions/workflows/native-platforms.yml/runs?head_sha=$sha&pe
 run=$(jq -r --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha and
   ((.head_branch == "main" and .event == "push") or
    (.event == "workflow_dispatch" and (.head_branch | startswith("release/")))))]
-  | sort_by(.id) | last | select(.status == "completed" and .conclusion == "success") | .id' "$tmp/runs.json")
+  | map(select(.status == "completed")) | sort_by(.id) | last | select(.conclusion == "success") | .id' "$tmp/runs.json")
 [ -n "$run" ] && [ "$run" != null ] || { echo 'no successful native workflow for checked source SHA' >&2; exit 2; }
 for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin; do
   name="agent-guard-redact-$target"
