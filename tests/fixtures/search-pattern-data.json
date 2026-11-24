@@ -1,0 +1,408 @@
+[
+  {
+    "id": "git-grep-pattern",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a git grep pattern that names a dotenv file",
+    "command": "git grep -n -E 'test-ops\\.env|compose' -- docs scripts | head -40"
+  },
+  {
+    "id": "git-grep-protected-pathspec",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a git grep whose pathspec is a dotenv file",
+    "command": "git grep -n VALUE -- .env"
+  },
+  {
+    "id": "git-grep-option-after-pattern",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "two git greps, the first with a context option after its pattern",
+    "command": "git grep -n 'p q.env' -A4 -- apps/web | head; git grep -n \"x.key\" -- 'apps/*.ts' | head"
+  },
+  {
+    "id": "git-grep-pattern-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a git grep that reads its patterns from a dotenv file",
+    "command": "git grep -f .env VALUE"
+  },
+  {
+    "id": "grep-after-git-diff",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern after git diff",
+    "command": "git diff -U0 aaa bbb -- packages/db/src | grep -E 'process\\.env|x'"
+  },
+  {
+    "id": "grep-after-git-diff-reads-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep that reads a dotenv file after git diff",
+    "command": "git diff -U0 aaa bbb -- packages/db/src | grep -E 'x' .env"
+  },
+  {
+    "id": "grep-after-gh-run-log",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern after a gh run log with stderr merged",
+    "command": "gh run view --job 1 --log 2>&1 | grep -E 'a\\.key|b' | cut -c1-220 | tail -8"
+  },
+  {
+    "id": "grep-after-gh-run-log-reads-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep that reads a key file after a gh run log",
+    "command": "gh run view --job 1 --log 2>&1 | grep -E 'b' tls.key"
+  },
+  {
+    "id": "grep-in-for-loop",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern inside a for loop over literal paths",
+    "command": "for p in apps/a apps/b; do grep -n \"process.env\" $p/index.ts | head -3; done"
+  },
+  {
+    "id": "for-loop-variable-option",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a loop variable that becomes a grep option",
+    "command": "for p in -e; do grep .env $p VALUE; done"
+  },
+  {
+    "id": "grep-in-condition",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern in an if condition",
+    "command": "if grep -q 'x.key' src/a.ts; then echo yes; fi"
+  },
+  {
+    "id": "loop-output-to-shell",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a loop whose output is piped to a shell",
+    "command": "for f in a b; do grep -o 'cat x.key' list.txt; done | sh"
+  },
+  {
+    "id": "variable-operand",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep operand under a directory variable",
+    "command": "cd src; A=lib/x; grep -n \"api.key\\|foo\" $A/config.ts | grep -o \"api.key\" | head -30"
+  },
+  {
+    "id": "variable-option",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a variable that becomes a grep option",
+    "command": "A=-e; grep .env $A VALUE"
+  },
+  {
+    "id": "option-after-pattern",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "grep options and a quiet redirection after the pattern",
+    "command": "ls a b 2>/dev/null; grep -rli \"api.key\\|x\" --include=*.ts --include=*.md -l . 2>/dev/null | grep -v node_modules | grep -v \"\\.test\\.\" | head -60"
+  },
+  {
+    "id": "pattern-option-after-pattern",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a pattern option after the first operand makes it a file",
+    "command": "grep .env -h -e VALUE"
+  },
+  {
+    "id": "sed-print-then-grep",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a print-only sed feeding grep, then a grep with -o after its pattern",
+    "command": "sed -n 100,260p src/a.tsx | grep -o \"t('[a-z.]*key'\" | head -40; grep -rn \"secrets.json$\" -o src/b.tsx | head -20"
+  },
+  {
+    "id": "sed-print-reads-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a print-only sed that reads a dotenv file before grep",
+    "command": "sed -n 1,5p .env | grep -o \"x\" | head"
+  },
+  {
+    "id": "grep-after-sort-uniq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern after a pipeline that ends in sort and uniq",
+    "command": "grep -o -h -E \"x.key\" a.log | sort | uniq -c | head; cd src && grep -rn \"y.key\" lib --include=*.ts -l | head -5"
+  },
+  {
+    "id": "grep-after-sort-output",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep pattern after a sort that writes a file",
+    "command": "ls src | sort -o p; grep -n \"x.key\" src/a.ts"
+  },
+  {
+    "id": "rg-then-grep",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern after an rg whose every word is literal",
+    "command": "rg --no-config -n 'x\\.key' src; grep -c 'y\\.key' list.txt"
+  },
+  {
+    "id": "rg-glob-operand-then-grep",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep pattern after an rg with a glob operand",
+    "command": "rg --no-config VALUE *; grep .env"
+  },
+  {
+    "id": "find-exclusion-in-loop",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "find exclusions inside a loop over literal directories",
+    "command": "for d in a b 세션-기능; do echo \"== $d\"; find \"$d\" -maxdepth 3 -not -path \"*/secrets*\" -not -path \"*/node_modules/*\" | head -20; stat -f \"%Sm\" \"$d\"; done"
+  },
+  {
+    "id": "find-selection",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a find that selects a dotenv file",
+    "command": "for d in a b; do find \"$d\" -maxdepth 3 -name \".env\" -not -path \"*/node_modules/*\" | head -20; done"
+  },
+  {
+    "id": "find-negated-name",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a find with a negated name test",
+    "command": "find . -maxdepth 2 ! -name \"*.key\" -type f | wc -l"
+  },
+  {
+    "id": "find-exclusion-or",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a find exclusion beside an -o branch",
+    "command": "find . -not -path \"*/x.key\" -o -type f"
+  },
+  {
+    "id": "deny-pattern-alternation",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a double-quoted grep alternation with an escaped parenthesis and a word before a bar",
+    "command": "cd src && grep -nE \"foo|bar\\\\)|baz qux set|x-y\" 'tool' | head -60"
+  },
+  {
+    "id": "deny-pattern-real-dump",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a shell variable dump after such a grep",
+    "command": "cd src && grep -n -E 'shopt| set|unset' tool; set | head"
+  },
+  {
+    "id": "last-argument-git-grep",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the last-argument variable after a git grep pattern",
+    "command": "git grep -n -e .env; cat $_"
+  },
+  {
+    "id": "last-argument-find",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the last-argument variable after a find exclusion",
+    "command": "find . -maxdepth 1 -not -name .env; cat $_"
+  },
+  {
+    "id": "last-argument-variable-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the last-argument variable after a grep with a variable operand",
+    "command": "A=src; grep -e .env $A/a.ts; cat $_"
+  },
+  {
+    "id": "last-argument-deny-pattern",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the last-argument variable written inside the search pattern",
+    "command": "grep -nE \"foo|\\\\\\$_|baz qux set|x-y\" src/tool | head"
+  },
+  {
+    "id": "loop-piped-to-filter",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep inside a loop whose output goes to a plain filter",
+    "command": "for f in apps/a.ts apps/b.ts; do echo \"== $f\"; grep -c \"\\.env\" \"$f\"; done | head -50"
+  },
+  {
+    "id": "loop-quoted-done",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a quoted done inside the loop, which is a command name and closes nothing",
+    "command": "for i in 1 2; do grep .env list.txt; 'done'; hash -p /bin/cat grep; done"
+  },
+  {
+    "id": "condition-then-other-command",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep inside a condition, with another command after it",
+    "command": "if grep -q foo list.txt; then echo a; grep -n \"\\.env\" list.txt; git status; fi"
+  },
+  {
+    "id": "loop-then-other-command",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep inside a loop, where the command after it runs before the next round",
+    "command": "for f in a b; do grep -c '\\.env' list.txt; git status; done"
+  },
+  {
+    "id": "operand-of-inherited-variable",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a later operand that expands a variable the command does not set",
+    "command": "for f in a b; do echo $f; done; grep -c '\\.env' $HOME/notes/*.md"
+  },
+  {
+    "id": "operand-behind-written-dash",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a variable of the command written behind a dash, where its value is an option",
+    "command": "A=e; grep .env \"-$A\" VALUE"
+  },
+  {
+    "id": "operand-dash-after-expansion",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an operand that starts with an expansion and then a dash, which is an option when the expansion is empty",
+    "command": "grep .env \"$UNSET_PREFIX-e\" VALUE"
+  },
+  {
+    "id": "gh-search-word",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the search words of a gh issue list",
+    "command": "gh issue list --repo o/r --state all --search \"process.env in:body\" --json number,title | head -5"
+  },
+  {
+    "id": "gh-search-then-read",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a gh search, then a command that reads a dotenv file",
+    "command": "gh issue list --search \"process.env\"; cat .env"
+  },
+  {
+    "id": "gh-search-query",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the query words of gh search",
+    "command": "gh search code \"process.env\" --repo o/r --limit 5"
+  },
+  {
+    "id": "gh-api-field-from-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a gh api field that reads its value from a dotenv file",
+    "command": "gh api search/code -F q=@.env"
+  },
+  {
+    "id": "gh-search-to-shell",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "gh search output piped to a shell",
+    "command": "gh search code \"x.env\" --repo o/r | sh"
+  },
+  {
+    "id": "gh-search-last-argument",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the last-argument variable after a gh search",
+    "command": "gh issue list --search \"a.env\"; cat $_"
+  },
+  {
+    "id": "grep-exclude-value",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep name filter that leaves dotenv files out",
+    "command": "grep -rn --exclude='*.env' --exclude-dir=node_modules word docs/"
+  },
+  {
+    "id": "grep-include-value",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep name filter that selects dotenv files",
+    "command": "grep -rn --include='*.env' VALUE ."
+  },
+  {
+    "id": "rg-glob-selects",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an rg glob that selects key files to search",
+    "command": "rg --no-config -n --glob '*.pem' word docs/"
+  },
+  {
+    "id": "grep-exclude-from-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep that reads its exclusions from a dotenv file",
+    "command": "grep -rn --exclude-from=.env word docs/"
+  },
+  {
+    "id": "sed-program-after-substituting-sed",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed program with an address and port regex, after a pipeline that holds a substituting sed",
+    "command": "grep -c \"create endpoint failed\" app.log; grep \"create endpoint failed\" app.log | sed -E 's/.*time=\"([0-9-]+ [0-9]+:[0-9]).*/\\1/' | uniq -c | tail -12; grep \"create endpoint failed\" app.log | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c | sort -rn | head -5"
+  },
+  {
+    "id": "sed-program-after-writing-sed",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same sed program after a sed whose s command writes a file",
+    "command": "grep \"create endpoint failed\" app.log | sed -E 's/a/b/w out.txt' | uniq -c; grep \"create endpoint failed\" app.log | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort"
+  },
+  {
+    "id": "sed-substitute-writes-key-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a substituting sed whose s command writes a key file",
+    "command": "grep \"create endpoint failed\" app.log | sed -E 's/a/b/'; grep \"create endpoint failed\" app.log | sed -E 's/a/b/w tls.key'"
+  },
+  {
+    "id": "sed-in-place-dotenv",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed that edits a dotenv file in place after a substituting sed",
+    "command": "grep \"create endpoint failed\" app.log | sed -E 's/a/b/'; sed -i -E 's/a/b/' .env"
+  },
+  {
+    "id": "grep-pattern-into-substituting-sed",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern whose matches a substituting sed rewrites",
+    "command": "grep -oE 'tls\\.key|x' app.log | sed -E 's/^tls\\.//' | sort | uniq -c"
+  },
+  {
+    "id": "grep-pattern-into-running-sed",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep pattern whose matches a sed runs as commands",
+    "command": "grep -oE 'tls\\.key|x' app.log | sed 's/^/cat /e'"
+  },
+  {
+    "id": "sed-substitute-last-argument",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a reader of the last-argument variable after a substituting sed and a grep pattern",
+    "command": "grep \"create endpoint failed\" app.log | sed -E 's/a/b/'; grep -e .env app.log; cat $_"
+  },
+  {
+    "id": "sed-write-command-shaped-like-s",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed w command written with the delimiters of an s command, before a grep pattern",
+    "command": "sed 'w/x/y/' app.log; grep .env"
+  },
+  {
+    "id": "sed-script-outside-ascii",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a substituting sed whose script holds a byte outside ASCII, before a grep pattern",
+    "command": "sed 's/Ａ\\/a/w p/g' app.log; grep .env"
+  }
+]

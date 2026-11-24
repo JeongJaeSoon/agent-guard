@@ -96,13 +96,17 @@ def correct(entry, host, text, result, whole_leaf=False):
         return False
 
 
+# Long runs of a delimiter character before the key (#585).
+FILL = {"line": "a", "whitespace": " ", "tab": "\t", "cr": "\r"}
+
+
 def inputs(entry, shape, size):
     if entry == "protected-path":
         tail = "/." + "env"
-        candidate = (" " if shape == "whitespace" else "a") * (size - len(tail)) + tail
+        candidate = FILL[shape] * (size - len(tail)) + tail
         control = candidate
     else:
-        candidate = (" " if shape == "whitespace" else "a") * (size - len(SUFFIX)) + SUFFIX
+        candidate = FILL[shape] * (size - len(SUFFIX)) + SUFFIX
         control = (("a" * 1100 + "\n") * (size // 1101 + 1))[:size - len(SUFFIX)] + SUFFIX
     assert len(candidate.encode()) == size == len(control.encode())
     return candidate, control
@@ -155,7 +159,8 @@ def main():
             for entry in ("protected-path", "prompt", "assignment", "output"):
                 hosts = ("claude",) if entry == "assignment" else ("claude", "codex")
                 for host in hosts:
-                    for shape in ("line", "whitespace"):
+                    shapes = ("line", "whitespace", "tab", "cr") if entry == "assignment" else ("line", "whitespace")
+                    for shape in shapes:
                         candidate, control = inputs(entry, shape, SIZE)
                         if entry == "output":
                             for text in (candidate, control):
@@ -185,36 +190,21 @@ def main():
                                   f"({baseline[1]:.3f}s / small {small[1]:.3f}s / limit {scaling_limit:.3f}s, "
                                   f"exit {baseline[0]})", flush=True)
                             return 1
-                        known = shape == "whitespace" and entry != "protected-path"
-                        candidate_small_time = None
-                        if known:
-                            short, _ = inputs(entry, shape, 2048)
-                            short_result = measure(command, encode(short), env, small[1] * 8 + 1, deadline)
-                            if not correct(entry, host, short, short_result):
-                                print(f"not ok - {label}: small whitespace verdict failed "
-                                      f"(exit {short_result[0]})", flush=True)
-                                return 1
-                            print(f"ok - {variant} {host} {entry} small whitespace verdict", flush=True)
-                            limit = min(baseline[1] * 3 + 1, 2)
-                        else:
-                            # A real file_path costs more than ignored metadata.
-                            # Retain the candidate's hook, input field and shape.
-                            sample = measure(command, encode(small_candidate), env, scaling_limit, deadline)
-                            if not correct(entry, host, small_candidate, sample):
-                                print(f"not ok - {label}: small candidate failed (exit {sample[0]})", flush=True)
-                                return 1
-                            candidate_small_time = sample[1]
-                            limit = min(candidate_small_time * 8 + 1, LARGE_INPUT_MAX_SECONDS)
+                        # A real file_path costs more than ignored metadata.
+                        # Retain the candidate's hook, input field and shape.
+                        sample = measure(command, encode(small_candidate), env, scaling_limit, deadline)
+                        if not correct(entry, host, small_candidate, sample):
+                            print(f"not ok - {label}: small candidate failed (exit {sample[0]})", flush=True)
+                            return 1
+                        candidate_small_time = sample[1]
+                        limit = min(candidate_small_time * 8 + 1, LARGE_INPUT_MAX_SECONDS)
                         result = measure(command, encode(candidate), env, limit, deadline)
                         valid = correct(entry, host, candidate, result, whole_leaf=True)
                         slow = result[0] is None or result[1] > limit
                         timing = (f"{result[1]:.3f}s / control {baseline[1]:.3f}s / limit {limit:.3f}s "
-                                  f"/ small {small[1]:.3f}s / scaling limit {scaling_limit:.3f}s")
-                        if candidate_small_time is not None:
-                            timing += f" / candidate small {candidate_small_time:.3f}s"
-                        if slow and known:
-                            print(f"not ok - {label}: {timing} # TODO https://github.com/JeongJaeSoon/agent-guard/issues/585", flush=True)
-                        elif slow or not valid:
+                                  f"/ small {small[1]:.3f}s / scaling limit {scaling_limit:.3f}s"
+                                  f" / candidate small {candidate_small_time:.3f}s")
+                        if slow or not valid:
                             print(f"not ok - {label}: {timing}, exit {result[0]}, valid={valid}", flush=True)
                             return 1
                         else:
