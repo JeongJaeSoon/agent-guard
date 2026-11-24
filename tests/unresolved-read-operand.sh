@@ -381,6 +381,8 @@ check 0 "a quoted process substitution is text" 'echo "<(cat $F)"'
 check u "an array initialisation of a declared name" 'p=.e; declare -a f=($p); cat "${f}nv"'
 check u "an array initialisation" 'p=.e; f=($p); cat "${f}nv"'
 check 0 "an array initialisation beside a literal read" 'f=(a b); cat README.md'
+check u "an indexed assignment leaves the name unknown" 'f=.e; f[1]=x; cat "${f}nv"'
+check u "an indexed assignment of a protected name leaves the name unknown" 'f=README.md; f[1]=.e; cat "${f}nv"'
 
 # The mode decides only for an operand that stays unknown: one resolved to a
 # protected file blocks with the open policy too, also when an unknown operand

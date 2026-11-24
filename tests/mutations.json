@@ -1168,8 +1168,17 @@
   {
     "id": "bash-unresolved-operand-array-literal",
     "rule": "bash_unresolved_read_operand: an array initialisation leaves the value unknown",
-    "old": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/ || substr(w, index(w, \"=\") + 1, 1) == \"(\") v = \"\\002\"\n",
-    "new": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/) v = \"\\002\"\n",
+    "old": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/ || substr(w, index(w, \"=\") + 1, 1) == \"(\" || idx) v = \"\\002\"\n",
+    "new": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/ || idx) v = \"\\002\"\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-element-write-scalar",
+    "rule": "bash_unresolved_read_operand: an element write leaves the value unknown",
+    "old": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/ || substr(w, index(w, \"=\") + 1, 1) == \"(\" || idx) v = \"\\002\"\n",
+    "new": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/ || substr(w, index(w, \"=\") + 1, 1) == \"(\") v = \"\\002\"\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]

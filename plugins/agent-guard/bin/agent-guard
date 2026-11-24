@@ -11296,14 +11296,15 @@ AWK_READ_OPERAND_RECORDS='
     npa = 0; cpos = 1; cmdseen = 0; prog = ""; mode = ""; ddash = 0; patdone = 0
     skipn = 0; fnext = 0; redir = 0; skipw = 0; cppend = ""; cpt = 0; wrap = ""; gotone = 0; jqdata = 0; sedi = 0
   }
-  function assign(w, now,   nm, v, add) {
-    nm = substr(w, 1, index(w, "=") - 1); sub(/\[.*/, "", nm)
+  function assign(w, now,   nm, v, add, idx) {
+    nm = substr(w, 1, index(w, "=") - 1); idx = (nm ~ /\[/); sub(/\[.*/, "", nm)
     add = (nm ~ /\+$/); sub(/\+$/, "", nm)
     if (nm == "IFS") ifsset = 1
     asg = 1; v = value(substr(w, index(w, "=") + 1)); asg = 0
     # A marker or table separator byte leaves the value unknown, and so does
-    # an array initialisation, whose words the shell splits and expands.
-    if (v ~ /[\001\002\003\004\005\006\007]/ || substr(w, index(w, "=") + 1, 1) == "(") v = "\002"
+    # an array initialisation, whose words the shell splits and expands, or
+    # an element write, since ${f} still reads element zero.
+    if (v ~ /[\001\002\003\004\005\006\007]/ || substr(w, index(w, "=") + 1, 1) == "(" || idx) v = "\002"
     # NAME+=value appends to the value it already has.
     if (add) v = (v != "\002" && known(nm)) ? lv v : "\002"
     if (now) delete loopv[nm]
