@@ -186,8 +186,9 @@ run_expect 0 "status-label classification contracts" sh "$ROOT/tests/unit-status
 run_expect 0 "leftmost assignment is a candidate on every installed awk" sh "$ROOT/tests/assignment-leftmost.sh"
 run_expect 0 "large hook inputs stay within a control-relative budget" env AGENT_GUARD_TEST_REQUIRE_AWKS= AGENT_GUARD_TEST_LONG_INPUT_AWKS=default sh "$ROOT/tests/long-input.sh"
 suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.sh" | sort -u | tr '\n' ' ')
-ci_shards=$(sed -n "s/^ *shards: '\([0-9 ][0-9 ]*\)'$/\1/p" "$ROOT/.github/workflows/ci.yml" | tr ' ' '\n' | sort | tr '\n' ' ')
-ci_navigation_hosts=$(awk '$1 == "navigation_host:" { print $2 }' "$ROOT/.github/workflows/ci.yml" | sort | tr '\n' ' ')
+ci_include=$(sh "$ROOT/.github/scripts/ci-scope.sh" push main < /dev/null | sed -n 's/^include=//p')
+ci_shards=$(printf '%s\n' "$ci_include" | jq -r '.[].shards' | tr ' ' '\n' | sort | tr '\n' ' ')
+ci_navigation_hosts=$(printf '%s\n' "$ci_include" | jq -r '.[].navigation_host // empty' | sort | tr '\n' ' ')
 if [ -n "$suite_shards" ] && [ "$suite_shards" = '1 2 3 4 5 ' ] \
   && [ "$ci_shards" = '1 1 2 3 3 4 5 5 ' ] \
   && [ "$ci_navigation_hosts" = 'claude codex ' ]; then
