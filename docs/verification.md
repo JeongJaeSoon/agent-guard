@@ -132,13 +132,14 @@ another tool call.
   readiness verdict for the same gitleaks file had expired within the last ten
   minutes: with one, the hook scans instead of reporting this code.
 - `open` infrastructure mode continues after a visible one-time warning;
-  `closed` blocks. This policy applies to infrastructure failures, while a
-  secret detection blocks. Non-empty malformed or non-object PreToolUse and
+  `closed` blocks. With the mode unset, a secret scan that did not run blocks
+  and every other infrastructure failure continues with the warning. This
+  policy applies to infrastructure failures, while a secret detection blocks. Non-empty malformed or non-object PreToolUse and
   Stop input blocks independently of infrastructure mode. PostToolUse first
   recovers a valid host envelope with its independent parser and emits a
   conservative replacement; exit status 2 for a non-empty malformed or
   non-object PostToolUse envelope is a visible diagnostic and cannot retract
-  the completed tool result. Under `closed`, a Claude PostToolUse hook that
+  the completed tool result. Under `closed` and by default, a Claude PostToolUse hook that
   could not check an output also replaces every non-empty string in it and
   keeps its shape, because exit status 2 alone leaves the output with the
   model. Empty stdin is the documented exception:
