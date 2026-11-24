@@ -14432,11 +14432,12 @@ secretish_env_values() {
       # which marks a prose chain like `error: password: authentication is
       # disabled`.
       colon_assignment = "(^[+]?[ \t\r]*|[,{([][ \t\r]*|[ \t\r])[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
-      # A colon key may open a JSON string value instead, right after the
-      # colon of its member (`{"text":"password: <value>"}`, #628).
+      # In the copy scan_line reads, the quoted key of a JSON member whose
+      # quotes were escaped inside a JSON string follows the colon and the
+      # quote that open that string (`"text":"\"token\": ...`, #628).
       # find_quote_colon looks for it apart, so that a line without one
       # reads exactly as before.
-      quote_colon_assignment = ":[\"'\''`][\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      quote_colon_assignment = ":[\"'\''`][\"'\''`]" key "[\"'\''`][ \t]*:"
       # Skipping after ANY colon-terminated token also let real structured log
       # lines through unmasked (`response: api_key: <secret>`), so only these
       # status words justify the skip. Deliberately short: an unlisted label
@@ -14553,21 +14554,12 @@ secretish_env_values() {
         dry_found = 1
         return
       }
-      # A mapping for a value cut at the end of its JSON string carries
-      # what follows that end up to a space, as the context the mapping
-      # needs after the value.
-      if (source_tail > 0 && value_start - prefix_length + length(literal) - 1 == length(source)) {
-        literal = literal source_extra
-        replacement = replacement source_extra
-      }
       # A mapping the copy scan_line reads made must match the line as it
       # was, so each quote the copy unescaped gets its backslash back. One
       # whose place in the copy is unknown is dropped.
       if (copy_reading && index(literal, "\"")) {
-        # source_tail: what follows source in the text scan_line_once reads,
-        # when the value was cut at the end of its JSON string.
-        offset = length(copy_line) - length(source) - source_tail
-        if (offset < 0 || substr(copy_line, offset + 1, length(source)) != source) return
+        offset = length(copy_line) - length(source)
+        if (offset < 0 || substr(copy_line, offset + 1) != source) return
         begin = offset + value_start - prefix_length
         tail = length(replacement) - prefix_length - length("[REDACTED]")
         replacement = line_text(substr(literal, 1, prefix_length), begin) \
@@ -16041,7 +16033,7 @@ secretish_env_values() {
       if (delimiter == "=") return match(text, equals_assignment)
       return match(text, colon_assignment)
     }
-    # The leftmost quote-opened colon key, from the quote on, in
+    # The leftmost such key, from the quote on, in
     # quote_start/quote_length (0 and -1 when there is none). The pattern
     # opens with the colon before the quote, not with an alternation, so
     # match() reports the leftmost match on every awk. find_assignment
@@ -16129,8 +16121,7 @@ secretish_env_values() {
     function scan_line_once(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \
                        chose_colon, skip, status_guard, first, expansion, \
-                       closed_value, key_opener, advance, advanced, head, \
-                       after_key, quote_at, string_close, bounded) {
+                       closed_value, key_opener, advance, advanced, head) {
       rest = line
       advanced = rescan_head
       rescan_head = 0
@@ -16178,7 +16169,8 @@ secretish_env_values() {
         find_assignment(low, ":")
         colon_start = assignment_start
         colon_length = assignment_length
-        find_quote_colon(low)
+        if (copy_reading) find_quote_colon(low)
+        else quote_start = 0
         if (quote_start > 0 && (colon_start == 0 || quote_start < colon_start)) {
           colon_start = quote_start
           colon_length = quote_length
@@ -16217,33 +16209,6 @@ secretish_env_values() {
           key_opener = substr(rest, start + 1, 1)
           if (key_opener != "\"" && key_opener != "'\''" && key_opener != "`")
             skip = 1
-        }
-        if (chose_colon && start > 1 && index("\"'\''`", first)) {
-          # The quote that opened the key closes right after the colon
-          # (`{"text":"password:"}`): the string ends there with no value,
-          # and reading that quote as the opener of a value would swallow the
-          # text after it. In the copy scan_line reads, a quote that was
-          # escaped opens a value (`{"text":"password: \"<value>\""}`);
-          # where the copy is not what is read, the quote ends the string.
-          after_key = substr(rest, start + matched_length)
-          sub(/^[ \t]*/, "", after_key)
-          # Where this string ends, so that a key later in it does not
-          # read that quote as the opener of its value either
-          # (`{"text":"token:password:"}`).
-          string_close = string_end(rest, start + matched_length, first)
-          if (substr(after_key, 1, 1) == first) {
-            quote_at = length(copy_line) - length(rest) \
-              + length(rest) - length(after_key) + 1
-            if (!copy_reading \
-                || substr(copy_line, length(copy_line) - length(rest) + 1) != rest \
-                || !(quote_at in copy_escaped))
-              skip = 1
-          }
-        }
-        if (!skip && string_close > 0) {
-          after_key = substr(rest, start + matched_length)
-          sub(/^[ \t]*/, "", after_key)
-          if (length(rest) - length(after_key) + 1 == string_close) skip = 1
         }
         if (chose_colon && start > 1) {
           # `\r` belongs with space and tab here, or the guard misses the shape
@@ -16307,30 +16272,7 @@ secretish_env_values() {
           head = substr(head, locator_length(head) + 1)
           key_line_start = (head ~ /^[+-]?[ \t\r]*((export|const|let|var|public|private|protected|readonly|static)[ \t]+)*$/)
         }
-        # A value inside a JSON string ends with that string, so a quote
-        # it opens and does not close there cannot take the lines below
-        # (a lone apostrophe after `{"text":"password: `). What it opened is read as scan_leaf
-        # reads a quote that never closed.
-        if (!skip && string_close > start + matched_length) {
-          source_tail = length(rest) - string_close + 1
-          source_extra = substr(rest, string_close)
-          match(source_extra, /^[^ \t\r]*/)
-          source_extra = substr(source_extra, 1, RLENGTH)
-          bounded = emit_value(substr(rest, 1, string_close - 1),
-                         start + matched_length,
-                         substr(rest, start, matched_length), status_guard)
-          source_tail = 0
-          source_extra = ""
-          if (bounded && open_quote != "") {
-            if (!open_guard || credential_shaped(edge_trim(open_value)))
-              emit_captured(open_value)
-            else
-              guard_rescan_leaf(open_value)
-            open_quote = ""
-            open_value = ""
-            open_guard = 0
-          }
-        } else if (!skip &&
+        if (!skip &&
             emit_value(rest, start + matched_length,
                        substr(rest, start, matched_length), status_guard)) break
         advance = start + matched_length - 1
@@ -16346,26 +16288,8 @@ secretish_env_values() {
           }
         }
         rest = substr(rest, advance + 1)
-        string_close -= advance
-        if (string_close < 1) string_close = 0
         advanced = 1
       }
-    }
-    # The position in rest of the quote q that closes a string, searched
-    # from position from: one with no backslash before it, or in the copy
-    # scan_line reads, one the copy did not unescape. 0 when none is known.
-    function string_end(rest, from, q,   i, offset) {
-      if (copy_reading) {
-        offset = length(copy_line) - length(rest)
-        if (offset < 0 || substr(copy_line, offset + 1) != rest) return 0
-      }
-      while ((i = index(substr(rest, from), q)) > 0) {
-        from += i
-        if (copy_reading ? !((offset + from - 1) in copy_escaped) \
-            : substr(rest, from - 2, 1) != "\\")
-          return from - 1
-      }
-      return 0
     }
     # leaf_tail holds the lines of the leaf below the one scan_line reads,
     # so emit_value can check what follows an empty value

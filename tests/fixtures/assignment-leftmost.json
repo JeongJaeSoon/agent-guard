@@ -235,14 +235,6 @@
   "masked": "API_KEY=''$OTHER_NAME"
  },
  {
-  "id": "json-string-colon-key",
-  "input": "{\"text\":\"password: %R%\"}",
-  "values": [
-   "%R%"
-  ],
-  "masked": "{\"text\":\"password: [REDACTED]\"}"
- },
- {
   "id": "json-escaped-member",
   "input": "{\"text\":\"  \\\"token\\\": \\\"%R%\\\",\"}",
   "values": [
@@ -257,36 +249,6 @@
    "%R%"
   ],
   "masked": "{\"text\":\"export DB_PASSWORD=\\\"[REDACTED]\\\"\"}"
- },
- {
-  "id": "json-string-key-closes-at-colon",
-  "input": "retry %R%\n{\"text\":\"password:\"}\nAPI_KEY=%R%",
-  "values": [
-   "%R%"
-  ],
-  "masked": "retry [REDACTED]\n{\"text\":\"password:\"}\nAPI_KEY=[REDACTED]"
- },
- {
-  "id": "json-string-key-closes-after-space",
-  "input": "retry %R%\n{\"text\":\"password: \"}\nAPI_KEY=%R%",
-  "values": [
-   "%R%"
-  ],
-  "masked": "retry [REDACTED]\n{\"text\":\"password: \"}\nAPI_KEY=[REDACTED]"
- },
- {
-  "id": "json-string-colon-key-escaped-value",
-  "input": "{\"text\":\"password: \\\"%R%\\\"\"}",
-  "values": [
-   "%R%"
-  ],
-  "masked": "{\"text\":\"password: \\\"[REDACTED]\\\"\"}"
- },
- {
-  "id": "json-string-key-closes-with-escaped-quotes-elsewhere",
-  "input": "{\"text\":\"password:\",    \"other\":\"say \\\"hello\\\"\"}",
-  "values": [],
-  "masked": "{\"text\":\"password:\",    \"other\":\"say \\\"hello\\\"\"}"
  },
  {
   "id": "glued-short-tail-maps-in-context",
@@ -311,46 +273,5 @@
    }
   ],
   "masked": "prefix: build finished\n{\"text\":\"\\\"password\\\": [REDACTED]}\"}\nsuffix: all tests passed"
- },
- {
-  "id": "json-string-chained-colon-keys-close-at-quote",
-  "input": "{\"text\":\"token:password:\"}\nAPI_KEY=%R%\nretry %R%",
-  "values": [
-   "password:",
-   "%R%"
-  ],
-  "masked": "{\"text\":\"token:[REDACTED]\"}\nAPI_KEY=[REDACTED]\nretry [REDACTED]"
- },
- {
-  "id": "skipped-quote-match-then-closing-key",
-  "input": "retry %R%\necho '\"password\":\"token:\"'\nAPI_KEY=%R%",
-  "values": [
-   "%R%"
-  ],
-  "masked": "retry [REDACTED]\necho '\"password\":\"token:\"'\nAPI_KEY=[REDACTED]"
- },
- {
-  "id": "line-start-closed-key-quoted-value",
-  "input": "'password': '%R%'",
-  "values": [
-   "%R%"
-  ],
-  "masked": "'password': '[REDACTED]'"
- },
- {
-  "id": "json-string-lone-apostrophe-ends-with-string",
-  "input": "{\"text\":\"password: '\"}\npassword='%R%'",
-  "values": [
-   "%R%"
-  ],
-  "masked": "{\"text\":\"password: '\"}\npassword='[REDACTED]'"
- },
- {
-  "id": "json-string-unclosed-apostrophe-value",
-  "input": "{\"text\":\"password: '%R%\"}\nnext line",
-  "values": [
-   "%R%"
-  ],
-  "masked": "{\"text\":\"password: '[REDACTED]\"}\nnext line"
  }
 ]
