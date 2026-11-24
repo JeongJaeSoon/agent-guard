@@ -225,6 +225,11 @@ check 2 "a loop variable reassigned in the body" 'for f in README.md; do f=$(pri
 check 2 "a loop variable read back" 'for f in README.md; do read f; cat "$f"; done'
 check 2 "a loop variable joined with a second one" 'for f in a; do for g in b; do cat "$f$g"; done; done'
 check 2 "a loop value copied to another variable" 'for f in README.md; do g=$f; cat "$g"; done'
+check 2 "a loop value after a loop that may not run" "f=$S; if false; then for f in README.md; do :; done; fi; cat \"\$f\""
+check 2 "a loop value after a loop in a pipeline" "f=$S; for f in README.md; do :; done | true; cat \"\$f\""
+check 2 "an empty loop word before an unresolved part" 'for f in ""; do cat "$F$f"; done'
+check 2 "a loop over an unquoted expansion that splits" 'p="README.md .e"; for f in $p; do cat "${f}nv"; done'
+check 0 "a loop variable inside its body after a nested loop" 'for f in README.md; do for g in a; do :; done; cat "$f"; done'
 
 HOST=codex
 check 2 "codex: cat of a command substitution" "cat $S"

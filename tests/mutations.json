@@ -831,8 +831,8 @@
   {
     "id": "bash-unresolved-operand-loop-glob",
     "rule": "AWK_READ_OPERAND_RECORDS: a for list with a glob or brace word gives its variable no known values",
-    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/ || ow ~ /[*?[]/) forok = 0\n",
-    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\")) forok = 0\n",
+    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/ || bare(w)) forok = 0\n",
+    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || bare(w)) forok = 0\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -840,8 +840,8 @@
   {
     "id": "bash-unresolved-operand-loop-values",
     "rule": "AWK_READ_OPERAND_RECORDS: each literal word of a for list is checked as the operand",
-    "old": "    for (i = 1; i <= n; i++) resolved(swap(v, parts[i]), 1)\n",
-    "new": "    resolved(swap(v, parts[1]), 1)\n",
+    "old": "    for (i = 2; i <= n; i++) resolved(swap(v, parts[i]), 1)\n",
+    "new": "    resolved(swap(v, parts[2]), 1)\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -851,6 +851,33 @@
     "rule": "AWK_READ_OPERAND_RECORDS: an assignment in the loop body ends the known loop values",
     "old": "      delete loopv[pan[k]]\n",
     "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-scope",
+    "rule": "AWK_READ_OPERAND_RECORDS: loop values end with the loop body",
+    "old": "        for (k in loopv) if (loopd[k] > depth) delete loopv[k]\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-split",
+    "rule": "AWK_READ_OPERAND_RECORDS: an unquoted expansion in a for list gives no known values",
+    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/ || bare(w)) forok = 0\n",
+    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/) forok = 0\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-empty-word",
+    "rule": "AWK_READ_OPERAND_RECORDS: an empty for word is still one loop value",
+    "old": "    for (i = 2; i <= n; i++) resolved(swap(v, parts[i]), 1)\n",
+    "new": "    for (i = 2; i <= n; i++) if (parts[i] != \"\") resolved(swap(v, parts[i]), 1)\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]

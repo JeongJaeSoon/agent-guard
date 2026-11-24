@@ -10663,6 +10663,20 @@ AWK_READ_OPERAND_RECORDS='
     if (!(nm in loopv) || (cpos && nm in ptab) || (lvn != "" && lvn != nm)) return 0
     lvn = nm; return 1
   }
+  # Whether w has an expansion outside double quotes, which field splitting
+  # may turn into several words.
+  function bare(w,   i, c, sq, dq) {
+    sq = 0; dq = 0
+    for (i = 1; i <= length(w); i++) {
+      c = substr(w, i, 1)
+      if (sq) { if (c == "\047") sq = 0; continue }
+      if (c == "\\") { i++; continue }
+      if (c == "\"") { dq = !dq; continue }
+      if (c == "\047" && !dq) { sq = 1; continue }
+      if (!dq && (c == "$" || c == "`")) return 1
+    }
+    return 0
+  }
   function known(nm) {
     if (cpos && nm in ptab) { lv = ptab[nm]; return lv != "\002" }
     if (nm in tab) { lv = tab[nm]; return 1 }
@@ -10672,8 +10686,9 @@ AWK_READ_OPERAND_RECORDS='
   function operand(w,   v, n, i, parts) {
     v = value(w)
     if (!index(v, "\005")) { resolved(v, subst || forcev); return }
+    # The list keeps a leading \005, so an empty word stays one entry.
     n = split(loopv[lvn], parts, "\005")
-    for (i = 1; i <= n; i++) resolved(swap(v, parts[i]), 1)
+    for (i = 2; i <= n; i++) resolved(swap(v, parts[i]), 1)
   }
   function swap(v, s,   k) {
     while (k = index(v, "\005")) v = substr(v, 1, k - 1) s substr(v, k + 1)
@@ -10754,7 +10769,7 @@ AWK_READ_OPERAND_RECORDS='
   # A plain assignment holds after its segment only when no command follows
   # it there and it is not inside a branch, loop, group or pipeline.
   function end_segment(   k) {
-    if (mode == "forlist" && forok && forl != "") loopv[forname] = substr(forl, 2)
+    if (mode == "forlist" && forok && forl != "") { loopv[forname] = forl; loopd[forname] = depth }
     for (k = 1; k <= npa; k++) {
       delete loopv[pan[k]]
       if (cmdseen || cond || depth || pav[k] == "\002") delete tab[pan[k]]
@@ -10849,7 +10864,13 @@ AWK_READ_OPERAND_RECORDS='
     if (w ~ /^([0-9]*>|&>)/ || w ~ /^[<>]\(/) return
     if (cpos) {
       if (w ~ /^(if|then|else|elif|do|while|until|!|time)$/) { cond = 1; if (w ~ /^(if|while|until)$/) depth++; return }
-      if (w ~ /^(fi|done|esac|\}|\))$/) { if (depth) depth--; if (w == "esac") incase = 0; return }
+      if (w ~ /^(fi|done|esac|\}|\))$/) {
+        if (depth) depth--
+        if (w == "esac") incase = 0
+        # Loop values hold only inside the loop body, which may never run.
+        for (k in loopv) if (loopd[k] > depth) delete loopv[k]
+        return
+      }
       if (w ~ /^(\{|\()$/) { depth++; return }
       # < compares inside [[ ]] and (( )); it redirects nothing there.
       if (w == "[[") { mode = "cmp"; cpos = 0; cmdseen = 1; return }
@@ -10902,7 +10923,7 @@ AWK_READ_OPERAND_RECORDS='
     if (mode == "forlist") {
       ow = value(w)
       n = w; gsub(/\$\{/, "", n)
-      if (index(ow, "\002") || index(ow, "\005") || n ~ /[*?[{~]/ || ow ~ /[*?[]/) forok = 0
+      if (index(ow, "\002") || index(ow, "\005") || n ~ /[*?[{~]/ || bare(w)) forok = 0
       else forl = forl "\005" ow
       return
     }
