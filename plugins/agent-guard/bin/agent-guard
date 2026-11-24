@@ -11161,8 +11161,11 @@ AWK_READ_OPERAND_RECORDS='
     n = split(loopv[lvn], parts, "\005")
     for (i = 2; i <= n; i++) resolved(swap(v, parts[i]), 1)
   }
-  # Whether w holds an expansion outside quotes, which may split into words.
+  # Whether w holds an expansion that may split into words: one outside
+  # quotes, or inside them "$@", an array with [@], or a braced form that
+  # does not start with a name (zsh flags such as ${=NAME}).
   function unq(w,   i, c, sq, dq) {
+    if (index(w, "@")) return w ~ /[$`]/
     sq = 0; dq = 0
     for (i = 1; i <= length(w); i++) {
       c = substr(w, i, 1)
@@ -11171,6 +11174,7 @@ AWK_READ_OPERAND_RECORDS='
       if (c == "\"") { dq = !dq; continue }
       if (c == "\047" && !dq) { sq = 1; continue }
       if ((c == "$" || c == "`") && !dq) return 1
+      if (c == "$" && substr(w, i + 1, 1) == "{" && substr(w, i + 2, 1) !~ /[A-Za-z_]/) return 1
     }
     return 0
   }
@@ -11462,9 +11466,9 @@ AWK_READ_OPERAND_RECORDS='
     # A word with a known value is read as that value ("-e" or "$opt" is -e);
     # a file attached to a replaced option is then matched as resolved text.
     ow = value(w)
-    # A loop word that makes this word an option is not followed. The words
-    # after jq --args and the arguments of a sourced script are data.
-    if (!ddash && !jqdata && !(gotone && prog ~ /^(source|\.)$/) && substr(ow, 1, 1) == "\005" && loopopt(ow)) { print "U"; return }
+    # A loop word that makes this word an option is not followed. The
+    # arguments of a sourced script are data; jq reads options after --args.
+    if (!ddash && !(gotone && prog ~ /^(source|\.)$/) && substr(ow, 1, 1) == "\005" && loopopt(ow)) { print "U"; return }
     if (index(ow, "\002") || index(ow, "\005")) ow = w
     else forcev = subst
     if (!ddash && ow == "--") { forcev = 0; ddash = 1; return }

@@ -331,7 +331,12 @@ check 0 "a loop over line counts attached to a count option" 'for n in 5 10; do 
 check 0 "a quoted assignment word of export leaves other names" 'g=README.md; export "f=$X"; cat "$g"'
 check 0 "a single-quoted assignment word of declare leaves other names" "g=README.md; declare 'f=\$X'; cat \"\$g\""
 check 0 "a loop over standard input and a file" 'for f in - README.md; do cat "$f"; done'
-check 0 "a dash word as jq data in a loop" "for a in -hello; do jq -n --args '\$ARGS.positional' \"\$a\"; done"
+check 2 "a dash loop word after jq --args is still an option" "for a in -hello; do jq -n --args '\$ARGS.positional' \"\$a\"; done"
+check 2 "a loop word that is a jq file option after --args" 'for o in --rawfile; do jq -n --args . "$o" x "$F"; done'
+check 2 "a quoted declaration word with all positional parameters" 'g=README.md; export "f=$@"; cat "$g"'
+check 2 "a quoted declaration word with all array elements" 'g=README.md; export "f=${a[@]}"; cat "$g"'
+check 2 "a quoted declaration word with a splitting expansion flag" 'g=README.md; export "f=${=X}"; cat "$g"'
+check 0 "a quoted declaration word with a substitution and a braced name" 'g=README.md; export "f=$(date) ${HOME}"; cat "$g"'
 check 0 "a dash word as a script argument in a loop" 'for a in --verbose; do source ./script.sh "$a"; done'
 
 HOST=codex

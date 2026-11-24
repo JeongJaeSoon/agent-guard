@@ -1573,7 +1573,7 @@
   {
     "id": "bash-unresolved-operand-loop-option",
     "rule": "AWK_READ_OPERAND_RECORDS: a loop word that makes an operand an option of the reading program is unresolved",
-    "old": "    if (!ddash && !jqdata && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
+    "old": "    if (!ddash && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
     "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
@@ -1598,19 +1598,28 @@
     ]
   },
   {
-    "id": "bash-unresolved-operand-loop-option-jq-data",
-    "rule": "AWK_READ_OPERAND_RECORDS: a dash loop word after jq --args is data",
-    "old": "    if (!ddash && !jqdata && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
-    "new": "    if (!ddash && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
+    "id": "bash-unresolved-operand-loop-option-source-arg",
+    "rule": "AWK_READ_OPERAND_RECORDS: a dash loop word after a sourced script is its argument",
+    "old": "    if (!ddash && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
+    "new": "    if (!ddash && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
   },
   {
-    "id": "bash-unresolved-operand-loop-option-source-arg",
-    "rule": "AWK_READ_OPERAND_RECORDS: a dash loop word after a sourced script is its argument",
-    "old": "    if (!ddash && !jqdata && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
-    "new": "    if (!ddash && !jqdata && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
+    "id": "bash-unresolved-operand-declare-quoted-at",
+    "rule": "AWK_READ_OPERAND_RECORDS: a quoted declaration word with $@ or [@] may still split",
+    "old": "    if (index(w, \"@\")) return w ~ /[$`]/\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-declare-quoted-flag",
+    "rule": "AWK_READ_OPERAND_RECORDS: a quoted braced expansion that does not start with a name may still split",
+    "old": "      if (c == \"$\" && substr(w, i + 1, 1) == \"{\" && substr(w, i + 2, 1) !~ /[A-Za-z_]/) return 1\n",
+    "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
