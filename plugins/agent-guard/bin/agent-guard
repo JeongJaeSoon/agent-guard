@@ -15061,12 +15061,11 @@ secretish_env_values() {
     }
     # A key-file path (`/run/secrets/api_token`, `~/.config/app/token`) says
     # where the value is read from. An absolute path starts at a filesystem
-    # root and needs two segments, so a
+    # root directory, so a
     # password that only starts with a slash keeps masking, and a segment
     # that could itself be a value (`/run/secrets/<random>`) keeps masking.
     function key_file_path(value, n, parts, i) {
       if (value !~ /^(~|\.\.?)?\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/) return 0
-      if (value ~ /^\// && value !~ /^\/[^\/]+\/./) return 0
       # A route (`/v1/providers`) is not a file location and stays a value.
       if (value ~ /^\// && value !~ /^\/(run|etc|var|home|Users|opt|srv|tmp|mnt|secrets|usr)\//) return 0
       n = split(value, parts, "/")

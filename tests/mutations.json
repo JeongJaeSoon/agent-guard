@@ -618,15 +618,6 @@
     ]
   },
   {
-    "id": "key-file-path-two-segments",
-    "rule": "key_file_path: an absolute path needs two segments",
-    "old": "      if (value ~ /^\\// && value !~ /^\\/[^\\/]+\\/./) return 0\n",
-    "new": "",
-    "tests": [
-      "tests/prompt-empty-path-placeholder.sh"
-    ]
-  },
-  {
     "id": "key-file-path-unquoted-tail",
     "rule": "emit_value: a value word after an unquoted path keeps blocking",
     "old": "        if (key_file_path(value) && prose_words(substr(raw, length(token) + 1)) >= 0) return 0",
