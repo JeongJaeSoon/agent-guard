@@ -648,7 +648,13 @@ gate_closed - 2 "for d in run; do $OW worktree create --name w1 --setup \$d; don
 gate_closed - 2 "for f in --run-hooks; do $OW worktree create --name w1 \$f; done"
 gate_closed - 2 "for f in run-hooks; do $OW worktree create --name w1 --\$f; done"
 gate_closed - 2 "for d in a; do $OW orchestration send --to dispatch:\$e --body 'x'; done"
-gate_closed - 2 "$OW orchestration send --to dispatch:\$d --body 'x'; for d in a; do :; done"
+gate_closed - 2 "$OW orchestration send --to dispatch:\$d --body 'x'; for d in a; do true; done"
+# The variable holds a loop value only inside the body: a loop in a pipeline
+# runs in a subshell, and one behind || may not run at all.
+gate_closed - 2 "echo x | for d in a; do true; done; $OW worktree create --name w1 --setup \"\$d\""
+gate_closed - 2 "true || for d in a; do true; done; $OW orchestration send --to x:\$d --body 'x'"
+gate_closed - 2 "for d in a; do true; done; $OW orchestration send --to x:\$d --body 'x'"
+gate_closed - 2 "$OW status | for d in a; do $OW orchestration send --to x:\$d --body 'x'; done"
 # The body runs again after its last command, which must be one the gate
 # accepts too; what reads the loop's output or a file it writes runs beside it.
 gate_closed - 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --body 'x'; make; done"

@@ -7214,8 +7214,10 @@ message_value_records() {
     # are long or upper case), and each VALUE is a literal that can be no
     # option, blank, glob or relaying subcommand. The body runs again after
     # its last command, so `done` needs every segment before it accepted,
-    # and nothing may read the loop or redirect it. A loop of any other
-    # shape is read as before: its words are no inert command.
+    # and nothing may read the loop or redirect it. NAME holds a VALUE only
+    # in the body: a loop in a pipeline runs in a subshell, and one behind
+    # `||` may not run. A loop of any other shape is read as before: its
+    # words are no inert command.
     function loop_segment(bound,   j) {
       if (quoted_keyword) return 0
       if (want_do) {
@@ -7227,14 +7229,14 @@ message_value_records() {
         if (bound != "0;") bail()
         return 1
       }
-      if (n >= 4 && bound == "0;" && kind[1] == "0" && word[1] == "for" && kind[2] == "0" \
+      if (n >= 4 && bound == "0;" && !pipe_target && kind[1] == "0" && word[1] == "for" && kind[2] == "0" \
           && word[2] ~ /^[a-z][a-z0-9_]?[a-z0-9_]?$/ && kind[3] == "0" && word[3] == "in") {
         for (j = 4; j <= n; j++)
           if (kind[j] != "0" || word[j] !~ /^[A-Za-z0-9_.:\/@%+,]+$/ || word[j] ~ /^(exec|eval|run)$/) return 0
-        loop_var[word[2]] = 1; want_do = 1; depth++
+        loop_var[word[2]] = 1; want_do = 1; loop_name[++depth] = word[2]
       } else if (depth && kind[1] == "0" && word[1] == "done") {
         if (n > 1 || !ok || bound == "0|") bail()
-        depth--
+        delete loop_var[loop_name[depth--]]
       } else return 0
       n = 0; pipe_target = 0
       split("", dup); split("", word); split("", kind)
