@@ -229,6 +229,14 @@ check 2 "a loop value after a loop that may not run" "f=$S; if false; then for f
 check 2 "a loop value after a loop in a pipeline" "f=$S; for f in README.md; do :; done | true; cat \"\$f\""
 check 2 "an empty loop word before an unresolved part" 'for f in ""; do cat "$F$f"; done'
 check 2 "a loop over an unquoted expansion that splits" 'p=".e x"; for f in $p; do cat "${f}nv"; done'
+check 2 "a loop value globbed at an unquoted use" 'p=".*"; for f in "$p"; do cat $f; done'
+check 2 "a select variable may be empty" "F=$S; select f in /README.md; do cat \"\$F\$f\"; break; done"
+check 2 "an indexed write to the loop variable" 'for f in README.md; do printf -v "f[0]" %s .e; cat "${f}nv"; done'
+check 2 "an indexed write to an assigned variable" 'f=README.md; printf -v "f[0]" %s .e; cat "${f}nv"'
+check 2 "an assigned value globbed at an unquoted use" 'p=".*"; cat $p'
+check 0 "an assigned glob value quoted at its use" 'p="*.md"; cat "$p"'
+check 2 "a literal marker byte in an operand" "F=$S; cat \"\$F$(printf '\005')\""
+check 0 "a loop list that reads the old value of its variable" 'f=README.md; for f in "$f"; do cat "$f"; done'
 check 0 "a loop variable inside its body after a nested loop" 'for f in README.md; do for g in a; do :; done; cat "$f"; done'
 
 HOST=codex

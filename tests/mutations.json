@@ -831,8 +831,8 @@
   {
     "id": "bash-unresolved-operand-loop-glob",
     "rule": "AWK_READ_OPERAND_RECORDS: a for list with a glob or brace word gives its variable no known values",
-    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/ || bare(w)) forok = 0\n",
-    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || bare(w)) forok = 0\n",
+    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/ || ow ~ /[*?[ \\t\\n]/) forok = 0\n",
+    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || ow ~ /[*?[ \\t\\n]/) forok = 0\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -865,19 +865,55 @@
     ]
   },
   {
-    "id": "bash-unresolved-operand-loop-split",
-    "rule": "AWK_READ_OPERAND_RECORDS: an unquoted expansion in a for list gives no known values",
-    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/ || bare(w)) forok = 0\n",
+    "id": "bash-unresolved-operand-loop-empty-word",
+    "rule": "AWK_READ_OPERAND_RECORDS: an empty for word is still one loop value",
+    "old": "    for (i = 2; i <= n; i++) resolved(swap(v, parts[i]), 1)\n",
+    "new": "    for (i = 2; i <= n; i++) if (parts[i] != \"\") resolved(swap(v, parts[i]), 1)\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-value-glob",
+    "rule": "AWK_READ_OPERAND_RECORDS: a for word whose value globs or splits gives no known values",
+    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/ || ow ~ /[*?[ \\t\\n]/) forok = 0\n",
     "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/) forok = 0\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
   },
   {
-    "id": "bash-unresolved-operand-loop-empty-word",
-    "rule": "AWK_READ_OPERAND_RECORDS: an empty for word is still one loop value",
-    "old": "    for (i = 2; i <= n; i++) resolved(swap(v, parts[i]), 1)\n",
-    "new": "    for (i = 2; i <= n; i++) if (parts[i] != \"\") resolved(swap(v, parts[i]), 1)\n",
+    "id": "bash-unresolved-operand-unquoted-value",
+    "rule": "AWK_READ_OPERAND_RECORDS: an assigned value that globs or splits outside double quotes is unresolved",
+    "old": "  function word1(s, dq) { return (dq || s !~ /[*?[ \\t\\n]/) ? s : \"\\002\" }\n",
+    "new": "  function word1(s, dq) { return s }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-indexed-name",
+    "rule": "AWK_READ_OPERAND_RECORDS: a write to NAME[i] forgets NAME",
+    "old": " sub(/.*\\//, \"\", n); sub(/\\[.*/, \"\", n)\n",
+    "new": " sub(/.*\\//, \"\", n)\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-select",
+    "rule": "AWK_READ_OPERAND_RECORDS: a select variable has no known values",
+    "old": "    if (mode == \"select\") { forget(w); mode = \"skip\"; return }\n",
+    "new": "    if (mode == \"select\") { mode = \"for\" }\n    if (mode == \"for\") { forname = name_of(w); mode = \"forin\"; return }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-marker-byte",
+    "rule": "AWK_READ_OPERAND_RECORDS: a literal marker byte leaves the word unresolved",
+    "old": "    if (index(w, \"\\005\")) gsub(/\\005/, \"\\002\", out)\n",
+    "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
