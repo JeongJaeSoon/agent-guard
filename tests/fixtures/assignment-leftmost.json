@@ -336,5 +336,21 @@
    "%R%"
   ],
   "masked": "'password': '[REDACTED]'"
+ },
+ {
+  "id": "json-string-lone-apostrophe-ends-with-string",
+  "input": "{\"text\":\"password: '\"}\npassword='%R%'",
+  "values": [
+   "%R%"
+  ],
+  "masked": "{\"text\":\"password: '\"}\npassword='[REDACTED]'"
+ },
+ {
+  "id": "json-string-unclosed-apostrophe-value",
+  "input": "{\"text\":\"password: '%R%\"}\nnext line",
+  "values": [
+   "%R%"
+  ],
+  "masked": "{\"text\":\"password: '[REDACTED]\"}\nnext line"
  }
 ]
