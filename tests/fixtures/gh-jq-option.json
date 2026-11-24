@@ -271,5 +271,75 @@
     "classification": "must-fail",
     "description": "an fd redirection right after --jq is not a filter word",
     "command": "gh api x --jq 2>jq | jq .key"
+  },
+  {
+    "id": "gh-approvals-environments",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the recorded gh api approvals query whose --jq reads environment names",
+    "command": "gh api repos/acme/app/actions/runs/123/approvals --jq '.[] | {state, envs: [.environments[].name]}'"
+  },
+  {
+    "id": "gh-short-q-environments",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the same filter given with the -q short form",
+    "command": "gh api repos/acme/app/actions/runs/123/approvals -q '.[].environments[].name'"
+  },
+  {
+    "id": "gh-short-q-run-view",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "gh run view with -q reading an environment field",
+    "command": "gh run view 123 --json jobs -q '.jobs[].environment' | head -5"
+  },
+  {
+    "id": "gh-api-input-protected",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "gh api with -q whose --input is a dotenv file",
+    "command": "gh api repos/acme/app/dispatches --input .env -q '.environment'"
+  },
+  {
+    "id": "gh-api-field-at-protected",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "gh api with -q whose -F field reads a dotenv file",
+    "command": "gh api repos/acme/app/issues -F body=@.env -q '.environments[].name'"
+  },
+  {
+    "id": "gh-api-field-at-protected-jq-equals",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "gh api with --jq= whose -F field reads a dotenv file",
+    "command": "gh api repos/acme/app/issues -F body=@config/.env.local --jq='.env'"
+  },
+  {
+    "id": "gh-api-q-as-header-value",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a -q that is the value of -H, so the next word is no filter",
+    "command": "gh api -H -q '.env' repos/acme/app"
+  },
+  {
+    "id": "gh-api-q-redirect-protected",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "gh api with -q whose output is redirected to a dotenv file",
+    "command": "gh api repos/acme/app -q '.environment' > .env"
+  },
+  {
+    "id": "gh-extension-short-q",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a gh extension, which may read its -q value as a path",
+    "command": "gh envtool -q '.env'"
+  },
+  {
+    "id": "gh-api-field-at-protected-no-filter",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "gh api whose -F field reads a dotenv file, with no jq filter at all",
+    "command": "gh api repos/acme/app/issues -F body=@.env"
   }
 ]
