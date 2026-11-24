@@ -618,6 +618,64 @@ gate_closed - 2 "$OW terminal \"\$ACTION\" --terminal t1 --text 'ls' --enter"
 gate_closed - 2 "$OW orchestration check --terminal \"\$T\""
 gate_closed - 2 "$OW worktree create --name w1 \"\$FLAG\""
 gate_closed - 0 "$OW orchestration send --to lead --body \"done now\""
+# A for loop over literal values runs the same message command once per
+# value: the word stays orca while the loop's variable names no shell setting
+# and every value can be neither a subcommand nor an option, and every
+# command in the body is one the gate accepts, since the next pass runs after
+# it. Bots report this way, piping each call through tail.
+gate_closed - 0 "for d in a b c; do $OW orchestration send --to dispatch:\$d --type status --subject 'push now' --body-file $CASE/note.md 2>&1 | tail -1; done"
+gate_closed - 0 "for d in a b c; do $OW orchestration send --to dispatch:\$d --type status --subject 'push now' --body-file $CASE/note.md; done"
+gate_closed - 0 "for id in 165 166; do $OW bot item comment 1 --text \"commit \$id landed\" 2>&1 | tail -1; done"
+gate_closed - 0 "for t in ctx_1 ctx_2${nl}do${nl}  $OW orchestration send --to \"dispatch:\${t}\" --subject 'push now' --body 'ok'${nl}done"
+gate_closed - 0 "for d in a b; do $OW orchestration send --to=x:\$d --body 'push now'; done && echo sent"
+gate_closed - 0 "$OW bot item comment 165 --text 'push landed' 2>&1 | tail -1; $OW bot item comment 166 --text 'commit made' 2>&1 | tail -1"
+gate_closed - 0 "$OW bot item list 2>&1 | head -20"
+# A command name only run time knows stays one, in a loop or not.
+gate_closed - 2 "\$CMD commit -m x"
+gate_closed - 2 "eval \"\$CMD\" commit -m x"
+gate_closed - 2 "command \"\$x\" commit -m x"
+gate_closed - 2 "for c in git; do \"\$c\" commit -m x; done"
+gate_closed - 2 "for d in a; do $OW orchestration send --to lead --body 'x'; \$d commit -m x; done"
+gate_closed git 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --body 'push now'; done"
+# The loop variable may be a shell setting the word depends on.
+gate_closed - 2 "for PATH in $CASE; do $OW orchestration send --to lead --body 'x'; done"
+gate_closed - 2 "for path in $CASE; do $OW orchestration send --to lead --body 'x'; done"
+gate_closed - 2 "for ORCA_CLI_COMMAND in git; do $OW orchestration send --to lead --body 'x'; done"
+# A value only run time knows, or one that is a subcommand or an option.
+gate_closed - 2 "for d in \$LIST; do $OW orchestration send --to dispatch:\$d --body 'x'; done"
+gate_closed - 2 "for d in run; do $OW orchestration \$d; done"
+gate_closed - 2 "for d in run; do $OW worktree create --name w1 --setup \$d; done"
+gate_closed - 2 "for f in --run-hooks; do $OW worktree create --name w1 \$f; done"
+gate_closed - 2 "for f in run-hooks; do $OW worktree create --name w1 --\$f; done"
+gate_closed - 2 "for d in a; do $OW orchestration send --to dispatch:\$e --body 'x'; done"
+gate_closed - 2 "$OW orchestration send --to dispatch:\$d --body 'x'; for d in a; do true; done"
+# The variable holds a loop value only inside the body: a loop in a pipeline
+# runs in a subshell, and one behind || may not run at all.
+gate_closed - 2 "echo x | for d in a; do true; done; $OW worktree create --name w1 --setup \"\$d\""
+gate_closed - 2 "true || for d in a; do true; done; $OW orchestration send --to x:\$d --body 'x'"
+gate_closed - 2 "for d in a; do true; done; $OW orchestration send --to x:\$d --body 'x'"
+gate_closed - 2 "$OW status | for d in a; do $OW orchestration send --to x:\$d --body 'x'; done"
+# A loop with no message command in its body is read as before: one after
+# the message command leaves it alone, and one before it still counts.
+gate_closed - 0 "$OW orchestration send --to lead --body x; for f in a b; do make \$f; done"
+gate_closed - 0 "$OW orchestration send --to lead --body x && for f in a b; do git status; done"
+gate_closed - 0 "$OW orchestration send --to lead --body x; for f in a b; do echo \$f; done | tail -1"
+gate_closed - 0 "$OW orchestration send --to lead --body x; for f in a b; do echo \$f; done > $CASE/log"
+gate_closed - 0 "$OW orchestration send --to lead --body x; for f in a b; make \$f"
+gate_closed - 2 "for f in a b; do make \$f; done; $OW orchestration send --to lead --body x"
+gate_closed - 2 "for f in a b; do echo \$f; done > $CASE/orca; $OW orchestration send --to lead --body x"
+# A loop in the background runs beside what follows it.
+gate_closed - 2 "for d in a b; do $OW worktree list --x \$d; done & cp $CASE/note.md $CASE/orca"
+# The body runs again after its last command, which must be one the gate
+# accepts too; what reads the loop's output or a file it writes runs beside it.
+gate_closed - 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --body 'x'; make; done"
+gate_closed - 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --body 'x'; done | sh"
+gate_closed - 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --body 'x'; done > $CASE/orca"
+gate_closed - 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --body 'x'; git commit --no-verify -m x; done"
+# A quoted keyword is a command name, not part of a loop.
+gate_closed - 2 "'for' d in a b; do $OW orchestration send --to dispatch:\$d --body 'x'; done"
+gate_closed - 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --body 'x'; 'done'; done"
+gate_closed - 2 "for d in a b; $OW orchestration send --to dispatch:\$d --body 'x'"
 # A here-document that only writes a document stands aside; one that writes a
 # file named like the command a later word runs is read as what may run.
 gate_closed - 0 "cat > $CASE/note.md <<'EOF'${nl}never pass --no-verify to git commit${nl}EOF${nl}$OW orchestration send --to lead --body-file $CASE/note.md"
@@ -654,6 +712,30 @@ for ow_shell in sh bash dash zsh ksh; do
 done
 orca_env "$W/reader" 2 "$orca_word_cmd"
 check 2 "ORCA_CLI_COMMAND=./reader; $orca_word_cmd"
+# Ground truth for the loop rows: each shell runs the orca on PATH once per
+# value and never git; the control loop over a word that names git runs git,
+# which proves the harness can see a git call.
+printf '#!/bin/sh\nprintf "git-ran %%s\\n" "$*"\n' >"$W/obin/git"
+chmod +x "$W/obin/git"
+loop_cmd="for d in a b; do $OW orchestration send --to dispatch:\$d --subject 'push now' --body x 2>&1 | tail -1; done"
+loop_ctl="for c in git; do \"\$c\" commit -m x; done"
+gate_closed - 0 "$loop_cmd"
+gate_closed - 2 "$loop_ctl"
+loop_want="orca-ran orchestration send --to dispatch:a --subject push now --body x
+orca-ran orchestration send --to dispatch:b --subject push now --body x"
+for ow_shell in sh bash dash zsh ksh; do
+  command -v "$ow_shell" >/dev/null 2>&1 || continue
+  ow_got=$(cd "$W" && PATH="$W/obin:$PATH" "$ow_shell" -c "$loop_cmd" 2>/dev/null)
+  if [ "$ow_got" = "$loop_want" ]; then
+    ok "$ow_shell runs the orca on PATH once per loop value and no git"
+  else
+    bad "$ow_shell runs the orca on PATH once per loop value and no git: $ow_got"
+  fi
+  case $(cd "$W" && PATH="$W/obin:$PATH" "$ow_shell" -c "$loop_ctl" 2>/dev/null) in
+    "git-ran commit -m x") ok "control: $ow_shell runs git for a loop value that names it" ;;
+    *) bad "control: $ow_shell runs git for a loop value that names it" ;;
+  esac
+done
 rm -rf "$W/obin" "$W/reader"
 
 # With a relative PATH entry, a cd changes which file a later `git` runs.

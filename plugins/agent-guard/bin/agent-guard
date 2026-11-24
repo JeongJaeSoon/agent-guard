@@ -7209,15 +7209,70 @@ message_value_records() {
             || word[j] == "--setup" && j < n && word[j + 1] == "run") return 1
       return 0
     }
-    function finish(bound,   j, w, topts, fopts, all, lit, fixed, before, commit, cli, known) {
+    # The gate reads a loop `for NAME in VALUE...; do BODY; done`: NAME is
+    # a short lowercase name no shell gives a meaning (path, IFS and PATH
+    # are long or upper case), and each VALUE is a literal that can be no
+    # option, blank, glob or relaying subcommand. The body runs again after
+    # its last command, so a message command in the body needs every
+    # segment before `done` accepted, and nothing may read the loop, redirect
+    # it or run beside it. NAME holds a VALUE only in the body: a loop in a
+    # pipeline runs in a subshell, and one behind `||` may not run. A loop of
+    # any other shape, or one that fails these with no message command in
+    # its body, is read as before: no command after it is accepted.
+    function loop_segment(bound,   j) {
+      if (quoted_keyword) return 0
+      if (want_do) {
+        want_do = 0
+        if (n == 0 || kind[1] != "0" || word[1] != "do") { loop_off(); return 0 }
+        for (j = 1; j < n; j++) { word[j] = word[j + 1]; kind[j] = kind[j + 1]; rec[j] = rec[j + 1]; dup[j] = dup[j + 1] }
+        delete word[n]; delete kind[n]; delete rec[n]; delete dup[n]; n--
+        if (n > 0) return 0
+        if (bound != "0;") loop_off()
+        return 1
+      }
+      if (n >= 4 && bound == "0;" && !pipe_target && kind[1] == "0" && word[1] == "for" && kind[2] == "0" \
+          && word[2] ~ /^[a-z][a-z0-9_]?[a-z0-9_]?$/ && kind[3] == "0" && word[3] == "in") {
+        for (j = 4; j <= n; j++)
+          if (kind[j] != "0" || word[j] !~ /^[A-Za-z0-9_.:\/@%+,]+$/ || word[j] ~ /^(exec|eval|run)$/) return 0
+        loop_var[word[2]] = 1; want_do = 1; loop_name[++depth] = word[2]; loop_cli[depth] = cli_ok
+      } else if (depth && kind[1] == "0" && word[1] == "done") {
+        if (n > 1 || !ok || bound == "0|" || bound == "3&") {
+          if (cli_ok > loop_cli[depth]) bail()
+          ok = 0; ok_commit = 0
+        }
+        delete loop_var[loop_name[depth--]]
+      } else return 0
+      n = 0; pipe_target = 0
+      split("", dup); split("", word); split("", kind)
+      return 1
+    }
+    function loop_off() { delete loop_var[loop_name[depth--]]; ok = 0; ok_commit = 0 }
+    # A word past the first literal option whose only expansions are loop
+    # variables, so it holds one of their values: it can then not be a
+    # subcommand, an option or a glob. A word that starts with a dash spells
+    # its option name up to `=`.
+    function loop_word(k, v,   s, name) {
+      if (k != "1" && k != "4" || v ~ /\$[A-Za-z_][A-Za-z0-9_]*\[/ || v ~ /^-/ && v !~ /^-[^$`]*=/) return 0
+      s = v
+      while (match(s, /\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*/)) {
+        name = substr(s, RSTART, RLENGTH); gsub(/[$${}]/, "", name)
+        if (!(name in loop_var)) return 0
+        s = substr(s, 1, RSTART - 1) substr(s, RSTART + RLENGTH)
+      }
+      return s !~ /[$`]/ && (k == "4" || s ~ /^[A-Za-z0-9_.:\/@%+,=-]*$/)
+    }
+    function finish(bound,   j, w, topts, fopts, all, lit, fixed, before, commit, cli, known, lw, opt) {
+      if (mode == "gate" && loop_segment(bound)) return
       if (n == 0) return
       cli = (mode == "words" || mode == "gate") && kind[1] == "0" && word[1] == ENVIRON["MV_CLI_WORD"]
       if (cli) word[1] = "orca"
       all = 1; lit = 1; fixed = 1
       for (j = 1; j <= n; j++) {
-        if (!plain_word(kind[j], word[j])) all = 0
+        lw = (opt || substr(word[j], 1, 1) == "-") && cli && loop_word(kind[j], word[j])
+        if (!lw && !plain_word(kind[j], word[j])) all = 0
         if (kind[j] != "0") lit = 0
-        if (kind[j] != "0" && word[j] ~ /[$`]/) fixed = 0
+        if (!lw && kind[j] != "0" && word[j] ~ /[$`]/) fixed = 0
+        if (j > 1 && kind[j] == "0" && substr(word[j], 1, 1) == "-") opt = 1
       }
       # The commands of a pipeline start together, so one piped after a
       # message command may replace it before it runs.
@@ -7263,7 +7318,31 @@ message_value_records() {
       for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) return 0
       return 1
     }
-    BEGIN { ok = 1; ok_commit = 1; n = 0 }
+    # A keyword written with a quote or a backslash in it is a command name
+    # (or a continued line), so the gate then reads no loop on the line.
+    function quoted_keywords(s,   i, c, q, w, quoted, len) {
+      len = length(s); q = 0; w = ""; quoted = 0
+      for (i = 1; i <= len + 1; i++) {
+        c = i <= len ? substr(s, i, 1) : " "
+        if (q == 1) { if (c == "\047") q = 0; else w = w c; continue }
+        if (q == 2) {
+          if (c == "\"") q = 0
+          else { if (c == "\\") c = substr(s, ++i, 1); w = w c }
+          continue
+        }
+        if (c == "\\") { quoted = 1; w = w substr(s, ++i, 1); continue }
+        if (c == "\047") { q = 1; quoted = 1; continue }
+        if (c == "\"") { q = 2; quoted = 1; continue }
+        if (c ~ /[ \t\n;&|<>()]/) {
+          if (quoted && w ~ /^(for|in|do|done)$/) return 1
+          w = ""; quoted = 0
+          continue
+        }
+        w = w c
+      }
+      return 0
+    }
+    BEGIN { ok = 1; ok_commit = 1; n = 0; if (mode == "gate") quoted_keyword = quoted_keywords(ENVIRON["MV_CLI_TEXT"]) }
     {
       prev = r; r = $0; k = substr(r, 1, 1); v = substr(r, 2)
       # A subshell or a process substitution (`<(`, `>(`, zsh `=(`) runs
@@ -7280,6 +7359,7 @@ message_value_records() {
     END {
       ending = 1
       if (!failed) finish("")
+      if (depth && cli_ok > loop_cli[1]) failed = 1
       if (mode == "words" || mode == "gate") {
         s = ENVIRON["MV_CLI_TEXT"]; w = ENVIRON["MV_CLI_WORD"]; total = 0
         while (w != "" && (p = index(s, w)) > 0) { total++; s = substr(s, p + length(w)) }
