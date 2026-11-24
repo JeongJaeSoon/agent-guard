@@ -15209,12 +15209,12 @@ secretish_env_values() {
     # root directory, so a
     # password that only starts with a slash keeps masking, and a segment
     # that could itself be a value (`/run/secrets/<random>`) keeps masking.
-    # A value to fill in that gitleaks.toml does not list: an x run, or
-    # `your` and placeholder words (`your-token`, `your_api_key`). Judged
+    # A value to fill in that gitleaks.toml does not list: `your` and
+    # placeholder words (`your-token`, `your_api_key`). An x run is a
+    # lookalike that keeps masking (#235). Judged
     # in emit_value with path_tail, so a value after it still blocks.
     function fill_in_placeholder(value, v, n, i, words) {
       v = prose_core(value)
-      if (v ~ /^xxx+$/) return 1
       if (v !~ /^your([-_][a-z]+)+$/) return 0
       n = split(v, words, /[-_]/)
       for (i = 2; i <= n; i++) if (!(words[i] in placeholder_word)) return 0

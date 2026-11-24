@@ -69,22 +69,21 @@ check 2 "long lowercase run glued to a fence line below a path" "$k=$p$nl${fence
 check 2 "lowercase word glued to a fence line below a path" "$k=$p$nl${fence}hunterpass"
 check 2 "short value glued to a fence line below a path" "$k=$p$nl${fence}$(printf '%.10s' "$val")"
 
-# An obvious placeholder (#543 keeps changeme a value).
+# An obvious placeholder (#543 keeps changeme a value, #235 an x run).
 # changeme is also a real default password, so it stays a value (#543).
 check 2 "changeme" "$k=changeme"
 check 2 "change-me" "$pw=change-me"
-check 0 "x run" "$k=xxxxxxxx"
+# An x run is a lookalike, not an exact placeholder, and stays a value (#235).
+check 2 "x run" "$k=xxxxxxxx"
 check 0 "your-token" "$k=your-token"
 check 0 "your_api_token" "$k=your_api_token"
 check 0 "angle placeholder" "$k=<your-token>"
-check 0 "placeholder in a fenced block" "${fence}$nl$k=xxxxxxxx$nl$fence"
-check 2 "x run glued to a value" "$k=xxxx$val"
+check 0 "placeholder in a fenced block" "${fence}$nl$k=your-token$nl$fence"
 check 2 "your- before a value" "$k=your-$val"
 check 2 "your- before unlisted words" "$k=your-horse-battery"
 check 2 "real value in a fenced block" "${fence}$nl$k=$val$nl$fence"
 check 2 "real value after your-token" "$k=your-token $val"
-check 2 "real value after an x run" "$k=xxxxxxxx $val"
-check 2 "real value on the line below an x run" "$k=xxxxxxxx$nl$val"
+check 2 "real value on the line below your-token" "$k=your-token$nl$val"
 check 2 "real value after a quoted your-token" "$k=\"your-token\" $val"
 
 # An environment reference.
@@ -120,7 +119,7 @@ raw_check() {
 }
 raw_check "raw probe keeps a path with a line below" "$k=$p$nl$val"
 raw_check "raw probe keeps a quoted path" "$k=\"$p\"$nl$val"
-raw_check "raw probe keeps an x run" "$k=xxxxxxxx$nl$val"
+raw_check "raw probe keeps your-token" "$k=your-token$nl$val"
 
 printf '%s prompt empty/path checks, %s failed\n' "$checked" "$failed"
 [ "$failed" -eq 0 ]
