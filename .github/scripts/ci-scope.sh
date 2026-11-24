@@ -28,13 +28,21 @@ if [ "$scope" = subset ]; then
   fi
 fi
 
+suites='{"bundle":"core","suite":"Core, host adapters and Git","shards":"1 3"},{"bundle":"commands","suite":"Command policies","shards":"2"},{"bundle":"navigation-claude","suite":"Shell navigation (Claude)","shards":"5","navigation_host":"claude"},{"bundle":"navigation-codex","suite":"Shell navigation (Codex)","shards":"5","navigation_host":"codex"},{"bundle":"scanner","suite":"CLI, scanner and output","shards":"4"}'
+# macOS runs each core partition on a runner of its own: side by side on one
+# three-core runner the two came to the job limit (#579). The first entry
+# merges into the macOS core job and keeps its check name; the second creates
+# a job. A created job gets nothing from the entries above, so each supplies
+# every field itself.
+macos='{"os":"macos-latest","bundle":"core","timeout_minutes":25,"suite":"Core, host adapters and Git","shards":"1"},{"os":"macos-latest","bundle":"core-partition-3","timeout_minutes":25,"suite":"Core, host adapters and Git (partition 3)","shards":"3"}'
+
 # Matrix coverage and aggregate identity must come from the same decision.
 case "$scope" in
   full)
-    printf '%s\n' 'oses=["ubuntu-latest","macos-latest"]' 'check_prefix=Test' 'macos=true'
+    printf '%s\n' 'oses=["ubuntu-latest","macos-latest"]' 'check_prefix=Test' "include=[$suites,$macos]"
     ;;
   subset)
-    printf '%s\n' 'oses=["ubuntu-latest"]' 'check_prefix=PR subset test' 'macos=false'
+    printf '%s\n' 'oses=["ubuntu-latest"]' 'check_prefix=PR subset test' "include=[$suites]"
     ;;
 esac
 printf 'tests=%s\n' "$tests"

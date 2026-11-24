@@ -6,9 +6,17 @@ check() {
   event=$1 branch=$2 scope=$3 changed=${4-} tests=${5:-true}
   actual=$(printf '%s' "$changed" | sh "$ROOT/.github/scripts/ci-scope.sh" "$event" "$branch")
   case "$scope" in
-    full) expected=$(printf '%s\n' 'oses=["ubuntu-latest","macos-latest"]' 'check_prefix=Test' 'macos=true' "tests=$tests") ;;
-    subset) expected=$(printf '%s\n' 'oses=["ubuntu-latest"]' 'check_prefix=PR subset test' 'macos=false' "tests=$tests") ;;
+    full) expected=$(printf '%s\n' 'oses=["ubuntu-latest","macos-latest"]' 'check_prefix=Test') ;;
+    subset) expected=$(printf '%s\n' 'oses=["ubuntu-latest"]' 'check_prefix=PR subset test') ;;
   esac
+  # The include list is checked below; here it only has to be valid JSON
+  # with macOS legs exactly on full runs.
+  include=$(printf '%s\n' "$actual" | sed -n 's/^include=//p')
+  printf '%s\n' "$include" | jq -e '.' > /dev/null || { printf 'not ok - include is JSON for %s\n' "$event"; exit 1; }
+  macos_legs=$(printf '%s\n' "$include" | jq '[.[] | select(.os == "macos-latest")] | length')
+  case "$scope:$macos_legs" in full:2|subset:0) ;; *) printf 'not ok - macOS legs for %s/%s: %s\n' "$event" "$branch" "$macos_legs"; exit 1 ;; esac
+  actual=$(printf '%s\n' "$actual" | grep -v '^include=')
+  expected=$(printf '%s\ntests=%s' "$expected" "$tests")
   if [ "$actual" != "$expected" ]; then
     printf 'not ok - CI scope for %s/%s [%s]\n' "$event" "$branch" "$changed"
     exit 1
@@ -57,7 +65,11 @@ grep -Fq 'oses: ${{ steps.scope.outputs.oses }}' "$ROOT/.github/workflows/ci.yml
 grep -Fq 'check_prefix: ${{ steps.scope.outputs.check_prefix }}' "$ROOT/.github/workflows/ci.yml"
 # macOS legs and the suites are gated on the same scope decision; every
 # Linux leg still starts, so each required name reports.
-grep -Fq "(matrix.os != 'macos-latest' || needs.secret-guard.outputs.macos == 'true')" "$ROOT/.github/workflows/ci.yml"
+grep -Fq 'include: ${{ fromJSON(needs.secret-guard.outputs.include) }}' "$ROOT/.github/workflows/ci.yml"
+# The matrix context does not exist in a job-level condition.
+if awk '/^    if:/ { on = 1 } on && /matrix[.]/ { found = 1 } /^    [a-z-]+:/ && !/^    if:/ { on = 0 } END { exit !found }' "$ROOT/.github/workflows/ci.yml"; then
+  fail 'no job-level condition reads the matrix'
+fi
 [ "$(grep -c "needs.secret-guard.outputs.tests == 'true'" "$ROOT/.github/workflows/ci.yml")" -ge 7 ]
 for gated in native-platforms native-redaction; do
   grep -Fq "github.event_name != 'pull_request' || startsWith(github.head_ref, 'release/')" "$ROOT/.github/workflows/$gated.yml"
