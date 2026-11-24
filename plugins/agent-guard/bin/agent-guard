@@ -11301,8 +11301,9 @@ AWK_READ_OPERAND_RECORDS='
     add = (nm ~ /\+$/); sub(/\+$/, "", nm)
     if (nm == "IFS") ifsset = 1
     asg = 1; v = value(substr(w, index(w, "=") + 1)); asg = 0
-    # A marker or table separator byte leaves the value unknown.
-    if (v ~ /[\001\002\003\004\005\006\007]/) v = "\002"
+    # A marker or table separator byte leaves the value unknown, and so does
+    # an array initialisation, whose words the shell splits and expands.
+    if (v ~ /[\001\002\003\004\005\006\007]/ || substr(w, index(w, "=") + 1, 1) == "(") v = "\002"
     # NAME+=value appends to the value it already has.
     if (add) v = (v != "\002" && known(nm)) ? lv v : "\002"
     if (now) delete loopv[nm]

@@ -378,6 +378,9 @@ check u "an assignment in the background" 'f=$X; f=README.md & wait; cat "$f"'
 check u "an export on the left of a pipe" 'f=$X; export f=README.md | true; cat "$f"'
 check 0 "an assignment before a pipeline" 'f=README.md; cat "$f" | head -1'
 check 0 "a quoted process substitution is text" 'echo "<(cat $F)"'
+check u "an array initialisation of a declared name" 'p=.e; declare -a f=($p); cat "${f}nv"'
+check u "an array initialisation" 'p=.e; f=($p); cat "${f}nv"'
+check 0 "an array initialisation beside a literal read" 'f=(a b); cat README.md'
 
 # The mode decides only for an operand that stays unknown: one resolved to a
 # protected file blocks with the open policy too, also when an unknown operand
