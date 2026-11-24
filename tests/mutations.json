@@ -1049,6 +1049,690 @@
     ]
   },
   {
+    "id": "bash-unresolved-operand-unwired",
+    "rule": "check_bash_command: an operand only known at run time is checked",
+    "old": "    bash_unresolved_read_operand \"$raw_cmd\"\n    uo_status=$?\n",
+    "new": "    uo_status=1\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-any-tail",
+    "rule": "bash_unresolved_read_operand: only a literal /name tail after a dynamic part passes",
+    "old": "  function tail_ok(t) { return substr(t, 1, 1) == \"/\" }",
+    "new": "  function tail_ok(t) { return 1 }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-no-nesting",
+    "rule": "bash_unresolved_read_operand: the code of a command substitution is read too",
+    "old": "        bash_unresolved_read_operand \"$uo_body\" \"$((uo_depth + 1))\" \"$uo_moved\" \"$uo_tab\"\n        uo_status=$?\n",
+    "new": "        uo_status=1\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-mode-ignored",
+    "rule": "check_bash_command: an operand that stays unknown blocks under the closed policy",
+    "old": "  if [ \"$bash_path_status\" -eq 3 ] && [ \"${AGENT_GUARD_INFRA_FAILURE_MODE:-}\" != closed ]; then\n",
+    "new": "  if [ \"$bash_path_status\" -eq 3 ]; then\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-mode-on-resolved",
+    "rule": "check_bash_command: a resolved operand that names a protected file blocks in every mode",
+    "old": "  if [ \"$bash_path_status\" -eq 3 ] && [ \"${AGENT_GUARD_INFRA_FAILURE_MODE:-}\" != closed ]; then\n",
+    "new": "  if [ \"$bash_path_status\" -ge 3 ] && [ \"${AGENT_GUARD_INFRA_FAILURE_MODE:-}\" != closed ]; then\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-stops-at-unknown",
+    "rule": "bash_unresolved_read_operand: operands after an unknown one are still matched",
+    "old": "      U) uo_unknown=1 ;;\n",
+    "new": "      U) exit 3 ;;\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-option-unmatched",
+    "rule": "bash_unresolved_read_operand: a loop word that becomes an option is matched as written",
+    "old": "loopopt(ow)) { operand(w); print \"U\"; return }",
+    "new": "loopopt(ow)) { print \"U\"; return }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-no-warning",
+    "rule": "finish_pre_tool_scanner_unavailable: an unknown operand passed by the open policy warns",
+    "old": "  if [ -n \"${PRE_TOOL_UNRESOLVED_READ:-}\" ]; then\n",
+    "new": "  if false; then\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-warning-not-carried",
+    "rule": "handle_hook_infrastructure_failure: an earlier notice carries the unresolved-operand warning",
+    "old": "    || hif_detail=\"$hif_detail $PRE_TOOL_UNRESOLVED_READ\"\n",
+    "new": "    || :\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-quoted-option-pattern",
+    "rule": "bash_unresolved_read_operand: a quoted option word with an unknown value stays an option",
+    "old": "    if (index(ow, \"\\005\") || (index(ow, \"\\002\") && ow !~ /^-[^\\002]/)) ow = w\n",
+    "new": "    if (index(ow, \"\\005\") || index(ow, \"\\002\")) ow = w\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-pipe-assignment-kept",
+    "rule": "bash_unresolved_read_operand: an assignment on the left of a pipe or & does not reach the parent",
+    "old": "      bg = (w == \"|\" || w == \"&\")\n",
+    "new": "      bg = 0\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-pipe-export-kept",
+    "rule": "bash_unresolved_read_operand: an export on the left of a pipe does not reach the parent",
+    "old": "    else { tab[nm] = v; segnow[nm] = 1 }\n",
+    "new": "    else tab[nm] = v\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-quoted-procsub-code",
+    "rule": "bash_unresolved_read_operand: a quoted <( is text",
+    "old": "      if (c ~ /[$<>]/ && (c == \"$\" || !dq) && substr(w, i + 1, 1) == \"(\") {\n",
+    "new": "      if (c ~ /[$<>]/ && substr(w, i + 1, 1) == \"(\") {\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-array-literal",
+    "rule": "bash_unresolved_read_operand: an array initialisation leaves the value unknown",
+    "old": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/ || substr(w, index(w, \"=\") + 1, 1) == \"(\" || idx) v = \"\\002\"\n",
+    "new": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/ || idx) v = \"\\002\"\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-element-write-scalar",
+    "rule": "bash_unresolved_read_operand: an element write leaves the value unknown",
+    "old": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/ || substr(w, index(w, \"=\") + 1, 1) == \"(\" || idx) v = \"\\002\"\n",
+    "new": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/ || substr(w, index(w, \"=\") + 1, 1) == \"(\") v = \"\\002\"\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-value-unmatched",
+    "rule": "bash_unresolved_read_operand: a resolved assignment value is matched against the deny list",
+    "old": "        bash_matches_deny_path \"cat $(sh_squote \"${uo_record#V}\")\" \"${input-}\" && exit 0\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-no-redirect",
+    "rule": "bash_unresolved_read_operand: an input redirect target is an operand",
+    "old": "    if (redir) { redir = 0; if (w !~ /^[<>]\\(/) operand(w); return }",
+    "new": "    if (redir) { redir = 0; return }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-prefix-assignment",
+    "rule": "bash_unresolved_read_operand: an assignment before a command does not resolve its operands",
+    "old": "      if (cmdseen || cond || bg || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]",
+    "new": "      if (nofollow || pav[k] == \"\\002\") delete tab[pan[k]]",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-pwd-after-cd",
+    "rule": "bash_unresolved_read_operand: $PWD names the hook workdir only until a cd",
+    "old": "          if (nm == \"PWD\" && !moved && !(nm in tab)) { out = out \".\"; subst = 1 }",
+    "new": "          if (nm == \"PWD\" && !(nm in tab)) { out = out \".\"; subst = 1 }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-attached-file",
+    "rule": "bash_unresolved_read_operand: a file attached to a short option (-f\"$F\") is an operand",
+    "old": "      if (index(fopt[prog], \" \" ch \" \")) { if (rest != \"\") operand(rest); else fnext = 1; return }",
+    "new": "      if (index(fopt[prog], \" \" ch \" \")) { if (rest == \"\") fnext = 1; return }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-cluster-pattern",
+    "rule": "bash_unresolved_read_operand: a pattern in an option cluster (-ex) makes the first operand a file",
+    "old": "      if (index(popt[prog], \" \" ch \" \")) patdone = 1\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-append-kept",
+    "rule": "bash_unresolved_read_operand: NAME+=value changes the known value",
+    "old": "    if (add) v = (v != \"\\002\" && known(nm)) ? lv v : \"\\002\"\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-attached-subshell",
+    "rule": "bash_unresolved_read_operand: a ( attached to the command word opens a subshell",
+    "old": "      while (w ~ /^\\(/ && w !~ /^\\(\\(/) { depth++; w = substr(w, 2) }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-wrapper-value",
+    "rule": "bash_unresolved_read_operand: a wrapper option value is not the command name",
+    "old": "      if (w ~ /^-/ && index(wvopt[wrap], \" \" w \" \")) { skipw = 1; return }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-shell-code",
+    "rule": "bash_unresolved_read_operand: the code of sh -c is read",
+    "old": "      if (ow ~ /^-[A-Za-z]*c[A-Za-z]*$/) { mode = \"evalnext\"; return }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-no-join",
+    "rule": "bash_unresolved_read_operand: line continuations are joined before reading words",
+    "old": "\"*) uo_text=$(shell_join_line_continuations \"$uo_text\") ;;",
+    "new": "\"*) ;;",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-env-value",
+    "rule": "bash_unresolved_read_operand: env -S code is read",
+    "old": "      if (wrap == \"env\" && w ~ /^(-S|--split-string)$/) { mode = \"evalnext\"; cpos = 0; cmdseen = 1; return }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-code-unscanned",
+    "rule": "bash_unresolved_read_operand: eval or sh -c code built from a known value is scanned as text",
+    "old": "    if (subst) print \"C\" v\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-resolved-option-file",
+    "rule": "bash_unresolved_read_operand: a file attached to a resolved option is matched against the deny list",
+    "old": "    else forcev = subst\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-child-env",
+    "rule": "bash_unresolved_read_operand: assignments before a command are not followed into the code it runs",
+    "old": "      for (k = 1; k <= npa; k++) ovr[pan[k]] = 1\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-attached-redirect",
+    "rule": "bash_unresolved_read_operand: a redirection inside a word is split off",
+    "old": "    if (k > 1) { word(substr($0, 1, k - 1)); word(substr($0, k)) }\n    else word($0)",
+    "new": "    word($0)",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-dynamic-target",
+    "rule": "bash_unresolved_read_operand: a variable named at run time may be any known one",
+    "old": "    if (w ~ /[$`]/) { for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k]; return }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-brace",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop over a brace expansion is unresolved",
+    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[{]/ || (n ~ /~/ && n !~ /^~\\/[^~]*$/) || ow ~ /[ \\t\\n\\001\\003\\004\\006\\007\\034]/) forok = 0\n",
+    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || (n ~ /~/ && n !~ /^~\\/[^~]*$/) || ow ~ /[ \\t\\n\\001\\003\\004\\006\\007\\034]/) forok = 0\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-values",
+    "rule": "AWK_READ_OPERAND_RECORDS: each literal word of a for list is checked as the operand",
+    "old": "    for (i = 2; i <= n; i++) resolved(swap(v, parts[i]), 1)\n",
+    "new": "    resolved(swap(v, parts[2]), 1)\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-reassigned",
+    "rule": "AWK_READ_OPERAND_RECORDS: an assignment in the loop body ends the known loop values",
+    "old": "      delete loopv[pan[k]]\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-scope",
+    "rule": "AWK_READ_OPERAND_RECORDS: loop values end with the loop body",
+    "old": "        for (k in loopv) if (loopd[k] > depth) delete loopv[k]\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-empty-word",
+    "rule": "AWK_READ_OPERAND_RECORDS: an empty for word is still one loop value",
+    "old": "    for (i = 2; i <= n; i++) resolved(swap(v, parts[i]), 1)\n",
+    "new": "    for (i = 2; i <= n; i++) if (parts[i] != \"\") resolved(swap(v, parts[i]), 1)\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-value-glob",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop word whose resolved value holds a glob character counts as a glob",
+    "old": "      else { if (n ~ /[*?[]/ || ow ~ /[*?[]/) forg = 1; forl = forl \"\\005\" ow }\n",
+    "new": "      else { if (n ~ /[*?[]/) forg = 1; forl = forl \"\\005\" ow }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-unquoted-value",
+    "rule": "AWK_READ_OPERAND_RECORDS: an assigned value that globs or splits outside double quotes is unresolved",
+    "old": "  function word1(s, dq) { return (asg || dq || (s !~ /[*?[ \\t\\n]/ && !ifsset)) ? s : \"\\002\" }\n",
+    "new": "  function word1(s, dq) { return (asg || dq || !ifsset) ? s : \"\\002\" }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-indexed-name",
+    "rule": "AWK_READ_OPERAND_RECORDS: a write to NAME[i] forgets NAME",
+    "old": " sub(/.*\\//, \"\", n); sub(/\\[.*/, \"\", n)\n",
+    "new": " sub(/.*\\//, \"\", n)\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-select",
+    "rule": "AWK_READ_OPERAND_RECORDS: a select variable has no known values",
+    "old": "    if (mode == \"select\") { forget(w); mode = \"skip\"; return }\n",
+    "new": "    if (mode == \"select\") { mode = \"for\" }\n    if (mode == \"for\") { forname = name_of(w); mode = \"forin\"; return }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-marker-byte",
+    "rule": "AWK_READ_OPERAND_RECORDS: a literal marker byte leaves the word unresolved",
+    "old": "    if (index(w, \"\\005\")) gsub(/\\005/, \"\\002\", out)\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-assign-no-split",
+    "rule": "AWK_READ_OPERAND_RECORDS: an assignment value is not split, so it stays known",
+    "old": "  function word1(s, dq) { return (asg || dq || (s !~ /[*?[ \\t\\n]/ && !ifsset)) ? s : \"\\002\" }\n",
+    "new": "  function word1(s, dq) { return (dq || (s !~ /[*?[ \\t\\n]/ && !ifsset)) ? s : \"\\002\" }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-ifs",
+    "rule": "AWK_READ_OPERAND_RECORDS: after IFS changes, an unquoted value is unresolved",
+    "old": "  function word1(s, dq) { return (asg || dq || (s !~ /[*?[ \\t\\n]/ && !ifsset)) ? s : \"\\002\" }\n",
+    "new": "  function word1(s, dq) { return (asg || dq || (s !~ /[*?[ \\t\\n]/)) ? s : \"\\002\" }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-ansi-escape",
+    "rule": "AWK_READ_OPERAND_RECORDS: an escape inside $'...' is unresolved",
+    "old": "            if (substr(w, j, 1) == \"\\\\\") { out = out \"\\002\"; j++; continue }\n",
+    "new": "            if (substr(w, j, 1) == \"\\\\\") j++\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-function-trap",
+    "rule": "AWK_READ_OPERAND_RECORDS: no value is followed once a function or trap is defined",
+    "old": "    if (w ~ /^\\(\\)/ || w ~ /^[A-Za-z_][A-Za-z0-9_]*\\(\\)/ || (cpos && w ~ /^(function|trap)$/)) { nofollow = 1; for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k] }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-default-assign",
+    "rule": "AWK_READ_OPERAND_RECORDS: ${NAME:=word} forgets NAME",
+    "old": "    defaults(w)\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-locale-quote",
+    "rule": "AWK_READ_OPERAND_RECORDS: $\"...\" text is unresolved",
+    "old": "        if (n1 == \"\\\"\") { out = out \"\\002\"; continue }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-ifs",
+    "rule": "AWK_READ_OPERAND_RECORDS: an unquoted loop use after IFS changed is unresolved",
+    "old": "  function loopuse(nm, dq) { return (dq || (!ifsset && !loopg[nm])) ? \"\\005\" : \"\\002\" }\n",
+    "new": "  function loopuse(nm, dq) { return (dq || !loopg[nm]) ? \"\\005\" : \"\\002\" }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-in-substitution",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop variable is known inside the substitutions of the loop body",
+    "old": "    for (k in loopv) if (!stale(k, child)) s = s (loopg[k] ? \"\\006\" : \"\\005\") k \"\\003\" loopv[k] \"\\004\"\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-child-function",
+    "rule": "AWK_READ_OPERAND_RECORDS: a function or trap defined outside a substitution ends value following inside it",
+    "old": "    if (nofollow || ifsset) s = s \"\\007\\003\" (nofollow ? \"n\" : \"\") (ifsset ? \"i\" : \"\") \"\\004\"\n",
+    "new": "    if (ifsset) s = s \"\\007\\003i\\004\"\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-child-ifs",
+    "rule": "AWK_READ_OPERAND_RECORDS: an IFS change outside a substitution reaches the unquoted uses inside it",
+    "old": "    if (nofollow || ifsset) s = s \"\\007\\003\" (nofollow ? \"n\" : \"\") (ifsset ? \"i\" : \"\") \"\\004\"\n",
+    "new": "    if (nofollow) s = s \"\\007\\003n\\004\"\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-glob-unquoted",
+    "rule": "AWK_READ_OPERAND_RECORDS: an unquoted use of a glob loop variable is unresolved",
+    "old": "  function loopuse(nm, dq) { return (dq || (!ifsset && !loopg[nm])) ? \"\\005\" : \"\\002\" }\n",
+    "new": "  function loopuse(nm, dq) { return (dq || !ifsset) ? \"\\005\" : \"\\002\" }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-glob-child",
+    "rule": "AWK_READ_OPERAND_RECORDS: a glob loop variable stays one inside a substitution",
+    "old": "loopg[nm] = (c == \"\\006\") }",
+    "new": "loopg[nm] = 0 }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-glob-dropped",
+    "rule": "AWK_READ_OPERAND_RECORDS: a glob word of a loop list is checked like its literal words",
+    "old": "      else { if (n ~ /[*?[]/ || ow ~ /[*?[]/) forg = 1; forl = forl \"\\005\" ow }\n",
+    "new": "      else if (n ~ /[*?[]/ || ow ~ /[*?[]/) forg = 1; else forl = forl \"\\005\" ow\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-tilde",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop word behind a tilde form other than ~/ is unresolved",
+    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[{]/ || (n ~ /~/ && n !~ /^~\\/[^~]*$/) || ow ~ /[ \\t\\n\\001\\003\\004\\006\\007\\034]/) forok = 0\n",
+    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[{]/ || ow ~ /[ \\t\\n\\001\\003\\004\\006\\007\\034]/) forok = 0\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-word-bytes",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop word with a table separator byte is unresolved",
+    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[{]/ || (n ~ /~/ && n !~ /^~\\/[^~]*$/) || ow ~ /[ \\t\\n\\001\\003\\004\\006\\007\\034]/) forok = 0\n",
+    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[{]/ || (n ~ /~/ && n !~ /^~\\/[^~]*$/) || ow ~ /[ \\t\\n]/) forok = 0\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-name",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop variable name that is not an identifier is not followed",
+    "old": " && forname ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {",
+    "new": ") {",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-assign-bytes",
+    "rule": "AWK_READ_OPERAND_RECORDS: an assigned value with a table separator byte is unknown",
+    "old": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/ || substr(w, index(w, \"=\") + 1, 1) == \"(\" || idx) v = \"\\002\"\n",
+    "new": "    if (index(v, \"\\002\") || index(v, \"\\005\") || substr(w, index(w, \"=\") + 1, 1) == \"(\" || idx) v = \"\\002\"\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-here-string",
+    "rule": "AWK_READ_OPERAND_RECORDS: a here-string feeds text, not a file",
+    "old": "    if (w ~ /^[0-9]*<</) return\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-here-string-blank",
+    "rule": "AWK_READ_OPERAND_RECORDS: the word after a here-string operator is its text, not an operand",
+    "old": "    if (w ~ /^[0-9]*<<[-<]?$/) { skipw = 1; return }\n",
+    "new": "    if (w ~ /^[0-9]*<<-?$/) { skipw = 1; return }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-stale-assignment",
+    "rule": "AWK_READ_OPERAND_RECORDS: a name reassigned earlier on the same line is not passed to a substitution",
+    "old": "  function stale(nm, child) { return (cpos && nm in ptab) || (child && nm in ovr) }\n",
+    "new": "  function stale(nm, child) { return (child && nm in ovr) }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-export-quoted",
+    "rule": "AWK_READ_OPERAND_RECORDS: an export word that is not a plain name forgets the name it may assign",
+    "old": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; if (!unq(w)) { gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n) } forget(n) }\n",
+    "new": "      else if (w !~ /^-/ && decl !~ /^(export|readonly)$/) { n = w; if (!unq(w)) { gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n) } forget(n) }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-declare-quoted",
+    "rule": "AWK_READ_OPERAND_RECORDS: a quoted assignment word of declare forgets the name before its equals sign",
+    "old": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; if (!unq(w)) { gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n) } forget(n) }\n",
+    "new": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; if (!unq(w)) { gsub(/[\"\\047\\\\]/, \"\", n); } forget(n) }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-prefix-keeps-value",
+    "rule": "AWK_READ_OPERAND_RECORDS: a prefix assignment leaves the value the shell expands the command words with",
+    "old": "      for (k = 1; k <= npa; k++) ovr[pan[k]] = 1\n",
+    "new": "      for (k = 1; k <= npa; k++) { ovr[pan[k]] = 1; delete tab[pan[k]]; delete loopv[pan[k]] }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-env-override",
+    "rule": "AWK_READ_OPERAND_RECORDS: an env assignment is not passed to the code env runs",
+    "old": "      if (wrap == \"env\" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { ovr[substr(w, 1, index(w, \"=\") - 1)] = 1; return }\n",
+    "new": "      if (wrap == \"env\" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) return\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-env-keeps-value",
+    "rule": "AWK_READ_OPERAND_RECORDS: an env assignment leaves the value the shell expands the command words with",
+    "old": "      if (wrap == \"env\" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { ovr[substr(w, 1, index(w, \"=\") - 1)] = 1; return }\n",
+    "new": "      if (wrap == \"env\" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { n = substr(w, 1, index(w, \"=\") - 1); ovr[n] = 1; delete tab[n]; delete loopv[n]; return }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-override-child-only",
+    "rule": "AWK_READ_OPERAND_RECORDS: an overridden name is kept from nested shell code",
+    "old": "  function stale(nm, child) { return (cpos && nm in ptab) || (child && nm in ovr) }\n",
+    "new": "  function stale(nm, child) { return (cpos && nm in ptab) }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-eval-old-value",
+    "rule": "AWK_READ_OPERAND_RECORDS: eval code is built from the values before the assignments in front of eval",
+    "old": "    if (mode == \"eval\" && evalcode != \"\") code(evalcode)\n    for (k = 1; k <= npa; k++) {\n      delete loopv[pan[k]]\n      if (cmdseen || cond || bg || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]\n      else tab[pan[k]] = pav[k]\n    }\n",
+    "new": "    for (k = 1; k <= npa; k++) {\n      delete loopv[pan[k]]\n      if (cmdseen || cond || bg || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]\n      else tab[pan[k]] = pav[k]\n    }\n    if (mode == \"eval\" && evalcode != \"\") code(evalcode)\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-declare-split",
+    "rule": "AWK_READ_OPERAND_RECORDS: a declaration word with an expansion may split into more assignments",
+    "old": "      if ((c == \"$\" || c == \"`\") && !dq) return 1\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-option",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop word that makes an operand an option of the reading program is unresolved",
+    "old": "    if (!ddash && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { operand(w); print \"U\"; return }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-declare-quoted-others",
+    "rule": "AWK_READ_OPERAND_RECORDS: a quoted declaration word cannot split, so other names keep their values",
+    "old": "      if ((c == \"$\" || c == \"`\") && !dq) return 1\n",
+    "new": "      if (c == \"$\" || c == \"`\") return 1\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-stdin-dash",
+    "rule": "AWK_READ_OPERAND_RECORDS: a lone dash loop word is standard input, not an option",
+    "old": "    for (i = 2; i <= n; i++) if (swap(v, parts[i]) ~ /^-./) return 1\n",
+    "new": "    for (i = 2; i <= n; i++) if (swap(v, parts[i]) ~ /^-/) return 1\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-option-source-arg",
+    "rule": "AWK_READ_OPERAND_RECORDS: a dash loop word after a sourced script is its argument",
+    "old": "    if (!ddash && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { operand(w); print \"U\"; return }\n",
+    "new": "    if (!ddash && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { operand(w); print \"U\"; return }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-declare-quoted-at",
+    "rule": "AWK_READ_OPERAND_RECORDS: a quoted declaration word with $@ or [@] may still split",
+    "old": "    if (index(w, \"@\")) return w ~ /[$`]/\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-declare-quoted-flag",
+    "rule": "AWK_READ_OPERAND_RECORDS: a quoted braced expansion that does not start with a name may still split",
+    "old": "      if (c == \"$\" && substr(w, i + 1, 1) == \"{\" && substr(w, i + 2, 1) !~ /[A-Za-z_]/) return 1\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
     "id": "bash-jq-segments-alias-ignored",
     "rule": "jq in any segment (94S-2135): an alias, hash or enable word keeps the old rule",
     "old": "        if (k[i] == \"0\" && v ~ /^(alias|hash|enable|shopt|setopt|unsetopt|emulate)$/) exit 1\n",

@@ -232,6 +232,16 @@ else
   failed=$((failed + 1))
 fi
 
+# File operands built from a substitution or variable the scan cannot resolve.
+checked=$((checked + 1))
+if sh "$ROOT/tests/unresolved-read-operand.sh" > "$CASE_ROOT/unresolved" 2>&1; then
+  printf 'ok - path data %s: unresolved read operands\n' "$checked"
+else
+  printf 'not ok - path data %s: unresolved read operands\n' "$checked"
+  grep '^not ok' "$CASE_ROOT/unresolved" | sed 's/^/#   /'
+  failed=$((failed + 1))
+fi
+
 # Word splitting for the env-template and rg exclusion exceptions.
 checked=$((checked + 1))
 if sh "$ROOT/tests/shell-command-words.sh"; then

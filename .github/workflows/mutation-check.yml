@@ -27,6 +27,7 @@ on:
       - tests/unit-core.sh
       - tests/unit-deny-path.sh
       - tests/unit-framing.sh
+      - tests/unresolved-read-operand.sh
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}

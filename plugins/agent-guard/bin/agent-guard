@@ -2583,8 +2583,8 @@ HOOK_SCANNER_UNAVAILABLE=0
 # start its checks at all: text the agent has read cannot be taken back. With
 # the variable unset that case is closed and every other infrastructure
 # failure is open: the changed-file and written-file scans after a tool call,
-# Stop, and a commit the gate could not resolve or whose diff is over the scan
-# cap. Withholding output does nothing for files on disk, and an over-cap diff
+# Stop, a commit the gate could not resolve or whose diff is over the scan
+# cap, and a Bash read operand only known at run time. Withholding output does nothing for files on disk, and an over-cap diff
 # would block every call until it is split. open or closed, once set, applies
 # to both.
 infrastructure_failure_mode() {
@@ -2609,7 +2609,7 @@ HOOK_WARNING_INTERVAL_SECONDS=600
 # the notice stays once per session. Two hooks racing past the interval can
 # both warn; neither can suppress the other.
 hook_warning_due() {
-  warning_marker=$(warning_state_path infrastructure "${1:-}") || return 0
+  warning_marker=$(warning_state_path "${2:-infrastructure}" "${1:-}") || return 0
   warning_now=$AG_AUDIT_START
   case "$warning_now" in
     ''|0|*[!0-9]*) warning_now=$(date +%s 2>/dev/null) || warning_now= ;;
@@ -2717,7 +2717,7 @@ begin_infrastructure_failure() {
   bif_open='continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default).'
   [ "${AGENT_GUARD_INFRA_FAILURE_MODE:-}" != open ] \
     || bif_open='continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open.'
-  if hook_warning_due "${1:-}"; then
+  if hook_warning_due "${1:-}" "${4:-}"; then
     INFRA_FAILURE_NOTICE="$bif_detail $bif_open"
     info "$INFRA_FAILURE_NOTICE"
   fi
@@ -2748,7 +2748,9 @@ handle_hook_infrastructure_failure() {
     hif_scanner=$(degraded_hook_message scanner)
     [ "$hif_detail" = "$hif_scanner" ] || hif_detail="$hif_scanner $hif_detail"
   fi
-  begin_infrastructure_failure "${2:-}" "$hif_detail" "${4:-}"
+  [ -z "${PRE_TOOL_UNRESOLVED_READ:-}" ] || [ "${5:-}" = unresolved-operand ] \
+    || hif_detail="$hif_detail $PRE_TOOL_UNRESOLVED_READ"
+  begin_infrastructure_failure "${2:-}" "$hif_detail" "${4:-}" "${5:-}"
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
   [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
   case "$(hook_host):$hif_event" in
@@ -10995,6 +10997,678 @@ deny_path_report_print() {
   printf '%s\n' "$deny_path_report"
 }
 
+# Records of bash_unresolved_read_operand, read from shell_command_words:
+# U for an operand that cannot be resolved, V<text> for a resolved operand (or
+# the literal tail after a dynamic directory) to match against the deny list,
+# S<code> for the code of each command substitution (newlines as \034), and
+# C<code> for eval or sh -c code a known assignment changed, to scan as text.
+AWK_READ_OPERAND_RECORDS='
+  # #507: a dynamic front before a literal /name tail passes when that tail
+  # matches no deny entry. Return 0 here to block every dynamic operand.
+  function tail_ok(t) { return substr(t, 1, 1) == "/" }
+  function closer(w, i,   d, j, c, q) {
+    d = 0; q = ""
+    for (j = i; j <= length(w); j++) {
+      c = substr(w, j, 1)
+      if (q == "\047") { if (c == q) q = ""; continue }
+      if (c == "\\") { j++; continue }
+      if (q == "\"") {
+        if (c == q) q = ""
+        else if (c == "$" && substr(w, j + 1, 1) == "(") { j = closer(w, j + 1); if (!j) return 0 }
+        continue
+      }
+      if (c == "\047" || c == "\"") { q = c; continue }
+      if (c == "(") d++
+      else if (c == ")" && --d == 0) return j
+    }
+    return 0
+  }
+  function tick(w, i,   j, c) {
+    for (j = i + 1; j <= length(w); j++) {
+      c = substr(w, j, 1)
+      if (c == "\\") { j++; continue }
+      if (c == "`") return j
+    }
+    return 0
+  }
+  # The assignment table as one T record, for the code of a substitution.
+  # A loop variable goes as \005name, or \006name when its list holds a glob,
+  # and \007 names what ends value following there too: n for a function or
+  # trap, i for a changed IFS.
+  function tabrec(child,   k, s) {
+    s = ""
+    for (k in tab) if (!stale(k, child)) s = s k "\003" tab[k] "\004"
+    for (k in loopv) if (!stale(k, child)) s = s (loopg[k] ? "\006" : "\005") k "\003" loopv[k] "\004"
+    if (nofollow || ifsset) s = s "\007\003" (nofollow ? "n" : "") (ifsset ? "i" : "") "\004"
+    print "T" s
+  }
+  # An assignment earlier on the same line, before any command word, has
+  # already changed the name when a later word of that line is expanded. One
+  # in front of a command, or made by env, changes it for the code that
+  # command runs (child) and for nothing else.
+  function stale(nm, child) { return (cpos && nm in ptab) || (child && nm in ovr) }
+  # One entry of the T record of the code around this one.
+  function inherit(nm, v,   c) {
+    c = substr(nm, 1, 1)
+    if (c == "\007") { if (index(v, "n")) nofollow = 1; if (index(v, "i")) ifsset = 1 }
+    else if (c == "\005" || c == "\006") { nm = substr(nm, 2); loopv[nm] = v; loopd[nm] = 0; loopg[nm] = (c == "\006") }
+    else tab[nm] = v
+  }
+  # An S record for each substitution in w, or U for one that never closes.
+  function subs(w,   i, c, sq, dq, j) {
+    sq = 0; dq = 0
+    for (i = 1; i <= length(w); i++) {
+      c = substr(w, i, 1)
+      if (sq) { if (c == "\047") sq = 0; continue }
+      if (c == "\\") { i++; continue }
+      if (c == "\"") { dq = !dq; continue }
+      if (c == "\047" && !dq) { sq = 1; continue }
+      if (c == "`") {
+        j = tick(w, i)
+        if (!j) { print "U"; return }
+        tabrec(); print "S" substr(w, i + 1, j - i - 1); i = j; continue
+      }
+      # Inside double quotes only $( starts code; "<(...)" is text.
+      if (c ~ /[$<>]/ && (c == "$" || !dq) && substr(w, i + 1, 1) == "(") {
+        if (c == "$" && substr(w, i + 2, 1) == "(") continue
+        j = closer(w, i + 1)
+        if (!j) { print "U"; return }
+        tabrec(); print "S" substr(w, i + 2, j - i - 2); i = j
+      }
+    }
+  }
+  # w with each resolvable parameter replaced; \002 marks a part only known
+  # at run time. Sets subst when a parameter was replaced.
+  function value(w,   i, c, n1, out, sq, dq, j, inner, nm) {
+    out = ""; sq = 0; dq = 0; subst = 0; lvn = ""
+    for (i = 1; i <= length(w); i++) {
+      c = substr(w, i, 1)
+      if (sq) { if (c == "\047") sq = 0; else out = out c; continue }
+      if (c == "\\") { out = out substr(w, i + 1, 1); i++; continue }
+      if (c == "\047" && !dq) { sq = 1; continue }
+      if (c == "\"") { dq = !dq; continue }
+      if (c == "`") { j = tick(w, i); out = out "\002"; if (!j) return out; i = j; continue }
+      if (c == "$") {
+        n1 = substr(w, i + 1, 1)
+        if (n1 == "\047" && !dq) {
+          for (j = i + 2; j <= length(w) && substr(w, j, 1) != "\047"; j++) {
+            # An escape in $'...' is not decoded here.
+            if (substr(w, j, 1) == "\\") { out = out "\002"; j++; continue }
+            out = out substr(w, j, 1)
+          }
+          i = j; continue
+        }
+        # $"..." is translated text; its result is not known here.
+        if (n1 == "\"") { out = out "\002"; continue }
+        if (n1 == "(") {
+          j = closer(w, i + 1)
+          if (!j) return out "\002"
+          # $(pwd) with no arguments names the hook workdir unless a cd ran.
+          if (!moved && substr(w, i + 2, j - i - 2) ~ /^[ \t]*pwd[ \t]*$/) { out = out "."; subst = 1 }
+          else out = out "\002"
+          i = j; continue
+        }
+        if (n1 == "{") {
+          j = index(substr(w, i + 2), "}")
+          if (!j) return out "\002"
+          inner = substr(w, i + 2, j - 1)
+          if (inner == "PWD" && !moved && !("PWD" in tab)) { out = out "."; subst = 1 }
+          else if (looped(inner)) { out = out loopuse(inner, dq); subst = 1 }
+          else if (inner ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && known(inner)) { out = out word1(lv, dq); subst = 1 }
+          else out = out "\002"
+          i += j + 1; continue
+        }
+        if (n1 ~ /[A-Za-z_]/) {
+          match(substr(w, i + 1), /^[A-Za-z_][A-Za-z0-9_]*/)
+          nm = substr(w, i + 1, RLENGTH)
+          if (nm == "PWD" && !moved && !(nm in tab)) { out = out "."; subst = 1 }
+          else if (looped(nm)) { out = out loopuse(nm, dq); subst = 1 }
+          else if (known(nm)) { out = out word1(lv, dq); subst = 1 } else out = out "\002"
+          i += RLENGTH; continue
+        }
+        if (n1 ~ /[0-9@*#?$!-]/) { out = out "\002"; i++; continue }
+      }
+      out = out c
+    }
+    # A literal marker byte anywhere leaves the word unresolved.
+    if (index(w, "\005")) gsub(/\005/, "\002", out)
+    return out
+  }
+  # Whether parameter nm has a known literal value, set in lv. An assignment
+  # earlier in the same list of assignments counts while no command follows.
+  # Whether nm is the variable of a for loop over literal words, set in lvn;
+  # one loop variable per word.
+  function looped(nm) {
+    if (!(nm in loopv) || (cpos && nm in ptab) || (lvn != "" && lvn != nm)) return 0
+    lvn = nm; return 1
+  }
+  # A use of loop variable nm: \005 where each word of its list stands as it
+  # is. Outside double quotes the value is split and globbed again, so one
+  # from a glob (any file name) or after IFS changed is only known at run time.
+  function loopuse(nm, dq) { return (dq || (!ifsset && !loopg[nm])) ? "\005" : "\002" }
+
+  # A value expanded outside double quotes, except in an assignment, is split
+  # and globbed, so one with those characters, or after IFS changed, stands
+  # only as a part known at run time.
+  function word1(s, dq) { return (asg || dq || (s !~ /[*?[ \t\n]/ && !ifsset)) ? s : "\002" }
+  function known(nm) {
+    if (cpos && nm in ptab) { lv = ptab[nm]; return lv != "\002" }
+    if (nm in tab) { lv = tab[nm]; return 1 }
+    return 0
+  }
+  # \005 stands for a loop variable; each word of its literal list is checked.
+  function operand(w,   v, n, i, parts) {
+    v = value(w)
+    if (!index(v, "\005")) { resolved(v, subst || forcev); return }
+    # The list keeps a leading \005, so an empty word stays one entry.
+    n = split(loopv[lvn], parts, "\005")
+    for (i = 2; i <= n; i++) resolved(swap(v, parts[i]), 1)
+  }
+  # Whether w holds an expansion that may split into words: one outside
+  # quotes, or inside them "$@", an array with [@], or a braced form that
+  # does not start with a name (zsh flags such as ${=NAME}).
+  function unq(w,   i, c, sq, dq) {
+    if (index(w, "@")) return w ~ /[$`]/
+    sq = 0; dq = 0
+    for (i = 1; i <= length(w); i++) {
+      c = substr(w, i, 1)
+      if (sq) { if (c == "\047") sq = 0; continue }
+      if (c == "\\") { i++; continue }
+      if (c == "\"") { dq = !dq; continue }
+      if (c == "\047" && !dq) { sq = 1; continue }
+      if ((c == "$" || c == "`") && !dq) return 1
+      if (c == "$" && substr(w, i + 1, 1) == "{" && substr(w, i + 2, 1) !~ /[A-Za-z_]/) return 1
+    }
+    return 0
+  }
+  # Whether a word of the loop list makes v, which starts with the loop
+  # variable, an option: a dash and more. A lone dash is standard input.
+  function loopopt(v,   n, i, parts) {
+    n = split(loopv[lvn], parts, "\005")
+    for (i = 2; i <= n; i++) if (swap(v, parts[i]) ~ /^-./) return 1
+    return 0
+  }
+  function swap(v, s,   k) {
+    while (k = index(v, "\005")) v = substr(v, 1, k - 1) s substr(v, k + 1)
+    return v
+  }
+  function resolved(v, forced,   t) {
+    if (index(v, "\002") == 0) { if (forced) print "V" v; return }
+    t = v; sub(/.*\002/, "", t)
+    if (!tail_ok(t)) { print "U"; return }
+    print "V" t
+  }
+  # One option word: --name, --name=value, or a cluster of short options
+  # where a value-taking letter takes the rest of the word (-ex, -f"$F").
+  function option(w,   nm, v, eq, k, ch, rest) {
+    if (w ~ /^--/) {
+      nm = w; eq = index(w, "=")
+      if (eq) { nm = substr(w, 1, eq - 1); v = substr(w, eq + 1) }
+      if (index(popt[prog], " " nm " ")) patdone = 1
+      if (index(fopt[prog], " " nm " ")) { if (eq) operand(v); else fnext = 1; return }
+      if (prog == "cp" && nm == "--target-directory") cpt = 1
+      if (eq) return
+      if (prog == "jq" && nm ~ /^--(args|jsonargs)$/) { jqdata = 1; return }
+      if (prog == "jq" && nm ~ /^--(arg|argjson)$/) { skipn = 2; return }
+      if (prog == "jq" && nm ~ /^--(slurpfile|rawfile)$/) { skipn = 1; fnext = 1; return }
+      if (index(vopt[prog], " " nm " ")) skipn = 1
+      return
+    }
+    for (k = 2; k <= length(w); k++) {
+      ch = "-" substr(w, k, 1); rest = substr(w, k + 1)
+      if (index(popt[prog], " " ch " ")) patdone = 1
+      if (index(fopt[prog], " " ch " ")) { if (rest != "") operand(rest); else fnext = 1; return }
+      if (prog == "cp" && ch == "-t") cpt = 1
+      if (index(vopt[prog], " " ch " ")) { if (rest == "") skipn = 1; return }
+    }
+  }
+  # Code run by eval, sh -c or env -S, as an S record. A part only known at
+  # run time stands as an unknown parameter, so an operand built from it is
+  # unresolved, while code that is dynamic as a whole names no reader.
+  function code(w,   v) {
+    v = value(w)
+    gsub(/[\002\005]/, "\"$__agent_guard_unknown\"", v)
+    # Code with a replaced parameter was never seen by the raw-text scan.
+    if (subst) print "C" v
+    tabrec(1); print "S" v
+  }
+  # Position of the first unquoted < or > inside w after its first character,
+  # outside substitutions, or 0. A descriptor number before it stays with it.
+  function redirpos(w,   i, c, q, d) {
+    if (w ~ /^([0-9]*|&)[<>]/) return 0
+    q = ""; d = 0
+    for (i = 1; i <= length(w); i++) {
+      c = substr(w, i, 1)
+      if (q == "\047") { if (c == q) q = ""; continue }
+      if (c == "\\") { i++; continue }
+      if (q == "\"") { if (c == q) q = ""; continue }
+      if (q == "`") { if (c == q) q = ""; continue }
+      if (c == "\047" || c == "\"" || c == "`") { q = c; continue }
+      if (c == "$" && substr(w, i + 1, 1) ~ /[({]/) { d++; i++; continue }
+      if (d && c ~ /[)}]/) { d--; continue }
+      if (d) continue
+      if (i > 1 && c ~ /[<>]/) {
+        if (substr(w, 1, i - 1) ~ /^[0-9]+$/) return 0
+        return i
+      }
+    }
+    return 0
+  }
+  # Forget the variable word w names; a name only known at run time may be
+  # any of them.
+  # ${NAME:=word} and ${NAME=word} assign NAME.
+  function defaults(w,   s, nm) {
+    s = w
+    while (match(s, /\$\{[A-Za-z_][A-Za-z0-9_]*:?=/)) {
+      nm = substr(s, RSTART + 2, RLENGTH - 2); sub(/:?=$/, "", nm)
+      delete tab[nm]; delete loopv[nm]
+      s = substr(s, RSTART + RLENGTH)
+    }
+  }
+  function forget(w,   k) {
+    if (w ~ /[$`]/) { for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k]; return }
+    if (name_of(w) == "IFS") ifsset = 1
+    delete tab[name_of(w)]; delete loopv[name_of(w)]
+  }
+  function name_of(w,   n) {
+    n = w; gsub(/["\047]/, "", n); sub(/^\\/, "", n); sub(/.*\//, "", n); sub(/\[.*/, "", n)
+    return n
+  }
+  # A plain assignment holds after its segment only when no command follows
+  # it there and it is not inside a branch, loop, group or pipeline.
+  function end_segment(   k) {
+    # The list is expanded before the loop variable changes.
+    if (mode ~ /^for(in|list)$/) { delete tab[forname]; delete loopv[forname] }
+    if (mode == "forlist" && forok && forl != "" && !nofollow && forname ~ /^[A-Za-z_][A-Za-z0-9_]*$/) { loopv[forname] = forl; loopd[forname] = depth; loopg[forname] = forg }
+    # The words of eval are expanded before its assignments apply.
+    if (mode == "eval" && evalcode != "") code(evalcode)
+    for (k = 1; k <= npa; k++) {
+      delete loopv[pan[k]]
+      if (cmdseen || cond || bg || depth || nofollow || pav[k] == "\002") delete tab[pan[k]]
+      else tab[pan[k]] = pav[k]
+    }
+    for (k in segnow) { if (bg) delete tab[k]; delete segnow[k] }
+    if (prog == "cp" && cppend != "" && cpt) operand(cppend)
+    for (k in ptab) delete ptab[k]
+    for (k in ovr) delete ovr[k]
+    if (clearafter) { for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k] }
+    clearafter = 0
+    npa = 0; cpos = 1; cmdseen = 0; prog = ""; mode = ""; ddash = 0; patdone = 0
+    skipn = 0; fnext = 0; redir = 0; skipw = 0; cppend = ""; cpt = 0; wrap = ""; gotone = 0; jqdata = 0; sedi = 0
+  }
+  function assign(w, now,   nm, v, add, idx) {
+    nm = substr(w, 1, index(w, "=") - 1); idx = (nm ~ /\[/); sub(/\[.*/, "", nm)
+    add = (nm ~ /\+$/); sub(/\+$/, "", nm)
+    if (nm == "IFS") ifsset = 1
+    asg = 1; v = value(substr(w, index(w, "=") + 1)); asg = 0
+    # A marker or table separator byte leaves the value unknown, and so does
+    # an array initialisation, whose words the shell splits and expands, or
+    # an element write, since ${f} still reads element zero.
+    if (v ~ /[\001\002\003\004\005\006\007]/ || substr(w, index(w, "=") + 1, 1) == "(" || idx) v = "\002"
+    # NAME+=value appends to the value it already has.
+    if (add) v = (v != "\002" && known(nm)) ? lv v : "\002"
+    if (now) delete loopv[nm]
+    if (!now) { npa++; pan[npa] = nm; pav[npa] = v; ptab[nm] = v; return }
+    if (cond || depth || nofollow || v == "\002") delete tab[nm]
+    else { tab[nm] = v; segnow[nm] = 1 }
+  }
+  BEGIN {
+    split("cat tac nl head tail less more bat batcat sed awk gawk mawk nawk grep egrep fgrep rg base64 base32 xxd od hexdump strings cut sort uniq paste fold column diff cmp comm jq cp source .", a, " ")
+    for (k in a) reader[a[k]] = 1
+    split("grep egrep fgrep rg sed awk gawk mawk nawk jq", a, " ")
+    for (k in a) patfirst[a[k]] = 1
+    wvopt["nice"] = " -n "; wvopt["timeout"] = " -s -k --signal --kill-after "
+    wvopt["sudo"] = wvopt["doas"] = " -u -g -C -D -h -p -r -t -U -T "
+    wvopt["env"] = " -u -C --unset --chdir "; wvopt["stdbuf"] = " -i -o -e "; wvopt["exec"] = " -a "
+    # Options whose value is not a file.
+    vopt["head"] = vopt["tail"] = " -n -c --lines --bytes "
+    vopt["grep"] = vopt["egrep"] = vopt["fgrep"] = " -e -m -A -B -C -D -d --regexp --max-count --context --after-context --before-context --label --include --exclude --exclude-dir --binary-files --directories --devices "
+    vopt["rg"] = " -e -m -A -B -C -g -t -T -M -j -E --regexp --max-count --glob --iglob --type --type-not --context --after-context --before-context --max-columns --threads --sort --sortr --encoding -r --replace --pre --pre-glob -d --max-depth --color --colors --context-separator --field-context-separator --field-match-separator --path-separator --dfa-size-limit --regex-size-limit --max-filesize --engine --type-add --type-clear --hostname-bin --hyperlink-format --generate "
+    vopt["sed"] = " -e --expression -l "
+    vopt["awk"] = vopt["gawk"] = vopt["mawk"] = vopt["nawk"] = " -F -v --field-separator --assign "
+    vopt["cut"] = " -d -f -c -b --delimiter --fields --characters --bytes "
+    vopt["sort"] = " -k -t -o -S -T --key --field-separator --output --buffer-size --temporary-directory --parallel --batch-size --compress-program --random-source "
+    vopt["uniq"] = " -f -s -w "
+    vopt["nl"] = " -s -w -b -v -i -n "
+    vopt["fold"] = " -w "; vopt["paste"] = " -d "; vopt["tac"] = " -s "
+    vopt["column"] = " -s -c -o -N "
+    vopt["xxd"] = " -l -s -c -g -o "; vopt["od"] = " -A -t -N -j -w "
+    vopt["hexdump"] = " -n -s -e "; vopt["strings"] = " -n -t "
+    vopt["base64"] = vopt["base32"] = " -w -b -o --wrap --break --output "
+    vopt["cmp"] = " -i -n --ignore-initial --bytes "
+    vopt["diff"] = " -U -C -L -x -I -F --label --exclude --ignore-matching-lines --show-function-line --horizon-lines "; vopt["cp"] = " -t -S --target-directory --suffix "
+    vopt["bat"] = vopt["batcat"] = " -l -H -r --language --line-range --highlight-line --style --theme "
+    vopt["jq"] = " --indent "
+    # Options whose value is a file the program reads.
+    fopt["grep"] = fopt["egrep"] = fopt["fgrep"] = " -f --file --exclude-from "
+    fopt["rg"] = " -f --file --ignore-file "; fopt["sed"] = " -f --file "
+    fopt["sort"] = " --files0-from "; fopt["diff"] = " -X --exclude-from --from-file --to-file "
+    fopt["awk"] = fopt["gawk"] = fopt["mawk"] = fopt["nawk"] = " -f --file "
+    fopt["jq"] = " -f --from-file "; fopt["hexdump"] = " -f "
+    fopt["base64"] = fopt["base32"] = " -i --input "
+    # Options that supply the pattern or program, so the first operand is a file.
+    popt["grep"] = popt["egrep"] = popt["fgrep"] = popt["rg"] = " -e -f --regexp --file "
+    popt["sed"] = " -e -f --expression --file "
+    popt["awk"] = popt["gawk"] = popt["mawk"] = popt["nawk"] = " -f --file "
+    popt["jq"] = " -f --from-file "
+    m = split(ENVIRON["UO_TAB"], a, "\004")
+    for (k = 1; k <= m; k++) if (j = index(a[k], "\003")) inherit(substr(a[k], 1, j - 1), substr(a[k], j + 1))
+    end_segment()
+  }
+  # One shell word. A redirection inside a word (cat<"$F") is read as
+  # the word before it and the redirection.
+  function word(w,   n, ow, k) {
+    # An unquoted word that starts with # opens a comment to the end of the line.
+    if (incomment && w != "" && w != "\034") return
+    incomment = 0
+    if (w ~ /^#/) { incomment = 1; return }
+    if (w == "" || w == "\034" || w == ";" || w == "|" || w == "||" || w == "&&" || w == "&") {
+      # The left side of a pipe or of & runs in a subshell, so its
+      # assignments never reach the shell that runs the next segment.
+      bg = (w == "|" || w == "&")
+      end_segment()
+      bg = 0
+      cond = (w == "|" || w == "||" || w == "&&" || w == "&")
+      return
+    }
+    subs(w)
+    defaults(w)
+    # A function or trap may set any variable when it runs, so no value is
+    # followed once one is defined.
+    if (w ~ /^\(\)/ || w ~ /^[A-Za-z_][A-Za-z0-9_]*\(\)/ || (cpos && w ~ /^(function|trap)$/)) { nofollow = 1; for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k] }
+    if (mode == "cmp") { if (w == "]]") mode = "skip"; return }
+    if (mode == "arith") { if (w ~ /\)\)$/) mode = "skip"; return }
+    if (skipw) { skipw--; return }
+    if (redir) { redir = 0; if (w !~ /^[<>]\(/) operand(w); return }
+    if (w ~ /^[0-9]*<<[-<]?$/) { skipw = 1; return }
+    if (w ~ /^[0-9]*<</) return
+    if (w ~ /^[0-9]*<>?$/) { redir = 1; return }
+    if (w ~ /^[0-9]*<&/) return
+    if (w ~ /^[0-9]*<[^(]/) { sub(/^[0-9]*<>?/, "", w); operand(w); return }
+    if (w ~ /^([0-9]*>|&>)[>|&]?$/) { skipw = 1; return }
+    if (w ~ /^([0-9]*>|&>)/ || w ~ /^[<>]\(/) return
+    if (cpos) {
+      if (w ~ /^(if|then|else|elif|do|while|until|!|time)$/) { cond = 1; if (w ~ /^(if|while|until)$/) depth++; return }
+      if (w ~ /^(fi|done|esac|\}|\))$/) {
+        if (depth) depth--
+        if (w == "esac") incase = 0
+        # Loop values hold only inside the loop body, which may never run.
+        for (k in loopv) if (loopd[k] > depth) delete loopv[k]
+        return
+      }
+      if (w ~ /^(\{|\()$/) { depth++; return }
+      # < compares inside [[ ]] and (( )); it redirects nothing there.
+      if (w == "[[") { mode = "cmp"; cpos = 0; cmdseen = 1; return }
+      if (w ~ /^\(\(/) { mode = (w ~ /\)\)$/) ? "" : "arith"; cpos = 0; cmdseen = 1; return }
+      if (w ~ /^(for|select)$/) { depth++; mode = w; cpos = 0; return }
+      if (w == "case") { depth++; mode = "case"; cpos = 0; return }
+      if (incase && w ~ /\)$/) return
+      # A subshell may open in the same word as the command (`(cat`).
+      while (w ~ /^\(/ && w !~ /^\(\(/) { depth++; w = substr(w, 2) }
+      if (w == "") return
+      if (wrap == "" && w ~ /^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=/) { assign(w, 0); return }
+      # Options of a wrapper that take the return word as their value.
+      if (w ~ /^-/ && index(wvopt[wrap], " " w " ")) { skipw = 1; return }
+      if (wrap == "env" && w ~ /^(-S|--split-string)$/) { mode = "evalnext"; cpos = 0; cmdseen = 1; return }
+      if (wrap == "env" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { ovr[substr(w, 1, index(w, "=") - 1)] = 1; return }
+      if (wrap == "env" && (w ~ /^-/ || w ~ /=/)) return
+      if (wrap != "" && w ~ /^-/) return
+      if (wrap == "timeout") { wrap = "timeout1"; return }
+      n = name_of(w)
+      if (n ~ /^(command|builtin|exec|nohup|sudo|doas|nice|env|stdbuf|timeout)$/) { wrap = n; return }
+      cpos = 0; cmdseen = 1; wrap = ""
+      # Assignments before the command are its environment, which code it
+      # runs (sh -c, eval) reads; their old values are not followed there.
+      # The shell still expands the words of the command with the old values.
+      for (k = 1; k <= npa; k++) ovr[pan[k]] = 1
+      if (w ~ /[$`]/) return
+      if (n ~ /^(export|readonly|local|declare|typeset)$/) { mode = "decl"; decl = n; return }
+      if (n ~ /^(unset|read|mapfile|readarray|getopts)$/) { mode = "forget"; return }
+      # Code that eval or sh -c runs is read like a substitution; source and
+      # eval may set any variable, so known values end with the segment.
+      if (n ~ /^(eval|source|\.)$/) clearafter = 1
+      if (n == "eval") { mode = "eval"; evalcode = ""; return }
+      if (n ~ /^(sh|bash|zsh|dash|ksh|ash|mksh|posh)$/) { mode = "shell"; return }
+      if (n ~ /^(cd|pushd|popd|eval|source|\.)$/ && !moved) { moved = 1; print "M" }
+      if (n == "printf") mode = "printf"
+      if (n in reader) prog = n
+      return
+    }
+    if (mode == "evalnext") { code(w); mode = "skip"; return }
+    if (mode == "eval") { evalcode = evalcode (evalcode == "" ? "" : " ") w; return }
+    if (mode == "shell") {
+      ow = value(w); if (index(ow, "\002") || index(ow, "\005") || subst) ow = w
+      if (ow ~ /^-[A-Za-z]*c[A-Za-z]*$/) { mode = "evalnext"; return }
+      if (ow ~ /^[-+]/ && ow != "--") { if (ow ~ /^[-+]o$/) skipw = 1; return }
+      # A script operand is outside the reading programs; so is -s input.
+      mode = "skip"; return
+    }
+    # A loop over literal words and globs gives its variable those words.
+    if (mode == "select") { forget(w); mode = "skip"; return }
+    if (mode == "for") { forname = name_of(w); if (forname == "IFS") ifsset = 1; mode = "forin"; return }
+    if (mode == "forin") { if (w == "in") { mode = "forlist"; forl = ""; forok = 1; forg = 0 } else { forget(forname); mode = "skip" }; return }
+    if (mode == "forlist") {
+      ow = value(w)
+      n = w; gsub(/\$\{/, "", n)
+      # A glob word stays in the list as written: each value is one of its
+      # matches, so an operand is checked as that glob. ~/ names the home
+      # directory in the deny list too; any other tilde form is unknown.
+      if (index(ow, "\002") || index(ow, "\005") || n ~ /[{]/ || (n ~ /~/ && n !~ /^~\/[^~]*$/) || ow ~ /[ \t\n\001\003\004\006\007\034]/) forok = 0
+      else { if (n ~ /[*?[]/ || ow ~ /[*?[]/) forg = 1; forl = forl "\005" ow }
+      return
+    }
+    if (mode == "skip") return
+    if (mode == "case") { if (w == "in") { incase = 1; cpos = 1; mode = "" } ; return }
+    # export and readonly without a value keep the value; local and declare may reset it.
+    # A word that is not a plain name may hold an assignment ("f=x", $kv).
+    if (mode == "decl") {
+      if (w ~ /^[A-Za-z_][A-Za-z0-9_]*\+?=/) assign(w, 1)
+      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; if (!unq(w)) { gsub(/["\047\\]/, "", n); sub(/\+?=.*/, "", n) } forget(n) }
+      return
+    }
+    if (mode == "forget") { if (w !~ /^-/) forget(w); return }
+    # printf -v sets only the variable named return; the rest is data.
+    if (mode == "printf") { if (w == "-v") mode = "printfv"; return }
+    if (mode == "printfv") { forget(w); mode = "skip"; return }
+    if (prog == "") return
+    if (skipn) { skipn--; return }
+    if (fnext) { fnext = 0; operand(w); return }
+    # A word with a known value is read as that value ("-e" or "$opt" is -e);
+    # a file attached to a replaced option is then matched as resolved text.
+    ow = value(w)
+    # A loop word that makes this word an option is not followed, but each
+    # word it stands for is still matched as written (--file=<name>). The
+    # arguments of a sourced script are data; jq reads options after --args.
+    if (!ddash && !(gotone && prog ~ /^(source|\.)$/) && substr(ow, 1, 1) == "\005" && loopopt(ow)) { operand(w); print "U"; return }
+    # A word that starts with a literal option name stays an option even
+    # when its value is unknown ("--file=$F", "-f$F").
+    if (index(ow, "\005") || (index(ow, "\002") && ow !~ /^-[^\002]/)) ow = w
+    else forcev = subst
+    if (!ddash && ow == "--") { forcev = 0; ddash = 1; return }
+    # BSD sed takes the backup suffix of -i as the return word, often ''.
+    if (!ddash && prog == "sed" && ow == "-i") { sedi = 1; forcev = 0; return }
+    if (sedi) { sedi = 0; if (ow == "" || ow ~ /^\.[A-Za-z0-9_.~-]*$/) return }
+    if (!ddash && ow ~ /^-./) { option(ow); forcev = 0; return }
+    forcev = 0
+    if (patfirst[prog] && !patdone) { patdone = 1; return }
+    # After jq --args or --jsonargs, the words after the filter are data.
+    if (jqdata) return
+    # awk reads a NAME=value operand as an assignment, not a file.
+    if (prog ~ /awk$/ && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) return
+    if (prog == "cp" && !cpt) { if (cppend != "") operand(cppend); cppend = w; return }
+    # uniq and xxd write a second operand; source passes the rest to the script.
+    if (prog ~ /^(uniq|xxd|source|\.)$/) { if (gotone) return; gotone = 1 }
+    operand(w)
+  }
+  {
+    k = redirpos($0)
+    if (k > 1) { word(substr($0, 1, k - 1)); word(substr($0, k)) }
+    else word($0)
+  }
+  END { end_segment() }
+'
+
+# Succeed (and print a deny-read report when an assigned value matched) when
+# a file operand of a reading program, or the target of an input redirect, is
+# built from a command substitution or a variable this scan cannot resolve
+# (#507). The raw-text scan reads only the words as written, so
+# cat "$(printf %s .e; printf nv)" or cat "$F" names no protected file there,
+# yet may open one. A literal assignment earlier in the same command is
+# followed (f=README.md; cat "$f"), and its value is matched against the deny
+# list. The variable of a for loop over literal words or globs stands for each
+# of them, also inside the substitutions of the loop body. The pattern or program operand of grep, rg, sed, awk and jq, and the
+# values of their known options, are not file operands. Command substitutions
+# anywhere, including in unquoted here-document bodies, are read the same way.
+# $2 is the nesting depth; past 8 the command is treated as unresolved.
+# $PWD and $(pwd) with no arguments name the hook workdir, the directory
+# the scan runs in, until the command changes directory (cd, pushd, popd, or
+# code the scan does not follow); $3 carries that change into nested code,
+# and $4 the literal assignments known where the nested code starts.
+# Known limit: a protected directory name hidden inside the variable itself
+# ("$D/config" with D pointing into a key directory) is not seen.
+bash_unresolved_read_operand() {
+  # Checked before the subshell below, so a command without an expansion
+  # costs no extra process.
+  case "$1" in *'$'*|*'`'*) ;; *) return 1 ;; esac
+  [ -f "$DENY_READ_PATHS" ] || return 1
+  bash_unresolved_read_operand_scan "$@"
+}
+
+bash_unresolved_read_operand_scan() (
+  set -f
+  uo_text=$1
+  uo_depth=${2:-0}
+  [ "$uo_depth" -lt 8 ] || exit 3
+  case "$uo_text" in
+    *'<<'*) uo_text=$(printf '%s\n' "$uo_text" | bash_read_operand_heredoc_view) || uo_text=$1 ;;
+  esac
+  case "$uo_text" in
+    *"\\
+"*) uo_text=$(shell_join_line_continuations "$uo_text") ;;
+  esac
+  shell_words_marker "$uo_text"
+  uo_words=$(shell_command_words "$uo_text") || exit 3
+  uo_moved=${3:-0}
+  uo_records=$(printf '%s\n' "$uo_words" | UO_TAB=${4-} LC_ALL=C awk -v moved="$uo_moved" "$AWK_READ_OPERAND_RECORDS") || exit 3
+  uo_tab=
+  uo_unknown=0
+  uo_nl='
+'
+  while [ -n "$uo_records" ]; do
+    uo_record=${uo_records%%"$uo_nl"*}
+    case "$uo_records" in
+      *"$uo_nl"*) uo_records=${uo_records#*"$uo_nl"} ;;
+      *) uo_records= ;;
+    esac
+    case "$uo_record" in
+      U) uo_unknown=1 ;;
+      M) uo_moved=1 ;;
+      T*) uo_tab=${uo_record#T} ;;
+      V*)
+        # The full path policy, with its template and tracked-file exceptions;
+        # it prints its own report. ${input-} is the hook event, when set.
+        bash_matches_deny_path "cat $(sh_squote "${uo_record#V}")" "${input-}" && exit 0
+        ;;
+      C*)
+        uo_body=$(printf '%s' "${uo_record#C}" | tr '\034' '\n')
+        bash_matches_deny_path "$uo_body" "${input-}" && exit 0
+        ;;
+      S*)
+        uo_body=$(printf '%s' "${uo_record#S}" | tr '\034' '\n')
+        bash_unresolved_read_operand "$uo_body" "$((uo_depth + 1))" "$uo_moved" "$uo_tab"
+        uo_status=$?
+        [ "$uo_status" -ne 0 ] || exit 0
+        [ "$uo_status" -ne 3 ] || uo_unknown=1
+        ;;
+    esac
+  done
+  [ "$uo_unknown" -eq 0 ] || exit 3
+  exit 1
+)
+
+# Print the command with every here-document body left out, for
+# bash_unresolved_read_operand. A body behind an unquoted delimiter keeps each
+# command substitution it runs, one per line as ": <substitution>". Quotes are
+# followed across lines, and a # comment ends the line. Fails when a body has
+# no delimiter line (an arithmetic << would otherwise hide the rest), so the
+# caller reads the command as written.
+bash_read_operand_heredoc_view() {
+  LC_ALL=C awk '
+    function subs(l,   i, c, d, j, s, q) {
+      for (i = 1; i <= length(l); i++) {
+        c = substr(l, i, 1)
+        if (c == "\\") { i++; continue }
+        if (c == "`") {
+          j = index(substr(l, i + 1), "`")
+          s = j ? substr(l, i, j + 1) : substr(l, i)
+          print ": " s
+          if (!j) return
+          i += j; continue
+        }
+        if (c == "$" && substr(l, i + 1, 1) == "(") {
+          d = 0; q = ""
+          for (j = i + 1; j <= length(l); j++) {
+            c = substr(l, j, 1)
+            if (q != "") { if (c == q) q = ""; continue }
+            if (c == "\047" || c == "\"") { q = c; continue }
+            if (c == "(") d++
+            else if (c == ")" && --d == 0) break
+          }
+          print ": " substr(l, i, j - i + 1)
+          i = j
+        }
+      }
+    }
+    { line[NR] = $0 }
+    END {
+      nq = 0; qh = 0; sq = 0; dq = 0
+      for (n = 1; n <= NR; n++) {
+        l = line[n]
+        if (qh) {
+          t = l
+          if (dash[qh]) sub(/^\t+/, "", t)
+          if (t == delim[qh]) {
+            # A substitution in the body may span lines, so read it whole.
+            if (!quoted[qh]) subs(body)
+            body = ""
+            if (++qh > nq) { qh = 0; nq = 0 }
+            continue
+          }
+          body = body (body == "" ? "" : "\n") l
+          continue
+        }
+        print l
+        for (i = 1; i <= length(l); i++) {
+          c = substr(l, i, 1)
+          if (sq) { if (c == "\047") sq = 0; continue }
+          if (c == "\\") { i++; continue }
+          if (dq) { if (c == "\"") dq = 0; continue }
+          if (c == "\047") { sq = 1; continue }
+          if (c == "\"") { dq = 1; continue }
+          if (c == "#" && (i == 1 || substr(l, i - 1, 1) ~ /[ \t;&|()]/)) break
+          if (substr(l, i, 3) == "<<<") { i += 2; continue }
+          if (substr(l, i, 2) != "<<") continue
+          i += 2
+          nq++; dash[nq] = 0; quoted[nq] = 0
+          if (substr(l, i, 1) == "-") { dash[nq] = 1; i++ }
+          while (substr(l, i, 1) ~ /[ \t]/) i++
+          d = ""
+          for (; i <= length(l); i++) {
+            c = substr(l, i, 1)
+            if (c ~ /[ \t;&|<>()]/) break
+            if (c == "\047" || c == "\"" || c == "\\") { quoted[nq] = 1; continue }
+            d = d c
+          }
+          delim[nq] = d
+          i--
+        }
+        if (nq && !qh) { if (sq || dq) exit 1; qh = 1 }
+      }
+      if (qh) exit 1
+    }
+  '
+}
+
 bash_matches_deny_path() {
   deny_path_report=
   bash_deny_path_scan "$1" || return "$?"
@@ -14742,9 +15416,26 @@ $sw_program"
   deny_report=$(
     [ -n "$workdir" ] && { CDPATH= cd -- "$workdir" 2>/dev/null \
       || die "hook workdir is not accessible: $workdir"; }
-    bash_matches_deny_path "$raw_cmd" "$input"
+    bash_matches_deny_path "$raw_cmd" "$input" && exit 0
+    dm_status=$?
+    [ "$dm_status" -eq 1 ] || exit "$dm_status"
+    # 3: no protected name in the text, but an operand only known at run time.
+    bash_unresolved_read_operand "$raw_cmd"
+    uo_status=$?
+    [ "$uo_status" -ne 0 ] || exit 4
+    [ "$uo_status" -ne 3 ] || exit 3
+    exit 1
   )
-  case "$?" in
+  bash_path_status=$?
+  # An operand that stays unknown (3) is a check that could not run, so the
+  # infrastructure-failure mode decides: the open default warns after the
+  # other checks pass. A resolved operand that names a protected file (4)
+  # blocks in every mode.
+  if [ "$bash_path_status" -eq 3 ] && [ "${AGENT_GUARD_INFRA_FAILURE_MODE:-}" != closed ]; then
+    PRE_TOOL_UNRESOLVED_READ="$PROGRAM: reason=bash_protected_path_unresolved_operand; a file operand or input redirect of a reading program is built from a command substitution or variable the guard cannot resolve, so it was not checked against the deny list; name the file literally in the command (an assignment earlier in the same command is followed) to have it checked;"
+    bash_path_status=1
+  fi
+  case "$bash_path_status" in
     0)
       dr_mode=$(deny_read_mode) || dr_mode=invalid
       if [ "$dr_mode" = mask ] && dr_target=$(cat_mask_target "$raw_cmd" "$workdir"); then
@@ -14776,6 +15467,17 @@ $sw_program"
       exit 2
       ;;
     1) ;;
+    3|4)
+      info "$PROGRAM: blocked shell command whose file operand is only known at run time"
+      info "$PROGRAM: reason=bash_protected_path_unresolved_operand; a file operand or input redirect of a reading program is built from a command substitution or variable the guard cannot resolve, so it may name a protected file; command was not executed"
+      [ -n "$deny_report" ] && info "$PROGRAM: $deny_report"
+      case "$(hook_host)" in
+        codex) info "$PROGRAM: name the file literally in the command (an assignment earlier in the same command is followed), and read an ordinary file with a shell command on that file alone." ;;
+        *) info "$PROGRAM: name the file literally in the command (an assignment earlier in the same command is followed), or read an ordinary file with the Read tool. The Read tool cannot open a protected file either." ;;
+      esac
+      info "$PROGRAM: if the content of a protected file is needed, ask the user. Do not weaken the deny list or reshape the command to pass this check."
+      exit 2
+      ;;
     *) exit 2 ;;
   esac
 
@@ -15011,7 +15713,17 @@ hook_pre_tool() {
 # Reached only when no check blocked, so the open warning never shares stdout
 # with a block. Its once-per-session marker is the infrastructure one.
 finish_pre_tool_scanner_unavailable() {
+  # The unresolved-operand warning has its own marker, so it never hides the
+  # notice of a git commit or push that could not be scanned; it rides along
+  # with that notice when one was published, and a due scanner notice rides
+  # along with it.
+  [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
+  if [ -n "${PRE_TOOL_UNRESOLVED_READ:-}" ]; then
+    handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
+      "$PRE_TOOL_UNRESOLVED_READ" '' unresolved-operand
+  fi
   [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ] || return 0
+  [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
   handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
     "$(degraded_hook_message scanner)" scan
 }
