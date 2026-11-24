@@ -14147,12 +14147,21 @@ secretish_env_values() {
         dry_found = 1
         return
       }
+      # A mapping for a value cut at the end of its JSON string carries
+      # what follows that end up to a space, as the context the mapping
+      # needs after the value.
+      if (source_tail > 0 && value_start - prefix_length + length(literal) - 1 == length(source)) {
+        literal = literal source_extra
+        replacement = replacement source_extra
+      }
       # A mapping the copy scan_line reads made must match the line as it
       # was, so each quote the copy unescaped gets its backslash back. One
       # whose place in the copy is unknown is dropped.
       if (copy_reading && index(literal, "\"")) {
-        offset = length(copy_line) - length(source)
-        if (offset < 0 || substr(copy_line, offset + 1) != source) return
+        # source_tail: what follows source in the text scan_line_once reads,
+        # when the value was cut at the end of its JSON string.
+        offset = length(copy_line) - length(source) - source_tail
+        if (offset < 0 || substr(copy_line, offset + 1, length(source)) != source) return
         begin = offset + value_start - prefix_length
         tail = length(replacement) - prefix_length - length("[REDACTED]")
         replacement = line_text(substr(literal, 1, prefix_length), begin) \
@@ -15706,7 +15715,7 @@ secretish_env_values() {
                        colon_start, colon_length, start, matched_length, \
                        chose_colon, skip, status_guard, first, expansion, \
                        closed_value, key_opener, advance, advanced, head, \
-                       after_key, quote_at, string_close) {
+                       after_key, quote_at, string_close, bounded) {
       rest = line
       advanced = rescan_head
       rescan_head = 0
@@ -15883,7 +15892,30 @@ secretish_env_values() {
           head = substr(head, locator_length(head) + 1)
           key_line_start = (head ~ /^[+-]?[ \t\r]*((export|const|let|var|public|private|protected|readonly|static)[ \t]+)*$/)
         }
-        if (!skip &&
+        # A value inside a JSON string ends with that string, so a quote
+        # it opens and does not close there cannot take the lines below
+        # (a lone apostrophe after `{"text":"password: `). What it opened is read as scan_leaf
+        # reads a quote that never closed.
+        if (!skip && string_close > start + matched_length) {
+          source_tail = length(rest) - string_close + 1
+          source_extra = substr(rest, string_close)
+          match(source_extra, /^[^ \t\r]*/)
+          source_extra = substr(source_extra, 1, RLENGTH)
+          bounded = emit_value(substr(rest, 1, string_close - 1),
+                         start + matched_length,
+                         substr(rest, start, matched_length), status_guard)
+          source_tail = 0
+          source_extra = ""
+          if (bounded && open_quote != "") {
+            if (!open_guard || credential_shaped(edge_trim(open_value)))
+              emit_captured(open_value)
+            else
+              guard_rescan_leaf(open_value)
+            open_quote = ""
+            open_value = ""
+            open_guard = 0
+          }
+        } else if (!skip &&
             emit_value(rest, start + matched_length,
                        substr(rest, start, matched_length), status_guard)) break
         advance = start + matched_length - 1
