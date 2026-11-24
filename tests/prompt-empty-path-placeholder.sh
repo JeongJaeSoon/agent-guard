@@ -64,6 +64,9 @@ check 2 "symbol password after the path" "$pw=/run/secrets/db_password p@ss!wd"
 check 2 "real-looking value on the line below a path" "$k=$p$nl$val"
 check 2 "short words after the path" "$k=$p correct horse battery staple"
 check 2 "value glued to a fence line below a path" "${fence}$nl$k=$p$nl${fence}$val"
+check 2 "long lowercase run glued to a fence line below a path" "$k=$p$nl${fence}$(printf '%s' "$val" | tr 'A-Z0-9' 'a-zabcdefghij')qwertyuiopasdf"
+check 0 "fence with a language name below a path" "$k=$p$nl${fence}properties"
+check 2 "short value glued to a fence line below a path" "$k=$p$nl${fence}$(printf '%.10s' "$val")"
 
 # An obvious placeholder (#543 keeps changeme a value).
 # changeme is also a real default password, so it stays a value (#543).

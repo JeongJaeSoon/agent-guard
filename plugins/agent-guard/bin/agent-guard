@@ -15082,7 +15082,9 @@ secretish_env_values() {
       kept = ""
       n = split(leaf_tail, lines, "\n")
       for (i = 1; i <= n; i++)
-        if (lines[i] !~ /^[ \t]*```[a-z]*[ \t\r]*$/)
+        # A language name is short; a longer run after the fence can be a value.
+        if (lines[i] !~ /^[ \t]*```[a-z]*[ \t\r]*$/ \
+            || length(edge_trim(lines[i])) > 15)
           kept = kept (kept == "" ? "" : "\n") lines[i]
       leaf_tail = kept
       found = exempt_tail(assignment, tail)
