@@ -32,6 +32,11 @@ printf 'const p = process.env.PORT\n' >"$W/g/src/a.ts"
 printf 'VALUE=%s\n' "$canary" >"$W/g/.env"
 (cd "$W/g" && git init -q . && git add -f .) >/dev/null 2>&1 || { printf 'not ok - could not build the git fixture\n'; exit 1; }
 
+# An inherited L names a protected file: an assignment the shell may skip or
+# runs in a subshell must not stand for its value (#636). Every other row
+# that reads $L assigns it first.
+L=.env
+export L
 pass=0 fail=0 n=0
 ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$1"; }
 bad() { fail=$((fail + 1)); printf 'not ok - %s\n' "$1"; }
@@ -113,6 +118,9 @@ allow L=~/logs/app.log; sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' "$L" | sort
 allow L=~/logs/app.log; jq -R -r '.tls.key' $L 2>/dev/null | head -1
 read cat .env
 read S=.env; sed 's/x/y/' $S
+read false && L=notes.txt; sed 's/.env/x/' "$L"
+read L=notes.txt | cat; sed 's/.env/x/' "$L"
+read true || L=notes.txt; grep -E 'x|VALUE' $L | sed -E 's/.env//'
 read L=~/logs/tls.key; grep -E 'x|VALUE' $L | sed -E 's/^x//'
 read grep -E 'x|VALUE' ~/logs/tls.key | sed -E 's/^x//'
 read cd ~/logs; grep -E 'x|VALUE' tls.key | sed -E 's/^x//'

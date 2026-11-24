@@ -637,5 +637,15 @@
       "tests/bash-path-text-data.sh",
       "tests/search-operand-ground-truth.sh"
     ]
+  },
+  {
+    "id": "bash-program-var-any-segment",
+    "rule": "plain_var (#636): only an assignment that starts the line or follows `;` and feeds no pipe gives a variable its value",
+    "old": " && (wseg[r] == 1 || segsemi[wseg[r]]) && !segpipe[wseg[r]]) {",
+    "new": ") {",
+    "tests": [
+      "tests/bash-path-text-data.sh",
+      "tests/search-operand-ground-truth.sh"
+    ]
   }
 ]

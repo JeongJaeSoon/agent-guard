@@ -523,5 +523,26 @@
     "classification": "must-still-block",
     "description": "a sed program after a PATH assignment, which can change what sed runs",
     "command": "PATH=sbin; grep \"accepted\" app.log | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "var-assigned-after-and",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed operand variable whose only assignment follows && and may not run",
+    "command": "false && L=app.log; sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' \"$L\" | sort"
+  },
+  {
+    "id": "var-assigned-in-pipeline",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed operand variable assigned only inside a pipeline subshell",
+    "command": "L=app.log | cat; sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' \"$L\" | sort"
+  },
+  {
+    "id": "var-assigned-after-or",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep operand variable whose only assignment follows || and may not run",
+    "command": "true || L=~/logs/app.log; grep \"accepted\" $L | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort"
   }
 ]

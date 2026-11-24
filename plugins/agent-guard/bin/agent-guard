@@ -8436,6 +8436,7 @@ search_operand_spans() {
         if (c == ";" || c == "|" || c == "&" && substr(s, i + 1, 1) == "&") {
           flush_word()
           segpipe[nseg] = (c == "|" && substr(s, i + 1, 1) != "|")
+          segsemi[nseg + 1] = (c == ";")
           nseg++
           if (c != ";" && substr(s, i + 1, 1) == c) i++
           continue
@@ -8498,8 +8499,10 @@ search_operand_spans() {
       # its own (a prefix, an argument of export): a reference to it is
       # refused. An assigned name must also be one or two characters long:
       # no shell reads such a name as a setting (PATH, IFS). vfrom: the first
-      # assignment outside any loop or condition, which has run for every
-      # word after it. A `for` variable holds a list word from its `for`
+      # assignment outside any loop or condition, which has run in this shell
+      # for every word after it: its segment starts the line or follows a `;`
+      # (not `&&` or `||`, which may skip it) and feeds no pipe (a subshell).
+      # A `for` variable holds a list word from its `for`
       # (ffrom) to its `done` (fto), and after it too when the loop is
       # inside no other (fdep).
       d = 0; nvar = 0; nfor = 0
@@ -8526,7 +8529,9 @@ search_operand_spans() {
           if (a <= e || r < h || name !~ /^[A-Za-z][A-Za-z0-9]?$/ || name == "TZ" \
               || !tilde_assign(r) && (bad(r) || v != wv[r] \
                 || substr(v, RLENGTH + 1) !~ /^[A-Za-z0-9_.\/:@%+,=][A-Za-z0-9_.\/:@%+,=-]*$/)) vbad[name] = 1
-          else if (d == 0 && !(name in vfrom)) { vfrom[name] = r; vval[name] = substr(v, RLENGTH + 1) }
+          else if (d == 0 && !(name in vfrom) && (wseg[r] == 1 || segsemi[wseg[r]]) && !segpipe[wseg[r]]) {
+            vfrom[name] = r; vval[name] = substr(v, RLENGTH + 1)
+          }
         }
       }
       # An expansion can assign as well (${x:=v}, ${x::=v}, $[x=1]), to any
