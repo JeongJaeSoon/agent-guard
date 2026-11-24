@@ -3008,6 +3008,8 @@ run_expect 0 "cat/tee here-document bodies leave out no protected read" \
   sh "$ROOT/tests/heredoc-body-text.sh"
 run_expect 0 "a gh --jq value is a jq filter and does not stop a later jq rewrite; real reads stay blocked" \
   sh "$ROOT/tests/gh-jq-option.sh"
+run_expect 0 "a jq in any segment or loop body reads its program as jq text while nothing can change which jq runs; real reads stay blocked" \
+  sh "$ROOT/tests/jq-program-segments.sh"
 run_expect 0 "literal backquotes in quoted text read by echo or cat pass, runnable ones stay blocked" \
   sh "$ROOT/tests/literal-substitution-text.sh"
 run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \

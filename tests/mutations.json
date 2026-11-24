@@ -1047,5 +1047,158 @@
     "tests": [
       "tests/prompt-empty-path-placeholder.sh"
     ]
+  },
+  {
+    "id": "bash-jq-segments-alias-ignored",
+    "rule": "jq in any segment (94S-2135): an alias, hash or enable word keeps the old rule",
+    "old": "        if (k[i] == \"0\" && v ~ /^(alias|hash|enable|shopt|setopt|unsetopt|emulate)$/) exit 1\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-relative-path",
+    "rule": "jq in any segment (94S-2135): a relative PATH entry keeps the old rule",
+    "old": "bash_jq_any_segment_vars() {\n  path_entries_absolute || return 1\n",
+    "new": "bash_jq_any_segment_vars() {\n",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-any-var",
+    "rule": "jq in any segment (94S-2135): only a qualifying for-loop variable is a file operand",
+    "old": "            case \"$jq_vars\" in *\" $jq_var \"*) continue ;; esac\n",
+    "new": "            continue\n",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-dash-list",
+    "rule": "jq in any segment (94S-2135): a loop list word that starts with a dash disqualifies the variable",
+    "old": "w[j] == \"\" || w[j] ~ /^-/ || glob(w[j])",
+    "new": "w[j] == \"\" || glob(w[j])",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-var-reassigned",
+    "rule": "jq in any segment (94S-2135): any other word that names the loop variable disqualifies it",
+    "old": "          if (match(w[i], \"(^|[^A-Za-z0-9_])\" n \"([^A-Za-z0-9_]|$)\")) break\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-command-name",
+    "rule": "jq in any segment (94S-2135): a tilde or extglob command name keeps the old rule",
+    "old": "        case \"$jq_word\" in '~'*|*[!A-Za-z0-9_./+:=,-]*) jq_bail ;; esac\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-sed-crossed",
+    "rule": "jq in any segment (94S-2135): a sed past the first pipeline is left as written",
+    "old": "      if [ \"$jq_state:$jq_tool:$jq_crossed\" = opt:sed:1 ]; then jq_state=other; continue; fi\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-var-outside-body",
+    "rule": "jq in any segment (94S-2135): a loop variable counts only inside its loop body",
+    "old": " && i > bs[n] && (n in be) && i < be[n]) { uses++; continue }\n",
+    "new": ") { uses++; continue }\n",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-heredoc",
+    "rule": "jq in any segment (94S-2135): a here-document keeps the old rule",
+    "old": "  case $1 in *'<<'*) return 1 ;; esac\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-glued-var",
+    "rule": "jq in any segment (94S-2135): a loop variable counts only where the raw text has it as a whole quoted word",
+    "old": "        if (i > NR && uses == standalone(n)) out = out \" \" n\n",
+    "new": "        if (i > NR) out = out \" \" n\n",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-glob-jq-ignored",
+    "rule": "jq in any segment (94S-2135): a glob word that can name jq keeps the old rule",
+    "old": "          if (gm(b, \"jq\")) exit 1\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-glob-var-ignored",
+    "rule": "jq in any segment (94S-2135): a glob word that can name a loop variable disqualifies it",
+    "old": "        if (j <= ng) continue\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-glob-bracket-literal",
+    "rule": "jq in any segment (94S-2135): a closed [...] set matches any one character",
+    "old": "        if (j) return s != \"\" && gm(substr(q, j + 2), substr(s, 2))\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-glob-redirect-prefix",
+    "rule": "jq in any segment (94S-2135): a glued redirect operator is not part of the glob",
+    "old": "          b = v; sub(/^[0-9]*[<>|&]+/, \"\", b); sub(/.*[\\/=]/, \"\", b)\n",
+    "new": "          b = v; sub(/.*[\\/=]/, \"\", b)\n",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-case-variant",
+    "rule": "jq in any segment (94S-2135): a word that names jq in another case keeps the old rule",
+    "old": "        if (k[i] == \"0\" && v !~ /jq/ && tolower(v) ~ /jq/) exit 1\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-glued-paren",
+    "rule": "jq in any segment (94S-2135): a ( inside a command keeps the old rule",
+    "old": "        if (k[i] == \"3\" && v == \"(\" && !start) exit 1\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-posix-class",
+    "rule": "jq in any segment (94S-2135): a POSIX bracket class matches any character",
+    "old": "        if (index(p, \"[:\") || index(p, \"[=\") || index(p, \"[.\")) return 1\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
   }
 ]
