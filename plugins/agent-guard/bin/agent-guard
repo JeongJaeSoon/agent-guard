@@ -9212,12 +9212,146 @@ bash_neutralize_jq_field_names() (
     nj_tail=$(NJ=$nj_cmd LC_ALL=C awk -v at="$nj_at" 'BEGIN { printf "%s", substr(ENVIRON["NJ"], at) }')
     nj_cmd=$nj_head$(bash_neutralize_first_pipeline "$nj_tail")
   done
+  # Past those, a jq at a command start of any segment, or of a loop or
+  # condition body, is rewritten too, while nothing in the whole command can
+  # change which jq runs (bash_jq_any_segment_vars). A command sequenced
+  # before it could still put a jq on PATH in a way no text shows, but so
+  # could an earlier Bash call, and that command could read the file itself:
+  # the filter text is no defense there (94S-2135). When that rewrite gives
+  # up, the first pipeline alone is rewritten as before. A command with no
+  # jq, or with no later segment or body, gives the same text either way.
+  case "$nj_cmd" in
+    *jq*) ;;
+    *) bash_neutralize_first_pipeline "$nj_cmd"; exit 0 ;;
+  esac
+  case "$nj_cmd" in
+    *';'*|*'&&'*|*'||'*|*'
+'*|*do*|*then*|*else*) nj_vars=$(bash_jq_any_segment_vars "$nj_cmd") || nj_vars=- ;;
+    *) nj_vars=- ;;
+  esac
+  if [ "$nj_vars" != - ]; then
+    nj_all=$(bash_neutralize_first_pipeline "$nj_cmd" all "$nj_vars")
+    if [ "$nj_all" != "$nj_cmd" ]; then
+      printf '%s' "$nj_all"
+      exit 0
+    fi
+  fi
   bash_neutralize_first_pipeline "$nj_cmd"
 )
+
+# Succeed when a jq in any segment of command $1 runs the jq its PATH lookup
+# finds, and print the names of the for-loop variables a jq may read as a
+# file operand. It fails on: a relative PATH entry (a cd or a write in the
+# command changes what it resolves); a here-document; an alias, hash or
+# enable word anywhere; and any unquoted-looking glob word whose last name
+# part can match jq, whatever command or redirect writes it (a literal jq
+# word stops the rewrite already). A loop variable qualifies when its one
+# `for NAME in` list is literal words that start with no dash and hold
+# no glob, no glob word can name it (`read -r f?`), and every other word that
+# names it is a quoted "$NAME" or "${NAME}" inside that loop's body: no
+# assignment, read or second loop can give it another value, and no use sits
+# where the loop may not have run.
+bash_jq_any_segment_vars() {
+  path_entries_absolute || return 1
+  # A here-document body is data, yet its records read like commands: a jq
+  # line there is no jq, and its do and done lines close no loop.
+  case $1 in *'<<'*) return 1 ;; esac
+  git_command_records "$1" | JQ_RAW=$1 LC_ALL=C awk '
+    # How often "$n" or "${n}" stands as a whole word in the raw text. A
+    # record drops quoting, so it cannot tell "$fn" from "$f"n or "$f""n".
+    function standalone(n,   r, t, m, from, p, at, a, b, cnt) {
+      r = ENVIRON["JQ_RAW"]; cnt = 0
+      for (m = 1; m <= 2; m++) {
+        t = m == 1 ? "\"$" n "\"" : "\"${" n "}\""
+        from = 1
+        while ((p = index(substr(r, from), t)) > 0) {
+          at = from + p - 1
+          a = at > 1 ? substr(r, at - 1, 1) : " "
+          b = substr(r, at + length(t), 1)
+          if (index(" \t\n;|&(", a) && (b == "" || index(" \t\n;|&)", b))) cnt++
+          from = at + length(t)
+        }
+      }
+      return cnt
+    }
+    function glob(t) { return t ~ /[*?#^{}~<>]/ || index(t, "[") || index(t, "]") }
+    # Whether glob p can match name s: * and # (zsh) match any run, ? one
+    # character, a [...] set any one character, and a zsh ^ anything. An
+    # unclosed [ is literal, as in the shell.
+    function gm(p, s,   c, q, j) {
+      if (p == "") return s == ""
+      c = substr(p, 1, 1)
+      if (c == "*" || c == "#") return gm(substr(p, 2), s) || s != "" && gm(p, substr(s, 2))
+      if (c == "^") return 1
+      if (c == "?") return s != "" && gm(substr(p, 2), substr(s, 2))
+      if (c == "[") {
+        q = substr(p, 2); sub(/^[!^]/, "", q)
+        j = index(substr(q, 2), "]")
+        if (j) return s != "" && gm(substr(q, j + 2), substr(s, 2))
+      }
+      return s != "" && substr(s, 1, 1) == c && gm(substr(p, 2), substr(s, 2))
+    }
+    function bound(i) { return k[i] == "3" || k[i] == "0" && w[i] ~ /^(;|&&|[|][|]|[|])$/ }
+    { k[NR] = substr($0, 1, 1); w[NR] = substr($0, 2) }
+    END {
+      start = 1; ng = 0
+      for (i = 1; i <= NR; i++) {
+        v = w[i]
+        if (k[i] == "0" && v ~ /^(alias|hash|enable)$/) exit 1
+        # An unquoted word holds no blank, so a word with one was quoted.
+        if (k[i] == "0" && v !~ /[ \t\n]/ && v ~ /[*?#^[]/) {
+          b = v; sub(/^[0-9]*[<>|&]+/, "", b); sub(/.*[\/=]/, "", b)
+          if (gm(b, "jq")) exit 1
+          gw[++ng] = v
+        }
+        if (bound(i)) { start = 1; continue }
+        if (start) {
+          if (k[i] == "0" && v ~ /^(do|then|else|elif|if|while|until|!)$/) {
+            if (v == "do") stk[++sp] = i
+            continue
+          }
+          if (v ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
+          start = 0
+          # The done that closes the body a for header opened.
+          if (k[i] == "0" && v == "done" && sp > 0 && (o = stk[sp--]) in bodyof) be[bodyof[o]] = i
+          if (k[i] == "0" && v == "for") {
+            n = w[i + 1]; ok = k[i + 1] == "0" && n ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && k[i + 2] == "0" && w[i + 2] == "in"
+            for (j = i + 3; ok && j <= NR && !(k[j] == "0" && w[j] == ";"); j++)
+              if (k[j] != "0" || w[j] == "" || w[j] ~ /^-/ || glob(w[j]) || w[j] ~ /[\047"\\$`|&;()]/) ok = 0
+            if (j > NR || j == i + 3 || k[j + 1] != "0" || w[j + 1] != "do") ok = 0
+            loops[n]++; hdr[i + 1] = 1
+            if (ok) { bs[n] = j + 1; bodyof[j + 1] = n }
+            if (!ok) badv[n] = 1
+          }
+        }
+      }
+      out = ""
+      for (n in loops) {
+        if (loops[n] != 1 || n in badv) continue
+        for (j = 1; j <= ng && !gm(gw[j], n); j++) ;
+        if (j <= ng) continue
+        uses = 0
+        for (i = 1; i <= NR; i++) {
+          if (i in hdr) continue
+          # Only inside the loop body: before it or after it the name holds
+          # whatever the caller or a loop that never ran left there.
+          if (k[i] == "4" && (w[i] == "$" n || w[i] == "${" n "}") && i > bs[n] && (n in be) && i < be[n]) { uses++; continue }
+          if (match(w[i], "(^|[^A-Za-z0-9_])" n "([^A-Za-z0-9_]|$)")) break
+        }
+        if (i > NR && uses == standalone(n)) out = out " " n
+      }
+      print out
+    }'
+}
 
 bash_neutralize_first_pipeline() (
   set -f
   jq_orig=$1
+  # `all` as $2 reads on past `;`, `&&` and `||` and into loop and condition
+  # bodies, and lets a jq read a loop variable named in $3 as a file operand;
+  # see bash_jq_any_segment_vars for when the caller may ask that. A sed
+  # there is left as written.
+  jq_mode=${2-} jq_vars=" ${3-} " jq_crossed=0 jq_tool=
   jq_cmd=$jq_orig
   jq_records=$(git_command_records "$jq_orig")
   jq_sed=0
@@ -9313,10 +9447,25 @@ $jq_records
         jq_end_segment
         continue
         ;;
-      0';'|0'&&'|0'||') jq_end_segment; break ;;
+      0';'|0'&&'|0'||')
+        jq_end_segment
+        [ "$jq_mode" = all ] || break
+        jq_crossed=1
+        continue
+        ;;
       0'|'|3*) jq_end_segment; continue ;;
       0*) ;;
-      4*) [ "$jq_state" = opt ] && [ "$jq_need" -gt 0 ] || jq_bail ;;
+      4*)
+        case "$jq_mode:$jq_state:$jq_tool:$jq_rec" in
+          all:after:jq:'4$'*|all:after:jq:'4${'*'}')
+            jq_var=${jq_rec#4\$}
+            jq_var=${jq_var#\{}
+            jq_var=${jq_var%\}}
+            case "$jq_vars" in *" $jq_var "*) continue ;; esac
+            ;;
+        esac
+        [ "$jq_state" = opt ] && [ "$jq_need" -gt 0 ] || jq_bail
+        ;;
       *) jq_bail ;;
     esac
     jq_word=${jq_rec#?}
@@ -9330,6 +9479,14 @@ $jq_records
       # A glob can expand to a command name such as eval (`ev?l`); zsh
       # extended glob adds `#` and `^`.
       case "$jq_word" in *[\*?[#^]*) jq_bail ;; esac
+      if [ "$jq_mode" = all ] && [ -z "$jq_cmdw" ]; then
+        case "$jq_rec" in
+          0do|0then|0else|0elif|0if|0while|0until|'0!') jq_crossed=1; continue ;;
+        esac
+        # A command name the shell expands (`~` to HOME, `@(al)ias` by extended
+        # glob) can be a dot command or alias that rebinds jq.
+        case "$jq_word" in '~'*|*[!A-Za-z0-9_./+:=,-]*) jq_bail ;; esac
+      fi
       # `command jq` skips shell functions and aliases, and a system path
       # skips the PATH lookup; either still runs jq itself. Only a bare
       # `command` directly before the tool name qualifies (`command -v jq`
@@ -9344,6 +9501,7 @@ $jq_records
         *) jq_state=other ;;
       esac
       jq_cmdw=
+      if [ "$jq_state:$jq_tool:$jq_crossed" = opt:sed:1 ]; then jq_state=other; continue; fi
       if [ "$jq_state" != opt ] && jq_names_tool "$jq_word"; then jq_bail; fi
       continue
     fi
