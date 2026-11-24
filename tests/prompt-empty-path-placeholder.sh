@@ -78,6 +78,10 @@ check 2 "x run glued to a value" "$k=xxxx$val"
 check 2 "your- before a value" "$k=your-$val"
 check 2 "your- before unlisted words" "$k=your-horse-battery"
 check 2 "real value in a fenced block" "${fence}$nl$k=$val$nl$fence"
+check 2 "real value after your-token" "$k=your-token $val"
+check 2 "real value after an x run" "$k=xxxxxxxx $val"
+check 2 "real value on the line below an x run" "$k=xxxxxxxx$nl$val"
+check 2 "real value after a quoted your-token" "$k=\"your-token\" $val"
 
 # An environment reference.
 check 0 "braced reference" "$k=\${OTHER_TOKEN}"

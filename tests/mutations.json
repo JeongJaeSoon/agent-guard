@@ -646,18 +646,18 @@
   },
   {
     "id": "your-placeholder-words",
-    "rule": "your_here_placeholder: every word is a placeholder word",
-    "old": "      for (i = 2; i <= n; i++)\n        if (!(words[i] in placeholder_word)) return 0",
-    "new": "      for (i = 2; i <= n; i++)\n        if (0) return 0",
+    "rule": "fill_in_placeholder: every word after your is a placeholder word",
+    "old": "      for (i = 2; i <= n; i++) if (!(words[i] in placeholder_word)) return 0",
+    "new": "      for (i = 2; i <= n; i++) if (0) return 0",
     "tests": [
       "tests/prompt-empty-path-placeholder.sh"
     ]
   },
   {
     "id": "x-run-anchored",
-    "rule": "obvious_word_placeholder: an x run matches the whole value",
-    "old": "          || v ~ /^xxx+$/ \\",
-    "new": "          || v ~ /^xxx/ \\",
+    "rule": "fill_in_placeholder: an x run matches the whole value",
+    "old": "      if (v ~ /^xxx+$/) return 1",
+    "new": "      if (v ~ /^xxx/) return 1",
     "tests": [
       "tests/prompt-empty-path-placeholder.sh"
     ]
