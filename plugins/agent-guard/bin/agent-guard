@@ -13969,6 +13969,297 @@ GIT_DIR='*|'
   scan_commit_candidate "$group_stage_all" "$group_untracked" "$@"
 )
 
+# Print, one per line, the variable names whose value a Bash command writes to
+# a file (#497): a $NAME or @{NAME} expansion in a pipeline or command group
+# whose standard output ends in a file, or in the body of a here-document
+# whose delimiter is not quoted and whose command does not send its output to
+# /dev/null. A single-quoted or escaped name is text and @{#NAME} is a length.
+# Redirects apply in order (2> f >&2 reaches f; > f >/dev/null does not), and
+# a descriptor, /dev/null, /dev/stdout, /dev/stderr or /dev/tty is no file. A
+# pipeline is one unit: in 'echo "$X" | cat > f' the value reaches the file.
+# A group, ( ), { }, $( ), if/fi, a loop or case, passes every name inside it
+# to the command around it, so a redirect after the group covers them; the
+# program word of sh -c or bash -c is read as such a group.
+bash_file_write_env_names() {
+  printf '%s\n' "$1" | LC_ALL=C awk '
+    { text = text (NR > 1 ? "\n" : "") $0 }
+    # A word ends at an unquoted blank or operator; quotes and escapes keep
+    # their text in the word (> "a b").
+    function word_end(s, p,   c, q) {
+      while (p <= length(s)) {
+        c = substr(s, p, 1)
+        if (c == "\\") { p += 2; continue }
+        if (c == "\047") {
+          q = index(substr(s, p + 1), "\047")
+          p = q ? p + q + 1 : length(s) + 1
+          continue
+        }
+        if (c == "\"") {
+          for (p++; p <= length(s) && substr(s, p, 1) != "\""; p++)
+            if (substr(s, p, 1) == "\\") p++
+          p++
+          continue
+        }
+        if (c ~ /[ \t\n;|&<>()]/) break
+        p++
+      }
+      return p
+    }
+    function add(name, into_out) {
+      if (into_out) out[name] = 1
+      else if (no_out[d]) return
+      else names[d] = names[d] " " name
+    }
+    # Read the expansion whose "$" is at p; record its name; return the
+    # position after it.
+    function dollar(s, p, into_out,   q, c, name, braced) {
+      q = p + 1
+      c = substr(s, q, 1)
+      braced = (c == "{")
+      if (braced) {
+        q++
+        if (substr(s, q, 1) == "#" || substr(s, q, 1) == "!") return q
+      } else if (c !~ /[A-Za-z_]/) {
+        return q
+      }
+      name = ""
+      while (q <= length(s) && substr(s, q, 1) ~ /[A-Za-z0-9_]/) {
+        name = name substr(s, q, 1)
+        q++
+      }
+      # ${NAME:+word} and ${NAME+word} give the word, never the value.
+      if (braced && (substr(s, q, 2) == ":+" || substr(s, q, 1) == "+")) return q
+      if (name != "") add(name, into_out)
+      return q
+    }
+    function emit(list,   k, a, m) {
+      m = split(list, a, " ")
+      for (k = 1; k <= m; k++) out[a[k]] = 1
+    }
+    # End one command of a pipeline: its final standard output decides.
+    # End one command: the names that flowed into it reach a file when its
+    # standard output ends in one, stop at /dev/null or a device, and else
+    # flow on to the next command of the pipeline.
+    function end_cmd(   h, f) {
+      if (fdk[d, 1] == "file") emit(names[d])
+      if (fdk[d, 1] == "inherit2") err_names[d] = err_names[d] names[d]
+      if (fdk[d, 1] != "") names[d] = ""
+      # Names sent to the standard error a group inherits (>&2) reach a file
+      # when the command around the group sends its 2 to one.
+      if (fdk[d, 2] == "file") emit(err_names[d])
+      if (fdk[d, 2] != "") err_names[d] = ""
+      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = (fdk[d, 1] == "null")
+      hd_mark = hd_n
+      for (f = 0; f <= 9; f++) fdk[d, f] = ""
+      shell_word[d] = want_prog[d] = eval_word[d] = no_out[d] = 0
+    }
+    # End a pipeline. Inside a group its names wait for the group to close.
+    function flush() {
+      end_cmd()
+      if (d > 0) { held[d] = held[d] names[d]; held_err[d] = held_err[d] err_names[d] }
+      names[d] = err_names[d] = ""
+      cmdpos = 1
+    }
+    function open_group(in_dq, kind,   f) {
+      d++
+      names[d] = held[d] = err_names[d] = held_err[d] = ""
+      for (f = 0; f <= 9; f++) fdk[d, f] = ""
+      shell_word[d] = want_prog[d] = eval_word[d] = no_out[d] = 0
+      dq_group[d] = in_dq
+      case_group[d] = (kind == "case")
+      cmdpos = 1
+    }
+    function close_group(   all, err, was_dq) {
+      if (d == 0) return 0
+      flush()
+      all = held[d]
+      err = held_err[d]
+      was_dq = dq_group[d]
+      d--
+      names[d] = names[d] all
+      err_names[d] = err_names[d] err
+      cmdpos = 0
+      return was_dq
+    }
+    # Consume the bodies of the queued here-documents from p; return the
+    # position after the last delimiter line.
+    function bodies(s, p,   h, nl, line, cmp, j) {
+      for (h = 1; h <= hd_n; h++) {
+        while (p <= length(s)) {
+          nl = index(substr(s, p), "\n")
+          line = nl ? substr(s, p, nl - 1) : substr(s, p)
+          p = nl ? p + nl : length(s) + 1
+          cmp = line
+          if (hd_strip[h]) sub(/^\t+/, "", cmp)
+          if (cmp == hd_delim[h]) break
+          if (!hd_expand[h] || hd_null[h]) continue
+          for (j = 1; j <= length(line); j++) {
+            if (substr(line, j, 1) == "\\") j++
+            else if (substr(line, j, 1) == "$") j = dollar(line, j, 1) - 1
+          }
+        }
+      }
+      hd_n = hd_mark = 0
+      return p
+    }
+    # Point descriptor fd of the current command at kind: file, null, dev, or
+    # "" for where it pointed when the command started.
+    function set_fd(fd, kind) { fdk[d, fd] = kind }
+    END {
+      s = text
+      n = length(s)
+      sq = dq = 0
+      hd_n = hd_mark = 0
+      d = 0
+      for (f = 0; f <= 9; f++) fdk[0, f] = ""
+      cmdpos = 1
+      i = 1
+      while (i <= n) {
+        c = substr(s, i, 1)
+        if (sq) { if (c == "\047") sq = 0; i++; continue }
+        if (c == "\\") { i += 2; cmdpos = 0; continue }
+        if (dq) {
+          if (c == "\"") dq = 0
+          else if (c == "$" && substr(s, i + 1, 1) == "(") { dq = 0; open_group(1); i += 2; continue }
+          else if (c == "$") { i = dollar(s, i, 0); continue }
+          i++
+          continue
+        }
+        # A newline right after a pipe continues the pipeline.
+        if (c != " " && c != "\t" && c != "\n") pipe_open = 0
+        if ((c == "\047" || c == "\"") && (want_prog[d] || eval_word[d])) {
+          # The program of sh -c or an eval word: read its text as a group in
+          # place.
+          if (c == "\047") {
+            e = index(substr(s, i + 1), "\047")
+            e = e ? i + e : n + 1
+            prog = substr(s, i + 1, e - i - 1)
+          } else {
+            prog = ""
+            for (e = i + 1; e <= n && substr(s, e, 1) != "\""; e++) {
+              if (substr(s, e, 1) == "\\" && index("\"$`\\", substr(s, e + 1, 1))) e++
+              prog = prog substr(s, e, 1)
+            }
+          }
+          want_prog[d] = 0
+          s = substr(s, 1, i - 1) "(" prog "\n)" substr(s, e + 1)
+          n = length(s)
+          continue
+        }
+        if (c == "\047") { sq = 1; cmdpos = 0; i++; continue }
+        if (c == "\"") { dq = 1; cmdpos = 0; i++; continue }
+        if (c == "$") {
+          if (substr(s, i + 1, 1) == "(") { open_group(0); i += 2; continue }
+          i = dollar(s, i, 0)
+          cmdpos = 0
+          continue
+        }
+        if (c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[ \t\n;|&(]/)) {
+          while (i <= n && substr(s, i, 1) != "\n") i++
+          continue
+        }
+        if (c == "\n") {
+          if (!pipe_open) flush()
+          i = hd_n ? bodies(s, i + 1) : i + 1
+          continue
+        }
+        if (c == ";" || (c == "&" && substr(s, i + 1, 1) != ">") || (c == "|" && substr(s, i + 1, 1) == "|")) {
+          flush()
+          i += (c != ";" && substr(s, i + 1, 1) == c) ? 2 : 1
+          continue
+        }
+        if (c == "|") { end_cmd(); pipe_open = 1; cmdpos = 1; i++; continue }
+        if (c == "(") { open_group(0); i++; continue }
+        # In a case group a ) ends a pattern, not the group.
+        if (c == ")" && d > 0 && case_group[d]) { flush(); i++; continue }
+        if (c == ")") { if (close_group()) dq = 1; i++; continue }
+        if ((i == 1 || substr(s, i - 1, 1) ~ /[ \t\n;|&()]/) && c ~ /[A-Za-z_.\/{}!\[-]/) {
+          e = word_end(s, i)
+          w = substr(s, i, e - i)
+          if (cmdpos) {
+            if (w ~ /^(\{|if|while|until|for|case|select)$/) { open_group(0, w); i = e; continue }
+            # An assignment before the command goes to its environment, not
+            # its output. One that runs code ($( or a backquote) is read.
+            if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && w !~ /[$]\(|`/) { i = e; continue }
+            if (w ~ /^(\}|fi|done|esac)$/) { flush(); close_group(); i = e; continue }
+            if (w ~ /^(then|do|else|elif|!)$/) { flush(); i = e; continue }
+          }
+          bw = w
+          sub(/.*\//, "", bw)
+          # A condition check prints nothing of its operands.
+          if (cmdpos && bw ~ /^(test|\[|\[\[)$/) no_out[d] = 1
+          if (bw ~ /^(sh|bash|zsh|dash|ksh)$/) shell_word[d] = 1
+          else if (bw == "eval" && cmdpos) eval_word[d] = 1
+          else if (shell_word[d] && w ~ /^-[A-Za-z]*c$/) want_prog[d] = 1
+          # Only the first character is read here: the rest of the word may
+          # hold an expansion (token=$X).
+          cmdpos = 0
+          i++
+          continue
+        }
+        if (c == "<" && substr(s, i, 3) == "<<<") { i += 3; continue }
+        if (c == "<" && substr(s, i + 1, 1) == "<") {
+          j = i + 2
+          strip = 0
+          if (substr(s, j, 1) == "-") { strip = 1; j++ }
+          while (substr(s, j, 1) ~ /[ \t]/) j++
+          e = word_end(s, j)
+          w = substr(s, j, e - j)
+          hd_n++
+          hd_strip[hd_n] = strip
+          hd_expand[hd_n] = (w !~ /[\047"\\]/)
+          hd_null[hd_n] = 0
+          gsub(/[\047"\\]/, "", w)
+          hd_delim[hd_n] = w
+          i = e
+          continue
+        }
+        if (c == "&" || c == ">") {
+          j = i + 1
+          both = (c == "&")
+          if (both) j++
+          else if (substr(s, j, 1) == ">" || substr(s, j, 1) == "|") j++
+          if (substr(s, j, 1) == "(") { i = j; continue }
+          fd = "1"
+          if (!both) {
+            num = ""
+            for (b = i - 1; b >= 1 && substr(s, b, 1) ~ /[0-9]/; b--) num = substr(s, b, 1) num
+            if (num != "" && (b < 1 || substr(s, b, 1) ~ /[ \t\n;|&(]/)) fd = num
+          }
+          if (!both && substr(s, j, 1) == "&") {
+            # Duplication: >&2 points this descriptor where 2 points now.
+            j++
+            m = ""
+            while (substr(s, j, 1) ~ /[0-9]/) { m = m substr(s, j, 1); j++ }
+            if (m == "2" && fd == "1" && fdk[d, 2] == "") { set_fd(1, "inherit2"); i = j; continue }
+            # gawk aborts when a missing array element is passed to a function
+            # that writes the same array, so copy it first.
+            if (m != "") { kind = (((d, m) in fdk) ? fdk[d, m] : ""); set_fd(fd, kind); i = j; continue }
+            if (substr(s, j, 1) == "-") { set_fd(fd, "null"); i = j + 1; continue }
+          }
+          while (substr(s, j, 1) ~ /[ \t]/) j++
+          e = word_end(s, j)
+          t = substr(s, j, e - j)
+          gsub(/[\047"]/, "", t)
+          if (t == "/dev/null") kind = "null"
+          else if (t ~ /^\/dev\/(stdout|stderr|tty|fd\/[0-9]+)$/) kind = "dev"
+          else kind = "file"
+          if (both) { fdk[d, 1] = fdk[d, 2] = kind }
+          else set_fd(fd, kind)
+          i = e
+          continue
+        }
+        if (c != " " && c != "\t") cmdpos = 0
+        i++
+      }
+      flush()
+      while (d > 0) close_group()
+      flush()
+      for (k in out) if (k != "") print k
+    }
+  '
+}
+
 check_bash_command() {
   input=$1
   need_cmd jq
@@ -14132,6 +14423,57 @@ $joined_cmd"
     esac
   else
     rm -f "$patterns"
+  fi
+
+  # A secret-named variable's value written to a file (#497) is blocked like a
+  # printenv of that name: the file can be read back or committed later.
+  # A quoted word that a shell runs (bash -c '...', eval) is read the same way.
+  sw_texts=$raw_cmd
+  case "$raw_cmd" in
+    *[\'\"]*)
+      case "$raw_cmd" in
+        *sh[[:space:]]*|*eval[[:space:]]*|*trap[[:space:]]*|*watch[[:space:]]*|*su[[:space:]]*)
+          sw_program=$(bash_shell_program_texts "$raw_cmd") || {
+            info "$PROGRAM: secret variable write check failed; refusing to allow command"
+            exit 2
+          }
+          # sh -c and eval programs are read in place below; this adds ssh,
+          # trap, watch and su words, whose own redirects still count.
+          [ -z "$sw_program" ] || sw_texts="$raw_cmd
+$sw_program"
+          ;;
+      esac
+      ;;
+  esac
+  sw_names=$(bash_file_write_env_names "$sw_texts") || {
+    info "$PROGRAM: secret variable write check failed; refusing to allow command"
+    exit 2
+  }
+  if [ -n "$sw_names" ]; then
+    # Names hold only [A-Za-z0-9_], so the unquoted list splits safely.
+    # shellcheck disable=SC2086
+    env_names_include_secretish $sw_names
+    case "$?" in
+      0)
+        sw_hit=
+        for sw_name in $sw_names; do
+          env_names_include_secretish "$sw_name" && sw_hit="$sw_hit $sw_name"
+        done
+        info "$PROGRAM: blocked shell command that writes a secret-named variable's value to a file"
+        info "$PROGRAM: reason=bash_secret_env_value_file_write; the value of$sw_hit reaches a > or >> file redirect or an unquoted here-document body; command was not executed"
+        case "$(hook_host)" in
+          codex) sw_text='write text that only names the variable with apply_patch' ;;
+          *) sw_text='write text that only names the variable with the Write tool' ;;
+        esac
+        info "$PROGRAM: do not retry it in another form. Let the program that needs the secret read it from its own environment; $sw_text; if the value itself must be in a file, ask the user."
+        exit 2
+        ;;
+      1) ;;
+      *)
+        info "$PROGRAM: secret variable name check failed; refusing to allow command"
+        exit 2
+        ;;
+    esac
   fi
 
   # Run the deny-path check inside the event workdir. bash_strip_allowed_tokens
@@ -17211,20 +17553,26 @@ printenv_requests_secretish_name() {
   [ "$cmd_name" = printenv ] || return 1
   shift
   [ "${1:-}" = "--" ] && shift
+  env_names_include_secretish "$@"
+}
+
+# Return 0 when an argument is a variable name the output masker treats as
+# secret-bearing, 1 when none is, and 2 when the detector failed.
+env_names_include_secretish() {
   [ "$#" -gt 0 ] || return 1
-  {
-    for name do
-      case "$name" in
-        [A-Za-z_]*)
-          case "$name" in *[!A-Za-z0-9_]*) continue ;; esac
-          printf '%s=%s\n' "$name" agent_guard_printenv_probe
+  sen_found=$({
+    for sen_name do
+      case "$sen_name" in
+        ([A-Za-z_]*)
+          case "$sen_name" in (*[!A-Za-z0-9_]*) continue ;; esac
+          printf '%s=%s\n' "$sen_name" agent_guard_printenv_probe
           ;;
       esac
     done
   } \
     | frame_plaintext_leaf \
-    | secretish_env_values framed \
-    | grep -q .
+    | secretish_env_values framed) || return 2
+  [ -n "$sen_found" ]
 }
 
 # Set rust_core to the native redactor redact_tool_response_json may run: an

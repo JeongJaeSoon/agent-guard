@@ -786,5 +786,185 @@
     "tests": [
       "tests/gh-jq-option.sh"
     ]
+  },
+  {
+    "id": "bash-secret-write-heredoc-unscanned",
+    "rule": "bash_file_write_env_names: an unquoted here-document body is read for expansions",
+    "old": "          hd_expand[hd_n] = (w !~ /[\\047\"\\\\]/)\n",
+    "new": "          hd_expand[hd_n] = 0\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-redirect-ignored",
+    "rule": "bash_file_write_env_names: a > or >> redirect to a file marks the pipeline",
+    "old": "          else kind = \"file\"\n",
+    "new": "          else kind = \"dev\"\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-no-braced-name",
+    "rule": "bash_file_write_env_names: a ${NAME} expansion names its variable",
+    "old": "      if (braced) {\n        q++\n",
+    "new": "      if (braced) {\n        return q\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-pipe-splits",
+    "rule": "bash_file_write_env_names: a pipe does not end the unit a redirect covers",
+    "old": " || (c == \"|\" && substr(s, i + 1, 1) == \"|\")) {\n",
+    "new": " || c == \"|\") {\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-dquote-skipped",
+    "rule": "bash_file_write_env_names: an expansion inside double quotes is read",
+    "old": "          else if (c == \"$\") { i = dollar(s, i, 0); continue }\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-not-wired",
+    "rule": "check_bash_command: a secret-named variable written to a file blocks",
+    "old": "    env_names_include_secretish $sw_names\n    case \"$?\" in\n",
+    "new": "    env_names_include_secretish $sw_names\n    case \"1\" in\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-newline-ends-pipe",
+    "rule": "bash_file_write_env_names: a newline after a pipe continues the pipeline",
+    "old": "          if (!pipe_open) flush()\n",
+    "new": "          flush()\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-shell-program-skipped",
+    "rule": "check_bash_command: the program of bash -c is read for secret variable writes",
+    "old": "          [ -z \"$sw_program\" ] || sw_texts=\"$raw_cmd\n$sw_program\"\n",
+    "new": "          :\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-devnull-is-file",
+    "rule": "bash_file_write_env_names: a redirect to /dev/null writes no file",
+    "old": "          if (t == \"/dev/null\") kind = \"null\"\n",
+    "new": "          if (t == \"/dev/null\") kind = \"file\"\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-group-drops-names",
+    "rule": "bash_file_write_env_names: a group passes its names to the command around it",
+    "old": "      names[d] = names[d] all\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-heredoc-null-ignored",
+    "rule": "bash_file_write_env_names: a here-document read by a /dev/null command writes no file",
+    "old": "      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = (fdk[d, 1] == \"null\")\n",
+    "new": "      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = 1\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-sh-c-program-literal",
+    "rule": "bash_file_write_env_names: the program word of sh -c is read as a group in place",
+    "old": "          else if (shell_word[d] && w ~ /^-[A-Za-z]*c$/) want_prog[d] = 1\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-dup-ignored",
+    "rule": "bash_file_write_env_names: >&2 sends standard output where descriptor 2 points",
+    "old": "            if (m != \"\") { kind = (((d, m) in fdk) ? fdk[d, m] : \"\"); set_fd(fd, kind); i = j; continue }\n",
+    "new": "            if (m != \"\") { set_fd(fd, \"null\"); i = j; continue }\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-dquote-cmdsub-text",
+    "rule": "bash_file_write_env_names: a command substitution inside double quotes is shell code",
+    "old": "          else if (c == \"$\" && substr(s, i + 1, 1) == \"(\") { dq = 0; open_group(1); i += 2; continue }\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-word-skipped",
+    "rule": "bash_file_write_env_names: an expansion inside a word (token=$X) is read",
+    "old": "          cmdpos = 0\n          i++\n          continue\n        }\n",
+    "new": "          cmdpos = 0\n          i = e\n          continue\n        }\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-null-output-kept",
+    "rule": "bash_file_write_env_names: output sent to /dev/null does not reach a later command",
+    "old": "      if (fdk[d, 1] != \"\") names[d] = \"\"\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-case-paren-closes",
+    "rule": "bash_file_write_env_names: a ) in a case group ends a pattern, not the group",
+    "old": "        if (c == \")\" && d > 0 && case_group[d]) { flush(); i++; continue }\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-inherited-stderr-lost",
+    "rule": "bash_file_write_env_names: >&2 in a group reaches the group's 2> file",
+    "old": "      if (fdk[d, 2] == \"file\") emit(err_names[d])\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-null-heredoc-flows",
+    "rule": "bash_file_write_env_names: a here-document read by a /dev/null command adds no name",
+    "old": "          if (!hd_expand[h] || hd_null[h]) continue\n",
+    "new": "          if (!hd_expand[h]) continue\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-test-prints",
+    "rule": "bash_file_write_env_names: test and [ print nothing of their operands",
+    "old": "          if (cmdpos && bw ~ /^(test|\\[|\\[\\[)$/) no_out[d] = 1\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
   }
 ]
