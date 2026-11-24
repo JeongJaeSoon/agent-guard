@@ -324,6 +324,10 @@ check 2 "a prefix assignment does not change the assigned value the shell expand
 check 0 "an env override beside a loop over ordinary names" 'for f in docs; do env f=safe cat "$f/a.md"; done'
 check 0 "a locale prefix before a reader in a loop" 'for f in a.md b.md; do LC_ALL=C sort "$f"; done'
 check 2 "a prefix assignment does not change the value eval code is built from" 'd=.ssh; d=safe eval "cat $d/config"'
+check 2 "a loop word that turns an operand into a file option" 'for o in --file=.e; do grep "${o}nv" README.md; done'
+check 2 "a loop word that is a file option" 'for o in -f; do grep "$o" "$HOME/pats.txt" README.md; done'
+check 0 "a loop over line counts after a count option" 'for n in 5 10; do head -n "$n" README.md; done'
+check 0 "a loop over line counts attached to a count option" 'for n in 5 10; do head -n"$n" README.md; tail -$n README.md; done'
 
 HOST=codex
 check 2 "codex: cat of a command substitution" "cat $S"

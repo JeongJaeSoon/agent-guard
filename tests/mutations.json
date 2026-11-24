@@ -1571,6 +1571,15 @@
     ]
   },
   {
+    "id": "bash-unresolved-operand-loop-option",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop word that makes an operand an option of the reading program is unresolved",
+    "old": "    if (!ddash && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
     "id": "bash-jq-segments-alias-ignored",
     "rule": "jq in any segment (94S-2135): an alias, hash or enable word keeps the old rule",
     "old": "        if (k[i] == \"0\" && v ~ /^(alias|hash|enable|shopt|setopt|unsetopt|emulate)$/) exit 1\n",
