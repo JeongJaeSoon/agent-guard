@@ -94,129 +94,61 @@
    "label": "JSON version",
    "expect": "keep",
    "line": "  \"version\": \"3.13.3\","
+  },
+  {
+   "label": "URL before a key",
+   "expect": "keep",
+   "line": "https://example.com/a:password: %R%"
+  },
+  {
+   "label": "scp-style remote",
+   "expect": "keep",
+   "line": "git@github.com:org/repo.git"
+  },
+  {
+   "label": "host and port",
+   "expect": "keep",
+   "line": "db.example.com:5432"
+  },
+  {
+   "label": "localhost port",
+   "expect": "keep",
+   "line": "localhost:8080"
+  },
+  {
+   "label": "clock time",
+   "expect": "keep",
+   "line": "12:30:00 started"
+  },
+  {
+   "label": "ratio",
+   "expect": "keep",
+   "line": "ratio 1:2"
+  },
+  {
+   "label": "Windows path",
+   "expect": "keep",
+   "line": "C:\\dir\\file.txt: done"
+  },
+  {
+   "label": "relative path label",
+   "expect": "keep",
+   "line": "./relative: ok"
+  },
+  {
+   "label": "dotted YAML key",
+   "expect": "mask",
+   "line": "spring.datasource.password: %R%",
+   "masked": "spring.datasource.password: [REDACTED]"
+  },
+  {
+   "label": "value glued to empty quotes",
+   "expect": "mask",
+   "line": "API_KEY=''%R%",
+   "masked": "API_KEY=''[REDACTED]"
   }
  ],
  "differences": [
-  {
-   "label": "env assignment",
-   "shape": "grep-n",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "env assignment",
-   "shape": "grep-rn",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "env assignment",
-   "shape": "rg-heading",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "env assignment",
-   "shape": "rg-no-heading",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "YAML key",
-   "shape": "grep-n",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "YAML key",
-   "shape": "grep-rn",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "YAML key",
-   "shape": "rg-heading",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "YAML key",
-   "shape": "rg-no-heading",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "short human password",
-   "shape": "grep-n",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "short human password",
-   "shape": "grep-rn",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "short human password",
-   "shape": "rg-heading",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "short human password",
-   "shape": "rg-no-heading",
-   "verdict": "=",
-   "reason": "#580: the built-in detector does not read a key glued to the `:` of a line locator (`3:password: <value>`); an indented key is read"
-  },
-  {
-   "label": "env assignment",
-   "shape": "read-n",
-   "verdict": "=",
-   "reason": "A key glued to the `→` after a line number is not read either; the Read hook sees the file text without numbers, so this shape reaches it only as text another tool printed"
-  },
-  {
-   "label": "YAML key",
-   "shape": "read-n",
-   "verdict": "=",
-   "reason": "A key glued to the `→` after a line number is not read either; the Read hook sees the file text without numbers, so this shape reaches it only as text another tool printed"
-  },
-  {
-   "label": "short human password",
-   "shape": "read-n",
-   "verdict": "=",
-   "reason": "A key glued to the `→` after a line number is not read either; the Read hook sees the file text without numbers, so this shape reaches it only as text another tool printed"
-  },
-  {
-   "label": "YAML key",
-   "shape": "json",
-   "verdict": "=",
-   "reason": "#580: a colon key glued to the `\"` that opens a JSON string after `:` is not read; an `=` key there is (#178)"
-  },
-  {
-   "label": "short human password",
-   "shape": "json",
-   "verdict": "=",
-   "reason": "#580: a colon key glued to the `\"` that opens a JSON string after `:` is not read; an `=` key there is (#178)"
-  },
-  {
-   "label": "JSON member",
-   "shape": "json",
-   "verdict": "=",
-   "reason": "Inside a JSON string the line's quotes are escaped (`\\\"`), and the detector does not read an escaped quote as a quote, so neither the key nor the quoted value is found"
-  },
-  {
-   "label": "quoted export",
-   "shape": "json",
-   "verdict": "=",
-   "reason": "Inside a JSON string the line's quotes are escaped (`\\\"`), and the detector does not read an escaped quote as a quote, so neither the key nor the quoted value is found"
-  },
-  {
-   "label": "field named after itself",
-   "shape": "rg-no-heading",
-   "verdict": "x",
-   "reason": "#578: a path with no line number in front (`path:`) is not a line locator, so the field is not at the start of its line and its exemption does not apply"
-  },
   {
    "label": "field named after itself",
    "shape": "table",
@@ -230,10 +162,22 @@
    "reason": "By design (#561): a field in mid-line, as in a table cell or a JSON string, keeps masking"
   },
   {
-   "label": "field named after itself",
-   "shape": "read-n",
-   "verdict": "x",
-   "reason": "A number and `→` is not a line locator the exemption knows (only `cat -n`'s number and tab), so the field keeps masking"
+   "label": "YAML key",
+   "shape": "json",
+   "verdict": "=",
+   "reason": "#657: a colon key at the start of a JSON string value is not read as an assignment; an `=` key there is (#178)"
+  },
+  {
+   "label": "short human password",
+   "shape": "json",
+   "verdict": "=",
+   "reason": "#657: a colon key at the start of a JSON string value is not read as an assignment; an `=` key there is (#178)"
+  },
+  {
+   "label": "dotted YAML key",
+   "shape": "json",
+   "verdict": "=",
+   "reason": "#657: a colon key at the start of a JSON string value is not read as an assignment; an `=` key there is (#178)"
   }
  ]
 }

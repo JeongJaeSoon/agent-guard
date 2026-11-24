@@ -996,9 +996,9 @@
   },
   {
     "id": "empty-quotes-glued-word",
-    "rule": "emit_value: a word glued to empty quotes is the value",
-    "old": "        if (value == \"\" && substr(raw, end + 1) ~ /^[A-Za-z0-9]/)\n          return emit_value(",
-    "new": "        if (0)\n          return emit_value(",
+    "rule": "emit_value: a word glued to closing quotes is read as the value",
+    "old": "        if (substr(source, glued, 1) ~ /^[A-Za-z0-9_$]$/) {",
+    "new": "        if (0) {",
     "tests": [
       "tests/prompt-empty-path-placeholder.sh"
     ]
