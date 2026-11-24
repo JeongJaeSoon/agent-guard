@@ -59,6 +59,16 @@ once before it treats gitleaks as unavailable, because a loaded machine can
 miss the two-second deadline once. SessionStart probes once: its host timeout
 is five seconds.
 
+A probe that timed out does not make gitleaks unavailable when the readiness
+cache still holds a verdict for the same gitleaks file that expired less than
+ten minutes ago. A stalled machine holds the retry as long as it held the first
+probe, so the hook takes the version from that verdict and scans without
+probing again: the scan is then the proof that gitleaks runs, and a scan that
+fails is reported as a failed scan. A probe that ran and failed is never
+replaced this way. The cache lives in the private state directory, so with
+`AGENT_GUARD_LOG_MODE=off` and no `AGENT_GUARD_SCAN_CACHE=on`, and for a
+gitleaks that is a script or a version-manager shim, only the retry applies.
+
 Non-empty malformed or non-object PreToolUse, PostToolUse, and Stop input is
 also distinct from unavailable infrastructure. Agent Guard rejects one of
 those events even if infrastructure mode is `open`.
@@ -544,7 +554,7 @@ reads it.
 | `AGENT_GUARD_GITLEAKS_CONFIG` | Override the gitleaks configuration file. |
 | `AGENT_GUARD_GITLEAKS_BIN` | Select a gitleaks executable. |
 | `AGENT_GUARD_GITLEAKS_BIN_DIR` or `AGENT_GUARD_BIN_DIR` | Select the private gitleaks install directory. |
-| `AGENT_GUARD_GITLEAKS_HELPER` | Unset (default): use the [warm gitleaks helper](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) when `agent-guard setup --install-gitleaks-helper` installed it. `off` (any value that is not an absolute path) never uses it. An absolute path selects your own built `agent-guard-scan`. Ignored when `AGENT_GUARD_GITLEAKS_BIN` is set or `AGENT_GUARD_LOG_MODE=off`. A helper failure runs the real gitleaks. |
+| `AGENT_GUARD_GITLEAKS_HELPER` | Unset (default): use the [warm gitleaks helper](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) when `agent-guard setup --install` or `agent-guard setup --install-gitleaks-helper` installed it. `off` (any value that is not an absolute path) never uses it, and `setup --install` run with the variable set does not install it. An absolute path selects your own built `agent-guard-scan`. Ignored when `AGENT_GUARD_GITLEAKS_BIN` is set or `AGENT_GUARD_LOG_MODE=off`. A helper failure runs the real gitleaks. |
 | `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` / `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` | Read when a warm helper starts: idle exit time (default `600`) and peak resident-memory cap (default `160` MiB, at least `96`). |
 | `AGENT_GUARD_INFRA_FAILURE_MODE` | `open` (default) or `closed` for hook infrastructure failures. |
 | `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` | Positive integer `>= 10485760`; default `10485760` (10 MiB, split into thirds per producer, so `scan-staged` and each `scan-working-tree` component get 3495253 bytes by default). It can only raise the budget: smaller, non-numeric, or overlong (19+ digit) values keep the default. A larger budget scans more input; it never excludes anything from scanning. |

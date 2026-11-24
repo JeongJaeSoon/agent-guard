@@ -318,7 +318,7 @@ jobs:
       always() && needs.plan.result == 'success' &&
       (needs.plan.outputs.mode == 'publish' || needs.prepare.result == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     permissions:
       actions: write
       checks: read
@@ -355,7 +355,11 @@ jobs:
           set -euo pipefail
           if [ "$MODE" = prepare ]; then
             cut -f1 .github/release-checks.tsv | sort -u | while IFS= read -r workflow; do
-              gh workflow run "$workflow" --ref "$RELEASE_BRANCH"
+              if sh .github/scripts/release-checks.sh "$SOURCE_SHA" 0 "$workflow" > /dev/null 2>&1; then
+                echo "$workflow already passed at $SOURCE_SHA; not dispatching again"
+              else
+                gh workflow run "$workflow" --ref "$RELEASE_BRANCH"
+              fi
             done
             gh workflow run performance.yml --ref "$RELEASE_BRANCH"
           elif [ "$SOURCE_SHA" = "$RELEASE_SHA" ]; then
@@ -368,8 +372,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_HEAD_SHA: ${{ steps.source.outputs.source_sha }}
         run: |
-          sh .github/scripts/release-checks.sh "$RELEASE_HEAD_SHA"
-          sh .github/scripts/release-performance.sh "$RELEASE_HEAD_SHA"
+          sh .github/scripts/release-checks.sh "$RELEASE_HEAD_SHA" 7200
+          sh .github/scripts/release-performance.sh "$RELEASE_HEAD_SHA" 3000
   publish:
     needs: [plan, prepare, verify]
     if: >-
