@@ -607,5 +607,35 @@
     "tests": [
       "tests/colon-assignment-equivalence.sh"
     ]
+  },
+  {
+    "id": "bash-program-cd-home-any-operand",
+    "rule": "program text after a home-relative cd (#636): only `~` or `~/literal/path` is read as $HOME",
+    "old": "match(s, /[;&|][ \\t]*cd[ \\t]+~(\\/[A-Za-z0-9_.\\/:@%+,=-]*)?([ \\t;&|]|$)/)",
+    "new": "match(s, /[;&|][ \\t]*cd[ \\t]+~/)",
+    "tests": [
+      "tests/bash-path-text-data.sh",
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-program-home-any-word",
+    "rule": "home_is_plain_path (#636): a $HOME with a blank, glob or `..` step is no plain word",
+    "old": "  case $HOME in *[!A-Za-z0-9_./@%+,:-]*|*/../*|*/..) return 1 ;; esac\n",
+    "new": "",
+    "tests": [
+      "tests/bash-path-text-data.sh",
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-program-assign-any-name",
+    "rule": "assignment-only segments (#630, #636): an assignment to a name such as PATH stops the reading",
+    "old": "            if (name in vbad) break\n",
+    "new": "",
+    "tests": [
+      "tests/bash-path-text-data.sh",
+      "tests/search-operand-ground-truth.sh"
+    ]
   }
 ]

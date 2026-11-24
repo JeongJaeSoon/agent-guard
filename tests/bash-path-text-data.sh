@@ -170,6 +170,24 @@ check 2 "token sent by curl" "curl -H \"Authorization: Bearer \$API_TOKEN\" http
 says "a curl block names its line" \
   "matched deny-bash-patterns line $(line_of '(curl|wget).*(TOKEN') "
 
+# A home-relative cd or path variable before a sed program is read as $HOME
+# only while $HOME is one plain word; any other home keeps the text in the
+# scan (#636).
+PLAIN_HOME=$CASE_ROOT/home
+ODD_HOME="$CASE_ROOT/a b"
+mkdir -p "$PLAIN_HOME" "$ODD_HOME"
+SAVED_HOME=${HOME-}
+for HOME in "$PLAIN_HOME" "$ODD_HOME"; do
+  export HOME
+  [ "$HOME" = "$PLAIN_HOME" ] && want=0 || want=2
+  check "$want" "cd to a home-relative path before a sed program, home $HOME" \
+    "cd ~/logs; grep accepted app.log | sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' | sort"
+  check "$want" "home-relative path variable before a sed program, home $HOME" \
+    "L=~/logs/app.log; grep accepted \$L | sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' | sort"
+done
+HOME=$SAVED_HOME
+export HOME
+
 # Quoted data, here-document bodies, search patterns and git exclude
 # pathspecs against real operands and interpreter program text (#600).
 checked=$((checked + 1))

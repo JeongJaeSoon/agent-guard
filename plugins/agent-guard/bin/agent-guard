@@ -6915,6 +6915,13 @@ path_entries_absolute() {
   case ":${PATH-}:" in *::*|*:[!/]*) return 1 ;; esac
 }
 
+# Succeed when $HOME is one absolute word with no glob, blank or `..` step,
+# so a bare `~` or `~/path` expands to that word and nothing else.
+home_is_plain_path() {
+  case ${HOME-} in /*) ;; *) return 1 ;; esac
+  case $HOME in *[!A-Za-z0-9_./@%+,:-]*|*/../*|*/..) return 1 ;; esac
+}
+
 # The commands message_value_records and search_operand_spans accept before a
 # later command name, and literal_consumers_inert accepts as text consumers:
 # none of them can rebind a name (no builtin that assigns, no loop variable)
@@ -7808,6 +7815,7 @@ bash_strip_literal_message_values() (
 # when everything its pipeline feeds is a plain text filter (sink_ok).
 search_operand_spans() {
   printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
+    -v home_ok="$(home_is_plain_path && echo 1)" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_INERT_COMMAND"'
     function bail() { failed = 1; exit }
     function start_word() {
@@ -7822,6 +7830,20 @@ search_operand_spans() {
     }
     function bad(k) { return wdyn[k] || wuns[k] || wred[k] }
     function span(k) { return ws[k] " " we[k] "\n" }
+    # A bare assignment of a home-relative path to a short name
+    # (`L=~/logs/a.log`): the shell expands the tilde to a $HOME that
+    # home_ok says is one plain absolute word. No `~user`, no expansion.
+    function tilde_assign(k) {
+      return home_ok == "1" && !wdyn[k] && !wred[k] && raw(k) == wv[k] \
+        && wv[k] ~ /^[A-Za-z][A-Za-z0-9]?=~(\/[A-Za-z0-9_.\/:@%+,=-]*)?$/
+    }
+    # Word k is `$x` or `"$x"` alone, and x got its value from the only
+    # assignment of x in this command, outside any loop and before word k.
+    function plain_var(k,   t) {
+      if (wred[k] || raw(k) !~ /^(\$[A-Za-z][A-Za-z0-9]?|"\$[A-Za-z][A-Za-z0-9]?")$/) return 0
+      t = raw(k); gsub(/["$]/, "", t)
+      return vcnt[t] == 1 && !(t in vbad) && (t in vfrom) && vfrom[t] < k
+    }
     # Stop reading: a segment that is not inert comes before whatever
     # follows. A condition runs each segment once at most, and in order, so
     # the words held inside one stand while it closes as close_ok asks; a
@@ -8078,14 +8100,16 @@ search_operand_spans() {
     # the redirections that name no file (`2>&1`, `2>/dev/null`). Any other
     # redirection or non-literal word gives the segment up: a `<` word would
     # shift which word is the program.
+    # A file operand of sed or jq may also be a plain_var word (pvar), but
+    # never the program word or an option value.
     function program_scan(a, b,   k, j, v, h, out, sawe, script, prev, wasi) {
-      pn = 0
+      pn = 0; h = wv[a]
       for (k = a; k <= b; k++) {
         if (wv[k] ~ /^(2>&1|[12]?>\/dev\/null)$/ && !wdyn[k] && k > a) continue
-        if (bad(k)) return ""
+        pvar[k] = k > a && h ~ /^(sed|jq)$/ && plain_var(k)
+        if (bad(k) && !pvar[k]) return ""
         pw[++pn] = k
       }
-      h = wv[a]
       # The command name as written, with no quoting or escape in it.
       if (we[a] - ws[a] + 1 != length(h)) return ""
       if (h == "jq") {
@@ -8093,6 +8117,7 @@ search_operand_spans() {
         for (j = 2; j <= pn; j++) if (wv[pw[j]] ~ /^-[A-Za-z]*f/ || wv[pw[j]] == "--from-file") return ""
         for (j = 2; j <= pn; j++) {
           v = wv[pw[j]]
+          if (pvar[pw[j]]) return ""
           if (v ~ /^--(arg|argjson|slurpfile|rawfile)$/) { j += 2; continue }
           if (v == "--indent" || v == "-L") { j++; continue }
           if (v ~ /^-[nRscrjaSCMe]+$/ || v ~ /^--(null-input|raw-input|slurp|compact-output|raw-output|raw-output0|join-output|ascii-output|sort-keys|color-output|monochrome-output|tab|unbuffered|exit-status|stream|stream-errors|seq|args|jsonargs)$/) continue
@@ -8105,8 +8130,9 @@ search_operand_spans() {
         out = ""; sawe = 0; script = 0; wasi = 0
         for (j = 2; j <= pn; j++) {
           v = wv[pw[j]]
+          if (pvar[pw[j]]) { if (!script && !sawe) return ""; wasi = 0; continue }
           if (v == "--expression" || v ~ /^-[nErsuz]*e$/) {
-            if (++j > pn) return ""
+            if (++j > pn || pvar[pw[j]]) return ""
             out = out pline("sed", j); sawe = 1; wasi = 0
             continue
           }
@@ -8485,7 +8511,7 @@ search_operand_spans() {
         }
         h = lead(k, e); d += dc
         if (h < e && kw(h) == "for") {
-          name = wv[h + 1]; nvar++; vname[name] = 1
+          name = wv[h + 1]; nvar++; vname[name] = 1; vcnt[name]++
           c = h + 3 <= e && kw(h + 1) != "" && kw(h + 2) == "in"
           for (r = h + 3; c && r <= e; r++) if (!list_word(r)) c = 0
           if (c) { fname[++nfor] = name; ffrom[nfor] = h; fdep[nfor] = d; fto[nfor] = 0 }
@@ -8496,10 +8522,11 @@ search_operand_spans() {
         for (r = k; r <= e; r++) {
           v = raw(r)
           if (!match(v, /^[A-Za-z_][A-Za-z0-9_]*=/)) continue
-          name = substr(v, 1, RLENGTH - 1); nvar++; vname[name] = 1
-          if (a <= e || r < h || name !~ /^[A-Za-z][A-Za-z0-9]?$/ || name == "TZ" || bad(r) || v != wv[r] \
-              || substr(v, RLENGTH + 1) !~ /^[A-Za-z0-9_.\/:@%+,=][A-Za-z0-9_.\/:@%+,=-]*$/) vbad[name] = 1
-          else if (d == 0 && !(name in vfrom)) vfrom[name] = r
+          name = substr(v, 1, RLENGTH - 1); nvar++; vname[name] = 1; vcnt[name]++
+          if (a <= e || r < h || name !~ /^[A-Za-z][A-Za-z0-9]?$/ || name == "TZ" \
+              || !tilde_assign(r) && (bad(r) || v != wv[r] \
+                || substr(v, RLENGTH + 1) !~ /^[A-Za-z0-9_.\/:@%+,=][A-Za-z0-9_.\/:@%+,=-]*$/)) vbad[name] = 1
+          else if (d == 0 && !(name in vfrom)) { vfrom[name] = r; vval[name] = substr(v, RLENGTH + 1) }
         }
       }
       # An expansion can assign as well (${x:=v}, ${x::=v}, $[x=1]), to any
@@ -8541,6 +8568,10 @@ search_operand_spans() {
               else if (wv[k] == "rg") got = grep_scan(k, e, 1)
               else if (git_grep(k, e)) got = grep_scan(k + 1, e, 2)
               else got = program_scan(k, e)
+              # Each plain_var operand of such a segment, as `V start end
+              # value`: the scan after the rewrite reads the value there.
+              for (r = k; got != "" && r <= e; r++)
+                if (plain_var(r)) { name = raw(r); gsub(/["$]/, "", name); got = got "V " ws[r] " " we[r] " " vval[name] "\n" }
             }
           }
           # A pattern selects the lines a later command receives, so what the
@@ -8563,15 +8594,15 @@ search_operand_spans() {
         # PATH entry resolves it to, so list the inert ones.
         for (r = k; r <= e; r++) if (wred[r] && !quiet(r) || mode == "trusted" && bad(r)) stop()
         for (h = k; h <= e && kw(h) ~ /^(do|then|else|elif|if|while|until|done|fi|!)$/; h++) ;
-        for (a = h; h <= e && wv[h] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && !bad(h); h++) ;
+        for (a = h; h <= e && wv[h] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && (!bad(h) || tilde_assign(h)); h++) ;
         if (h > e) {
           if (a > e) continue
           # Assignments alone: each of one plain word to a short name.
-          for (r = a; r <= e && mode == ""; r++) {
+          for (r = a; r <= e && mode ~ /^(program)?$/; r++) {
             name = raw(r); sub(/=.*/, "", name)
             if (name in vbad) break
           }
-          if (mode == "" && r > e) continue
+          if (mode ~ /^(program)?$/ && r > e) continue
           stop()
         }
         if (bad(h)) stop()
@@ -10179,14 +10210,26 @@ bash_strip_program_text() (
   }
   pt_spans=$(printf '%s\n' "$pt_spans" | LC_ALL=C awk '
     /^P / { n = $3; sub(/^P /, ""); print n " " $0; next }
+    /^V / { print $2 " " $0; next }
     /^[0-9]/ { print $1 " pat " $0 }' | sort -rn)
   # Where the shell reads relative names from is decided without the program
   # words: a `$1` or a `cd` in awk or python text moves nothing in the shell,
   # and text that changes the program's own directory keeps its suffixes
   # (program_text_residual).
-  pt_shape=$(printf '%s\n' "$pt_spans" | PT_CMD=$pt_cmd LC_ALL=C awk '
+  # A cd to a bare home-relative path goes where $HOME says, when that is one
+  # plain word (home_is_plain_path).
+  pt_home=
+  if home_is_plain_path; then pt_home=$HOME; fi
+  pt_shape=$(printf '%s\n' "$pt_spans" | PT_CMD=$pt_cmd PT_HOME=$pt_home LC_ALL=C awk '
     { s = NR == 1 ? ENVIRON["PT_CMD"] : s; a = $3; b = $4; s = substr(s, 1, a - 1) "_" substr(s, b + 1) }
-    END { printf "%s", s }')
+    END {
+      h = ENVIRON["PT_HOME"]; s = ";" s; out = ""
+      while (h != "" && match(s, /[;&|][ \t]*cd[ \t]+~(\/[A-Za-z0-9_.\/:@%+,=-]*)?([ \t;&|]|$)/)) {
+        t = RSTART + index(substr(s, RSTART, RLENGTH), "~") - 1
+        out = out substr(s, 1, t - 1) h; s = substr(s, t + 1)
+      }
+      printf "%s", substr(out s, 2)
+    }')
   pt_rebase=
   if bash_command_may_rebase_relative_paths "$pt_shape"; then
     pt_rebase=$(bash_command_rebase_target "$pt_shape") || { printf '%s' "$pt_cmd"; exit 0; }
@@ -10203,6 +10246,7 @@ bash_strip_program_text() (
     pt_start=${pt_rest%% *}; pt_rest=${pt_rest#* }
     case "$pt_kind" in
       pat) pt_end=$pt_rest pt_new=_ ;;
+      V) pt_end=${pt_rest%% *} pt_new=${pt_rest#* } ;;
       *)
         pt_end=${pt_rest%% *}; pt_value=${pt_rest#* }
         [ "$pt_end" != "$pt_rest" ] || continue
@@ -10218,7 +10262,7 @@ bash_strip_program_text() (
     esac
     pt_next=$(PT_CMD=$pt_cmd PT_NEW=$pt_new LC_ALL=C awk -v a="$pt_start" -v b="$pt_end" -v kind="$pt_kind" 'BEGIN {
       s = ENVIRON["PT_CMD"]; t = ENVIRON["PT_NEW"]
-      if (kind != "pat") { gsub(/\047/, "\047\\\047\047", t); t = "\047" t "\047" }
+      if (kind != "pat" && kind != "V") { gsub(/\047/, "\047\\\047\047", t); t = "\047" t "\047" }
       printf "%s", substr(s, 1, a - 1) t substr(s, b + 1)
     }') && [ -n "$pt_next" ] || continue
     pt_cmd=$pt_next
