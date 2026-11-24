@@ -1204,7 +1204,7 @@
   {
     "id": "bash-unresolved-operand-prefix-assignment",
     "rule": "bash_unresolved_read_operand: an assignment before a command does not resolve its operands",
-    "old": "      if (cmdseen || cond || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]",
+    "old": "      if (cmdseen || cond || bg || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]",
     "new": "      if (nofollow || pav[k] == \"\\002\") delete tab[pan[k]]",
     "tests": [
       "tests/unresolved-read-operand.sh"
@@ -1573,8 +1573,8 @@
   {
     "id": "bash-unresolved-operand-assign-bytes",
     "rule": "AWK_READ_OPERAND_RECORDS: an assigned value with a table separator byte is unknown",
-    "old": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/) v = \"\\002\"\n",
-    "new": "    if (index(v, \"\\002\") || index(v, \"\\005\")) v = \"\\002\"\n",
+    "old": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/ || substr(w, index(w, \"=\") + 1, 1) == \"(\" || idx) v = \"\\002\"\n",
+    "new": "    if (index(v, \"\\002\") || index(v, \"\\005\") || substr(w, index(w, \"=\") + 1, 1) == \"(\" || idx) v = \"\\002\"\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -1663,8 +1663,8 @@
   {
     "id": "bash-unresolved-operand-eval-old-value",
     "rule": "AWK_READ_OPERAND_RECORDS: eval code is built from the values before the assignments in front of eval",
-    "old": "    if (mode == \"eval\" && evalcode != \"\") code(evalcode)\n    for (k = 1; k <= npa; k++) {\n      delete loopv[pan[k]]\n      if (cmdseen || cond || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]\n      else tab[pan[k]] = pav[k]\n    }\n",
-    "new": "    for (k = 1; k <= npa; k++) {\n      delete loopv[pan[k]]\n      if (cmdseen || cond || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]\n      else tab[pan[k]] = pav[k]\n    }\n    if (mode == \"eval\" && evalcode != \"\") code(evalcode)\n",
+    "old": "    if (mode == \"eval\" && evalcode != \"\") code(evalcode)\n    for (k = 1; k <= npa; k++) {\n      delete loopv[pan[k]]\n      if (cmdseen || cond || bg || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]\n      else tab[pan[k]] = pav[k]\n    }\n",
+    "new": "    for (k = 1; k <= npa; k++) {\n      delete loopv[pan[k]]\n      if (cmdseen || cond || bg || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]\n      else tab[pan[k]] = pav[k]\n    }\n    if (mode == \"eval\" && evalcode != \"\") code(evalcode)\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -1681,7 +1681,7 @@
   {
     "id": "bash-unresolved-operand-loop-option",
     "rule": "AWK_READ_OPERAND_RECORDS: a loop word that makes an operand an option of the reading program is unresolved",
-    "old": "    if (!ddash && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
+    "old": "    if (!ddash && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { operand(w); print \"U\"; return }\n",
     "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
@@ -1708,8 +1708,8 @@
   {
     "id": "bash-unresolved-operand-loop-option-source-arg",
     "rule": "AWK_READ_OPERAND_RECORDS: a dash loop word after a sourced script is its argument",
-    "old": "    if (!ddash && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
-    "new": "    if (!ddash && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { print \"U\"; return }\n",
+    "old": "    if (!ddash && !(gotone && prog ~ /^(source|\\.)$/) && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { operand(w); print \"U\"; return }\n",
+    "new": "    if (!ddash && substr(ow, 1, 1) == \"\\005\" && loopopt(ow)) { operand(w); print \"U\"; return }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
