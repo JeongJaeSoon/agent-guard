@@ -14030,7 +14030,7 @@ secretish_env_values() {
       # colon of its member (`{"text":"password: <value>"}`, #628).
       # find_quote_colon looks for it apart, so that a line without one
       # reads exactly as before.
-      quote_colon_assignment = "[\"'\''`][\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      quote_colon_assignment = ":[\"'\''`][\"'\''`]?" key "[\"'\''`]?[ \t]*:"
       # Skipping after ANY colon-terminated token also let real structured log
       # lines through unmasked (`response: api_key: <secret>`), so only these
       # status words justify the skip. Deliberately short: an unlisted label
@@ -15626,22 +15626,17 @@ secretish_env_values() {
       if (delimiter == "=") return match(text, equals_assignment)
       return match(text, colon_assignment)
     }
-    # The leftmost match of quote_colon_assignment that follows a colon,
-    # in quote_start/quote_length (0 and -1 when there is none). The
-    # pattern does not open with an alternation, so match() reports the
-    # leftmost match on every awk.
-    function find_quote_colon(low,   from, at) {
+    # The leftmost quote-opened colon key, from the quote on, in
+    # quote_start/quote_length (0 and -1 when there is none). The pattern
+    # opens with the colon before the quote, not with an alternation, so
+    # match() reports the leftmost match on every awk. find_assignment
+    # never sees it, so its colon does not break the rule there.
+    function find_quote_colon(low) {
       quote_start = 0
       quote_length = -1
-      from = 1
-      while (match(substr(low, from), quote_colon_assignment)) {
-        at = from + RSTART - 1
-        if (at > 1 && substr(low, at - 1, 1) == ":") {
-          quote_start = at
-          quote_length = RLENGTH
-          return
-        }
-        from = at + 1
+      if (match(low, quote_colon_assignment)) {
+        quote_start = RSTART + 1
+        quote_length = RLENGTH - 1
       }
     }
     function find_assignment(low, delimiter, before) {
