@@ -365,10 +365,17 @@
   },
   {
     "id": "jq-after-assignment-segment",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a short literal assignment alone before jq cannot change which jq runs (#636)",
+    "command": "S=a.json; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-assignment-reads-protected",
     "expected_status": 2,
     "classification": "must-block",
-    "description": "an assignment-only segment before jq stops the segment check",
-    "command": "S=a.json; jq '.key' a.json"
+    "description": "a jq after a short literal assignment whose operand is a key file",
+    "command": "S=a.json; jq '.key' tls.key"
   },
   {
     "id": "jq-after-file-writing-command",

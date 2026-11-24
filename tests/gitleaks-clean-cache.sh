@@ -484,6 +484,26 @@ check 'a repeated MCP input passes' test "$(tool_status mcp__demo__search "$mcp"
 check 'a repeated MCP input is scanned each time and never cached' \
   test "$(($(scans) - before)):$(entries)" = 2:0
 
+# An expired readiness verdict that stands in for a timed-out version probe
+# (#617) is backed by the scan that follows, so a cached clean verdict must
+# not answer in its place: a scanner that fails now has to be seen failing.
+reset
+mkdir -p "$CASE/stall-bin"
+printf '#!/bin/sh\nexec sleep 6\n' >"$CASE/stall-bin/setsid"
+chmod +x "$CASE/stall-bin/setsid"
+bash_status 'ls -la' >/dev/null
+check 'control: under a fresh readiness verdict a cached clean command is not scanned' \
+  test "$(scan_and_status 'ls -la')" = 0:0
+probe="$XDG_STATE_HOME/agent-guard/gitleaks-probe"
+{ IFS= read -r probe_key && IFS= read -r probe_time && IFS= read -r probe_version; } <"$probe"
+printf '%s\n%s\n%s\n' "$probe_key" "$(($(date +%s) - 700))" "$probe_version" >"$probe"
+check 'a stand-in readiness verdict scans a command the cache holds as clean' \
+  test "$(PATH="$CASE/stall-bin:$PATH"; export PATH; scan_and_status 'ls -la')" = 1:0
+check 'a scanner that fails behind a stand-in verdict is reported, not answered from the cache' \
+  test "$(PATH="$CASE/stall-bin:$PATH" FAKE_GITLEAKS_STDIN_EXIT=2 AGENT_GUARD_INFRA_FAILURE_MODE=closed
+          export PATH FAKE_GITLEAKS_STDIN_EXIT AGENT_GUARD_INFRA_FAILURE_MODE
+          scan_and_status 'ls -la')" = 1:2
+
 # The directory stays bounded.
 reset
 bash_status 'ls -la' >/dev/null

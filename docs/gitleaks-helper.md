@@ -39,6 +39,15 @@ keep running the real gitleaks.
 
 ## Install it
 
+`agent-guard setup --install` installs the helper together with gitleaks when
+the gitleaks in use is the one that command puts in the private directory, at
+the version the helper links; rerun it to get the helper for a gitleaks it
+installed earlier. A helper that cannot be downloaded or does not match is
+only a warning there, with any other gitleaks the command prints why it
+installed no helper, and `AGENT_GUARD_GITLEAKS_HELPER=off` skips it. The
+[installation guide](installation.md#optional-warm-gitleaks-helper) lists the
+cases. To install only the helper:
+
 ```sh
 agent-guard setup --install-gitleaks-helper
 ```
