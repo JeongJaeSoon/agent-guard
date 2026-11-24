@@ -305,6 +305,13 @@ check 2 "an IFS change before a substitution" 'IFS=x; p=id_; q="${p}rsaxREADME";
 check 2 "a table separator byte in an assigned value" "p=\"a$(printf '\004')f$(printf '\003')README.md\"; echo \"\$(cat \"\$f\")\""
 check 2 "a table separator byte in a loop word" "for g in \"a$(printf '\004')f$(printf '\003')README.md\"; do echo \"\$(cat \"\$f\")\"; done"
 check 2 "a table separator byte in a loop variable name" "for \"x$(printf '\004')f$(printf '\003')README.md\" in a; do echo \"\$(cat \"\$f\")\"; done"
+check 2 "a substitution in an assignment after a reassignment on the same line" 'f=README.md; f=$X g=$(cat "$f")'
+check 2 "a loop variable reassigned on the same line as a substitution" 'for f in a.md; do f=$X g=$(cat "$f"); done'
+check 2 "a quoted assignment word of export" 'f=README.md; export "f=$X"; cat "$f"'
+check 2 "an export word that holds an assignment" 'f=README.md; kv="f=$X"; export $kv; cat "$f"'
+check 2 "a quoted assignment word of declare" 'f=README.md; declare "f=.e"; cat "${f}nv"'
+check 0 "a substitution in an assignment reads an earlier value" 'f=README.md; g=$(cat "$f"); echo "$g"'
+check 0 "an export of another name keeps the value" 'f=README.md; export OTHER="$X"; cat "$f"'
 
 HOST=codex
 check 2 "codex: cat of a command substitution" "cat $S"

@@ -1384,7 +1384,7 @@
   {
     "id": "bash-unresolved-operand-loop-in-substitution",
     "rule": "AWK_READ_OPERAND_RECORDS: a loop variable is known inside the substitutions of the loop body",
-    "old": "    for (k in loopv) s = s (loopg[k] ? \"\\006\" : \"\\005\") k \"\\003\" loopv[k] \"\\004\"\n",
+    "old": "    for (k in loopv) if (!stale(k)) s = s (loopg[k] ? \"\\006\" : \"\\005\") k \"\\003\" loopv[k] \"\\004\"\n",
     "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
@@ -1485,6 +1485,33 @@
     "rule": "AWK_READ_OPERAND_RECORDS: the word after a here-string operator is its text, not an operand",
     "old": "    if (w ~ /^[0-9]*<<[-<]?$/) { skipw = 1; return }\n",
     "new": "    if (w ~ /^[0-9]*<<-?$/) { skipw = 1; return }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-stale-assignment",
+    "rule": "AWK_READ_OPERAND_RECORDS: a name reassigned earlier on the same line is not passed to a substitution",
+    "old": "  function stale(nm) { return cpos && nm in ptab }\n",
+    "new": "  function stale(nm) { return 0 }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-export-quoted",
+    "rule": "AWK_READ_OPERAND_RECORDS: an export word that is not a plain name forgets the name it may assign",
+    "old": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n); forget(n) }\n",
+    "new": "      else if (w !~ /^-/ && decl !~ /^(export|readonly)$/) { n = w; gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n); forget(n) }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-declare-quoted",
+    "rule": "AWK_READ_OPERAND_RECORDS: a quoted assignment word of declare forgets the name before its equals sign",
+    "old": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n); forget(n) }\n",
+    "new": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; gsub(/[\"\\047\\\\]/, \"\", n); forget(n) }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
