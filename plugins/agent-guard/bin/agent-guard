@@ -15107,15 +15107,29 @@ secretish_env_values() {
       }
       return 0
     }
+    # A gsub replacement that holds a backslash differs between awks:
+    # mawk 1.3.4 20200120 left a quote after a backslash unescaped. So a
+    # value that holds a backslash is escaped one character at a time.
     function json_escape(value, i, ch, replacement) {
-      gsub(/\\/, "\\\\", value)
-      gsub(/"/, "\\\"", value)
+      if (index(value, "\\"))
+        value = escape_each(escape_each(value, "\\"), "\"")
+      else
+        gsub(/"/, "\\\"", value)
       for (i = 1; i < 32; i++) {
         ch = sprintf("%c", i)
         replacement = sprintf("\\u%04x", i)
         gsub(ch, replacement, value)
       }
       return value
+    }
+    # value with a backslash put before each ch.
+    function escape_each(value, ch,   out, i) {
+      out = ""
+      while ((i = index(value, ch)) > 0) {
+        out = out substr(value, 1, i - 1) "\\" ch
+        value = substr(value, i + 1)
+      }
+      return out value
     }
     function emit_framed(value, tag, i, ch) {
       printf "%s", tag
@@ -15940,8 +15954,7 @@ secretish_env_values() {
     # with the backslashes the copy removed, when that spelling is there.
     function line_spelling(value,   escaped) {
       if (!copy_reading || !index(value, "\"")) return value
-      escaped = value
-      gsub(/"/, "\\\"", escaped)
+      escaped = escape_each(value, "\"")
       return index(copy_source, escaped) ? escaped : value
     }
     function emit_record(value) {
