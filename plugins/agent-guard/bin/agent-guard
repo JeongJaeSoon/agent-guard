@@ -9242,10 +9242,12 @@ bash_neutralize_jq_field_names() (
 # Succeed when a jq in any segment of command $1 runs the jq its PATH lookup
 # finds, and print the names of the for-loop variables a jq may read as a
 # file operand. It fails on: a relative PATH entry (a cd or a write in the
-# command changes what it resolves); a here-document; an alias, hash or
-# enable word anywhere; and any unquoted-looking glob word whose last name
-# part can match jq, whatever command or redirect writes it (a literal jq
-# word stops the rewrite already). A loop variable qualifies when its one
+# command changes what it resolves); a here-document; an alias, hash,
+# enable, shopt, setopt, unsetopt or emulate word anywhere; a word that
+# names jq in another case (JQ is jq on a case-insensitive file system); a
+# ( glued inside a command (zsh alternation); and any unquoted-looking glob
+# word whose last name part can match jq, whatever command or redirect
+# writes it (a literal jq word stops the rewrite already). A loop variable qualifies when its one
 # `for NAME in` list is literal words that start with no dash and hold
 # no glob, no glob word can name it (`read -r f?`), and every other word that
 # names it is a quoted "$NAME" or "${NAME}" inside that loop's body: no
@@ -9277,7 +9279,7 @@ bash_jq_any_segment_vars() {
     function glob(t) { return t ~ /[*?#^{}~<>]/ || index(t, "[") || index(t, "]") }
     # Whether glob p can match name s: * and # (zsh) match any run, ? one
     # character, a [...] set any one character, and a zsh ^ anything. An
-    # unclosed [ is literal, as in the shell.
+    # unclosed [ is literal, as in the shell. Letters match in either case.
     function gm(p, s,   c, q, j) {
       if (p == "") return s == ""
       c = substr(p, 1, 1)
@@ -9285,11 +9287,13 @@ bash_jq_any_segment_vars() {
       if (c == "^") return 1
       if (c == "?") return s != "" && gm(substr(p, 2), substr(s, 2))
       if (c == "[") {
+        # A POSIX class, equivalence or collating element: any character.
+        if (index(p, "[:") || index(p, "[=") || index(p, "[.")) return 1
         q = substr(p, 2); sub(/^[!^]/, "", q)
         j = index(substr(q, 2), "]")
         if (j) return s != "" && gm(substr(q, j + 2), substr(s, 2))
       }
-      return s != "" && substr(s, 1, 1) == c && gm(substr(p, 2), substr(s, 2))
+      return s != "" && tolower(substr(s, 1, 1)) == tolower(c) && gm(substr(p, 2), substr(s, 2))
     }
     function bound(i) { return k[i] == "3" || k[i] == "0" && w[i] ~ /^(;|&&|[|][|]|[|])$/ }
     { k[NR] = substr($0, 1, 1); w[NR] = substr($0, 2) }
@@ -9297,7 +9301,12 @@ bash_jq_any_segment_vars() {
       start = 1; ng = 0
       for (i = 1; i <= NR; i++) {
         v = w[i]
-        if (k[i] == "0" && v ~ /^(alias|hash|enable)$/) exit 1
+        if (k[i] == "0" && v ~ /^(alias|hash|enable|shopt|setopt|unsetopt|emulate)$/) exit 1
+        # A case-insensitive file system makes JQ the file jq.
+        if (k[i] == "0" && v !~ /jq/ && tolower(v) ~ /jq/) exit 1
+        # A ( glued inside a command is zsh alternation or a glob qualifier
+        # (`(j|x)q`), which the matcher below does not read.
+        if (k[i] == "3" && v == "(" && !start) exit 1
         # An unquoted word holds no blank, so a word with one was quoted.
         if (k[i] == "0" && v !~ /[ \t\n]/ && v ~ /[*?#^[]/) {
           b = v; sub(/^[0-9]*[<>|&]+/, "", b); sub(/.*[\/=]/, "", b)

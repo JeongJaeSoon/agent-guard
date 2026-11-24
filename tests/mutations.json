@@ -1051,7 +1051,7 @@
   {
     "id": "bash-jq-segments-alias-ignored",
     "rule": "jq in any segment (94S-2135): an alias, hash or enable word keeps the old rule",
-    "old": "        if (k[i] == \"0\" && v ~ /^(alias|hash|enable)$/) exit 1\n",
+    "old": "        if (k[i] == \"0\" && v ~ /^(alias|hash|enable|shopt|setopt|unsetopt|emulate)$/) exit 1\n",
     "new": "",
     "tests": [
       "tests/jq-program-segments.sh"
@@ -1170,6 +1170,33 @@
     "rule": "jq in any segment (94S-2135): a glued redirect operator is not part of the glob",
     "old": "          b = v; sub(/^[0-9]*[<>|&]+/, \"\", b); sub(/.*[\\/=]/, \"\", b)\n",
     "new": "          b = v; sub(/.*[\\/=]/, \"\", b)\n",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-case-variant",
+    "rule": "jq in any segment (94S-2135): a word that names jq in another case keeps the old rule",
+    "old": "        if (k[i] == \"0\" && v !~ /jq/ && tolower(v) ~ /jq/) exit 1\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-glued-paren",
+    "rule": "jq in any segment (94S-2135): a ( inside a command keeps the old rule",
+    "old": "        if (k[i] == \"3\" && v == \"(\" && !start) exit 1\n",
+    "new": "",
+    "tests": [
+      "tests/jq-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-jq-segments-posix-class",
+    "rule": "jq in any segment (94S-2135): a POSIX bracket class matches any character",
+    "old": "        if (index(p, \"[:\") || index(p, \"[=\") || index(p, \"[.\")) return 1\n",
+    "new": "",
     "tests": [
       "tests/jq-program-segments.sh"
     ]

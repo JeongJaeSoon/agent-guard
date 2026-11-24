@@ -608,5 +608,68 @@
     "classification": "must-block",
     "description": "a sed w command to a literal jq path",
     "command": "sed -n 'w /opt/homebrew/bin/jq' x; jq '.key' a.json"
+  },
+  {
+    "id": "case-variant-jq",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a case-insensitive file system makes JQ the same file as jq",
+    "command": "cp /bin/cat /opt/homebrew/bin/JQ; jq '.key' a.json"
+  },
+  {
+    "id": "case-variant-ln",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a mixed-case jq link",
+    "command": "ln -sf /bin/cat bin/Jq && jq '.key' a.json"
+  },
+  {
+    "id": "posix-class-jq",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a POSIX character class can name jq",
+    "command": "cp /bin/cat bin/[[:alpha:]]q; jq '.key' a.json"
+  },
+  {
+    "id": "posix-class-jq-second",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a POSIX character class in second place",
+    "command": "cp /bin/cat bin/j[[:lower:]]; jq '.key' a.json"
+  },
+  {
+    "id": "posix-class-var",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a POSIX character class can name the loop variable",
+    "command": "for f in a.json; do read -r [[:alpha:]] < xx; jq '.key' \"$f\"; done"
+  },
+  {
+    "id": "zsh-alternation-jq",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "zsh alternation glued to a word can name jq",
+    "command": "cp /bin/cat bin/(j)q; jq '.key' a.json"
+  },
+  {
+    "id": "zsh-alternation-bar",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "zsh alternation with a bar",
+    "command": "cp /bin/cat bin/(j|x)q; jq '.key' a.json"
+  },
+  {
+    "id": "nocaseglob-shopt",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "shopt can make globs case-insensitive",
+    "command": "shopt -s nocaseglob; cp /bin/cat bin/J?; jq '.key' a.json"
+  },
+  {
+    "id": "nocaseglob-setopt",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "setopt can make globs case-insensitive",
+    "command": "setopt nocaseglob; cp /bin/cat bin/J?; jq '.key' a.json"
   }
 ]
