@@ -53,16 +53,28 @@ jobs:
     outputs:
       oses: ${{ steps.scope.outputs.oses }}
       check_prefix: ${{ steps.scope.outputs.check_prefix }}
+      macos: ${{ steps.scope.outputs.macos }}
+      tests: ${{ steps.scope.outputs.tests }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out its merge commit; its first parent is
+          # the base, so the two commits give the pull request's changes.
+          fetch-depth: 2
 
       - name: Select CI coverage and check identity
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
           HEAD_REF: ${{ github.head_ref }}
-        run: sh .github/scripts/ci-scope.sh "$EVENT_NAME" "$HEAD_REF" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+          else
+            : > "$RUNNER_TEMP/changed"
+          fi
+          sh .github/scripts/ci-scope.sh "$EVENT_NAME" "$HEAD_REF" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"
 
       - name: Scan for secrets
         uses: ./
@@ -74,7 +86,11 @@ jobs:
   test-shard:
     name: ${{ matrix.suite }} (${{ matrix.os }})
     needs: [secret-guard, release-evidence]
-    if: needs.release-evidence.outputs.reuse != 'true'
+    # macOS runners queue for hours: only release PRs, main pushes and manual
+    # runs use them. Linux legs keep their names on every pull request.
+    if: >-
+      needs.release-evidence.outputs.reuse != 'true' &&
+      (matrix.os != 'macos-latest' || needs.secret-guard.outputs.macos == 'true')
     strategy:
       fail-fast: false
       matrix:
@@ -145,7 +161,7 @@ jobs:
         # which gives full cross-OS coverage on main and release PRs. The
         # macOS/darwin archive has a different checksum than the pin above, so
         # the real-gitleaks + smoke steps are scoped to Linux only.
-        if: runner.os == 'Linux' && matrix.bundle == 'scanner'
+        if: runner.os == 'Linux' && matrix.bundle == 'scanner' && needs.secret-guard.outputs.tests == 'true'
         run: |
           set -euo pipefail
           archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
@@ -160,6 +176,9 @@ jobs:
           echo "${RUNNER_TEMP}/agent-guard-bin" >> "${GITHUB_PATH}"
 
       - name: Run tests
+        # A documentation-only pull request skips the suites; the job still
+        # reports under its name, and main and release PRs run everything.
+        if: needs.secret-guard.outputs.tests == 'true'
         env:
           TEST_PARTITIONS: ${{ matrix.shards }}
           AGENT_GUARD_TEST_NAVIGATION_HOST: ${{ matrix.navigation_host }}
@@ -177,7 +196,7 @@ jobs:
         # about. On Linux gitleaks is installed above, so a skip here is a bug.
         # The block lives in shard 4; moving it without updating this condition
         # fails the grep below instead of passing silently.
-        if: runner.os == 'Linux' && matrix.bundle == 'scanner'
+        if: runner.os == 'Linux' && matrix.bundle == 'scanner' && needs.secret-guard.outputs.tests == 'true'
         run: |
           set -eu
           if grep -q 'real gitleaks not available; skipped real-gitleaks integration tests' "${RUNNER_TEMP}/test-output.txt"; then
@@ -188,11 +207,11 @@ jobs:
             || { echo "::error::expected real-gitleaks detection assertions are missing from the test output" >&2; exit 1; }
 
       - name: Smoke test (real git/jq/gitleaks E2E)
-        if: runner.os == 'Linux' && matrix.bundle == 'scanner'
+        if: runner.os == 'Linux' && matrix.bundle == 'scanner' && needs.secret-guard.outputs.tests == 'true'
         run: make smoke-test
 
       - name: Summarize suite timings and job time budget
-        if: always()
+        if: always() && needs.secret-guard.outputs.tests == 'true'
         env:
           TEST_JOB_TIMEOUT_MINUTES: ${{ matrix.timeout_minutes }}
         run: sh .github/scripts/test-timing-summary.sh
@@ -231,6 +250,7 @@ jobs:
 
   long-input:
     name: Large hook inputs (${{ matrix.awk }})
+    needs: secret-guard
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -242,10 +262,12 @@ jobs:
         with:
           persist-credentials: false
       - name: Install the selected awk
+        if: needs.secret-guard.outputs.tests == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ${{ matrix.awk }}
       - name: Compare large inputs with controls
+        if: needs.secret-guard.outputs.tests == 'true'
         env:
           AGENT_GUARD_TEST_LONG_INPUT_AWKS: ${{ matrix.awk }}
           AGENT_GUARD_TEST_REQUIRE_AWKS: ${{ matrix.awk }}
