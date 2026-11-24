@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 430d0cf7d223cd0df704094e5988c8c5db4f684e -->
+<!-- translated-from: docs/verification.md; source-blob: 8381bad84419ef2a8e5d9fd60ec518ec9a37fb61 -->
 
 <a id="verification"></a>
 
@@ -101,6 +101,8 @@ Code Mode에서는 Claude가 JavaScript를 작성해 한 번에 여러 도구를
   코드는 실패한 단계를 알려 주며, 느려진 원인까지 설명하지는 않습니다.
   SessionStart를 제외한 hook은 시간 초과된 버전 확인을 한 번 다시 시도합니다.
   따라서 그 hook에서 이 코드는 버전 확인이 연속 두 번 시간 초과했다는 뜻입니다.
+  또한 같은 gitleaks 파일에 대해 최근 10분 안에 만료된 준비 판정이 없었다는
+  뜻이기도 합니다. 그런 판정이 있으면 hook은 이 코드를 내지 않고 검사를 실행합니다.
 - `open` 인프라 모드는 눈에 보이는 일회성 경고 후 계속 실행하며 `closed`는 차단합니다. 이는 인프라 장애에 대한 정책이며 비밀 정보를 탐지하면 차단합니다. 비어 있지 않으면서 형식이 잘못되었거나 객체가 아닌 PreToolUse·Stop 입력은 인프라 모드와 무관하게 차단합니다. PostToolUse는 먼저 독립된 parser로 유효한 host envelope를 복구하고 보수적인 치환 결과를 출력합니다. 비어 있지 않으면서 형식이 잘못되었거나 객체가 아닌 PostToolUse envelope의 종료 상태 2는 눈에 보이는 진단이며, 이미 완료된 도구 결과를 되돌릴 수는 없습니다. `closed`에서는 출력을 검사하지 못한 Claude의 PostToolUse hook이 그 출력의 비어 있지 않은 문자열을 모두 치환하고 구조는 유지합니다. 종료 상태 2만으로는 출력이 모델에 그대로 전달되기 때문입니다. 빈 stdin은 문서화된 예외입니다. PreToolUse, PostToolUse, Stop 모두 응답 없이 종료 상태 0을 반환합니다. 거부한 이벤트는 모두 보고합니다.
 - host가 시간 제한에 도달한 hook을 종료하면 hook이 판단하지 못할 수 있습니다. Claude Code 2.1.295 이상은 `PreToolUse` hook의 시간 초과나 비정상 종료 시 도구 호출을 차단합니다. 다른 이벤트와 host에는 해당하지 않습니다. Git과 CI의 추가 방어를 유지하세요.
 

@@ -148,6 +148,78 @@ else
   check 'a symlinked cache file is replaced, not followed' \
     test ! -L "$CACHE" -a "$(cat "$CASE/outside")" = outside
 
+  # A machine-wide stall holds the version probe past its deadline, and a
+  # retry lands in the same stall (#617). An expired verdict for this same
+  # executable then stands in, because the scan that follows is its own proof.
+  # The launcher stub stalls or fails on a flag, so the binary under test stays
+  # the native one the cache identified.
+  mkdir -p "$CASE/stall-bin"
+  printf '#!/bin/sh\nprintf "probe\\n" >>"$PROBE_LOG"\n[ ! -e "$FAIL_FLAG" ] || exit 1\n[ ! -e "$STALL_FLAG" ] || exec sleep 6\nexec "$@"\n' \
+    >"$CASE/stall-bin/setsid"
+  chmod +x "$CASE/stall-bin/setsid"
+  export PROBE_LOG="$CASE/probes" STALL_FLAG="$CASE/stall" FAIL_FLAG="$CASE/fail"
+  # $1 is the prompt, $2 the infrastructure policy (open when omitted).
+  stalled() {
+    run_seq=$((run_seq + 1))
+    : >"$PROBE_LOG"
+    jq -nc --arg p "$1" --arg s "probe-cache-$run_seq" '{session_id:$s,prompt:$p}' \
+      | PATH="$CASE/stall-bin:$PATH" AGENT_GUARD_HOOK_HOST=claude \
+        AGENT_GUARD_INFRA_FAILURE_MODE="${2:-open}" \
+        "$GUARD" hook-user-prompt >"$CASE/out" 2>"$CASE/err"
+  }
+  probes() { grep -c probe "$PROBE_LOG" 2>/dev/null || :; }
+  # $1 is how long ago the verdict was stored (just past the 600s TTL when
+  # omitted), $2 the version it records.
+  expire_stamp() {
+    { IFS= read -r key && IFS= read -r stamp && IFS= read -r version; } <"$CACHE"
+    expired=$(($(date +%s) - ${1:-700}))
+    printf '%s\n%s\n%s\n' "$key" "$expired" "${2:-$version}" >"$CACHE"
+  }
+  noticed() { if cat "$CASE/out" "$CASE/err" | grep -q "$1"; then echo yes; else echo no; fi; }
+  : >"$STALL_FLAG"
+  stalled "deploy with $token now"; s=$?
+  check 'a fresh verdict needs no probe while the machine stalls' \
+    test "$s:$(probes)" = 2:0
+  expire_stamp
+  stalled "deploy with $token now"; s=$?
+  check 'an expired verdict for the same executable stands in for a timed-out probe' \
+    test "$s:$(noticed DEGRADED)" = 2:no
+  check 'the stand-in costs one probe deadline, not a retry' test "$(probes)" = 1
+  check 'the stand-in is not stored as a fresh verdict' test "$(stamp_of)" = "$expired"
+  stalled "$benign"; s=$?
+  check 'a benign prompt passes through the stand-in without a degraded notice' \
+    test "$s:$(noticed DEGRADED)" = 0:no
+  stalled "$benign" closed; s=$?
+  check 'the closed policy does not block a scan the stand-in let run' \
+    test "$s:$(noticed DEGRADED)" = 0:no
+  # Controls: the stand-in is only for a timeout, the same file and a
+  # supported version. Each of these must still report the scanner as down.
+  expire_stamp 700 8.29.0
+  stalled "deploy with $token now"; s=$?
+  check 'an expired verdict below the minimum version does not stand in' \
+    test "$s:$(probes):$(noticed 'Scanner readiness: timeout[.]')" = 0:2:yes
+  # A gitleaks that hangs for good must be reported again, not stood in for.
+  expire_stamp 1300 "$("$REAL_GITLEAKS" version | sed 's/^v//')"
+  stalled "deploy with $token now"; s=$?
+  check 'a verdict expired for more than one TTL does not stand in' \
+    test "$s:$(noticed 'Scanner readiness: timeout[.]')" = 0:yes
+  expire_stamp
+  cp "$REAL_GITLEAKS" "$CASE/real/gitleaks"
+  stalled "deploy with $token now"; s=$?
+  check 'an expired verdict for a rewritten executable does not stand in' \
+    test "$s:$(noticed 'Scanner readiness: timeout[.]')" = 0:yes
+  rm -f "$STALL_FLAG"
+  prompt "$benign"
+  expire_stamp
+  : >"$FAIL_FLAG"
+  stalled "deploy with $token now"; s=$?
+  check 'an expired verdict does not stand in for a probe that failed outright' \
+    test "$s:$(noticed 'Scanner readiness: command-failed[.]')" = 0:yes
+  rm -f "$FAIL_FLAG"
+  stalled "deploy with $token now"; s=$?
+  check 'once the stall ends the next process probes again and refreshes the verdict' \
+    test "$s:$(probes):$(test "$(stamp_of)" != "$expired" && echo fresh)" = 2:1:fresh
+
   age_stamp
   printf '%s\n%s\n%s\n' "$key" "$aged" 8.99.9 >"$CACHE"
   "$GUARD" check >"$CASE/out" 2>"$CASE/err"

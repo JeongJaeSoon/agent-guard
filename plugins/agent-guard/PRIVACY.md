@@ -61,14 +61,17 @@ local log state and `agent-guard logs export` writes the safe metadata JSONL to
 standard output. Neither command exports inspected content, file paths,
 environment values, host session identifiers, or arbitrary tool names.
 
-The same directory holds three local caches. They only make repeated hooks
-faster and never change a guard decision:
+The same directory holds three local caches. They make repeated hooks faster
+and never stand in for a scan:
 
 - `gitleaks-probe` records, after a successful readiness check, the resolved
   gitleaks path, that file's identity (device, inode, size, modification and
   change times), the minimum supported gitleaks version, the time of the check,
   and the gitleaks version, so invocations within ten minutes can skip
   rerunning `gitleaks version`. Every invocation still runs its own scan.
+  For ten more minutes the record lets a hook whose `gitleaks version` timed
+  out scan with the recorded version instead of reporting gitleaks as
+  unavailable.
 - `gitleaks-clean/` holds at most 256 entries for repeated Bash command scans
   that finished clean within the last ten minutes. An entry is named by a
   SHA-256 of the scanned command text together with the Agent Guard version,
@@ -96,7 +99,8 @@ as well; the caches above are then written, and no event record is.
 
 ## Optional warm gitleaks helper
 
-Used once `agent-guard setup --install-gitleaks-helper` has installed it, or
+Used once `agent-guard setup --install` or
+`agent-guard setup --install-gitleaks-helper` has installed it, or
 when `AGENT_GUARD_GITLEAKS_HELPER` names your own build;
 `AGENT_GUARD_GITLEAKS_HELPER=off` keeps it unused. With it, scanned text is sent
 over a private Unix domain socket (a 0700 directory beside the support log,
@@ -121,8 +125,10 @@ The following explicit actions use the network:
 - `agent-guard checksum` fetches the published gitleaks checksum list from
   GitHub Releases. It sends no project or tool content.
 - Approval-gated `agent-guard setup --install` downloads a versioned gitleaks
-  archive from GitHub Releases and requires its SHA-256. It sends no project or
-  tool content.
+  archive from GitHub Releases and requires its SHA-256. When the gitleaks in
+  use is the one it installs and `AGENT_GUARD_GITLEAKS_HELPER` is not set, it
+  also downloads the warm gitleaks helper archive of the next item. It sends
+  no project or tool content.
 - `agent-guard setup --install-gitleaks-helper` downloads this version's warm
   gitleaks helper archive for the running platform from this project's GitHub
   Releases page and installs it only when it matches the SHA-256 values built

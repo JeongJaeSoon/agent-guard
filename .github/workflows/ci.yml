@@ -7,11 +7,12 @@ on:
     branches:
       - main
 
-# Replace only obsolete runs of the same PR. Non-PR runs have unique groups,
-# so main verification and manual checks cannot cancel each other.
+# Replace only obsolete runs: of the same PR, or of an older main push. Manual
+# runs keep unique groups, so the release gate's dispatch at a release SHA is
+# never cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 permissions:
   contents: read

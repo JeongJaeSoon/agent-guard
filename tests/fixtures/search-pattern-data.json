@@ -404,5 +404,145 @@
     "classification": "must-still-block",
     "description": "a substituting sed whose script holds a byte outside ASCII, before a grep pattern",
     "command": "sed 's/Ａ\\/a/w p/g' app.log; grep .env"
+  },
+  {
+    "id": "var-tilde-path-sed-program",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "sed programs after greps whose operand is a short variable holding a home-relative path (#636)",
+    "command": "L=~/logs/app.log; grep -c \"accepted\" $L; grep \"accepted\" $L | sed -E 's/^([0-9-]+)T.*/\\1/' | uniq -c | tail -12; grep \"accepted\" $L | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c | sort -rn | head -5"
+  },
+  {
+    "id": "var-tilde-protected-path",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same pipeline when the variable holds a home-relative key file",
+    "command": "L=~/logs/tls.p8; grep \"accepted\" $L | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "cd-tilde-sed-program",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "sed programs after a cd to a home-relative path (#636)",
+    "command": "cd ~/logs; echo \"== dates\"; grep \"accepted\" app.log | sed -E 's/^([0-9-]+)T.*/\\1/' | sort | uniq -c; echo \"== peers\"; grep \"accepted\" app.log | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c | sort -rn | head -15"
+  },
+  {
+    "id": "tilde-protected-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed program after a grep whose operand is a home-relative key file",
+    "command": "grep \"accepted\" ~/logs/tls.p8 | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "cd-bare-tilde-sed-program",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed program after a cd to the home directory itself",
+    "command": "cd ~; grep \"accepted\" logs/app.log | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "cd-tilde-user",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same pipeline after a cd to another user's home directory",
+    "command": "cd ~fixture/logs; grep \"accepted\" app.log | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "var-absolute-path-sed-program",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed program after a grep whose operand is a short variable holding an absolute path",
+    "command": "L=/var/log/app.log; grep \"accepted\" \"$L\" | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "cd-tilde-expansion",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same pipeline after a cd to a home-relative path with an expansion in it",
+    "command": "cd ~/$D; grep \"accepted\" app.log | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "var-tilde-sed-operand",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed program whose file operand is a short variable holding a home-relative path",
+    "command": "L=~/logs/app.log; sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' $L | sort | uniq -c | sort -rn | head -5"
+  },
+  {
+    "id": "var-from-substitution",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same pipeline when the variable is assigned from a command substitution",
+    "command": "L=$(printf %s app.log); grep \"accepted\" $L | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "var-tilde-jq-operand",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq filter whose file operand is a short variable holding a home-relative path",
+    "command": "L=~/logs/events.json; jq -r '.tls.p8, .peer' $L | sort | uniq -c"
+  },
+  {
+    "id": "var-from-expansion",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a jq filter whose operand variable is assigned from another variable",
+    "command": "L=$HOME/logs/events.json; jq -r '.tls.p8, .peer' $L | sort | uniq -c"
+  },
+  {
+    "id": "var-tilde-two-letter-name",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a two-letter variable holding a home-relative path before a sed program",
+    "command": "LG=~/logs/app.log; grep \"accepted\" $LG | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "var-value-read-after-cd",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a variable holding a relative name read after a cd into a key directory",
+    "command": "L=tls.p8; cd ~/logs; grep \"accepted\" $L | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "var-tilde-reassigned",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a variable reassigned to a key file before a sed program",
+    "command": "L=~/logs/app.log; L=~/logs/tls.p8; grep \"accepted\" $L | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "var-tilde-user",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a variable holding another user's home path that names a key file",
+    "command": "L=~fixture/tls.p8; grep \"accepted\" $L | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "path-assignment-before-sed-program",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed program after a PATH assignment, which can change what sed runs",
+    "command": "PATH=sbin; grep \"accepted\" app.log | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c"
+  },
+  {
+    "id": "var-assigned-after-and",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed operand variable whose only assignment follows && and may not run",
+    "command": "false && L=app.log; sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' \"$L\" | sort"
+  },
+  {
+    "id": "var-assigned-in-pipeline",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed operand variable assigned only inside a pipeline subshell",
+    "command": "L=app.log | cat; sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' \"$L\" | sort"
+  },
+  {
+    "id": "var-assigned-after-or",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep operand variable whose only assignment follows || and may not run",
+    "command": "true || L=~/logs/app.log; grep \"accepted\" $L | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort"
   }
 ]

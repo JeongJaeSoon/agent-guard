@@ -128,7 +128,9 @@ another tool call.
   version or a failed probe. These diagnostics include no scanner output or
   input paths. A timeout code identifies the failed stage, not why it was slow.
   Every hook except SessionStart retries a timed-out version probe once, so
-  there the code means that two probes in a row timed out.
+  there the code means that two probes in a row timed out. It also means no
+  readiness verdict for the same gitleaks file had expired within the last ten
+  minutes: with one, the hook scans instead of reporting this code.
 - `open` infrastructure mode continues after a visible one-time warning;
   `closed` blocks. This policy applies to infrastructure failures, while a
   secret detection blocks. Non-empty malformed or non-object PreToolUse and
