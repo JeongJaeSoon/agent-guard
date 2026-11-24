@@ -99,7 +99,8 @@ as well; the caches above are then written, and no event record is.
 
 ## Optional warm gitleaks helper
 
-Used once `agent-guard setup --install-gitleaks-helper` has installed it, or
+Used once `agent-guard setup --install` or
+`agent-guard setup --install-gitleaks-helper` has installed it, or
 when `AGENT_GUARD_GITLEAKS_HELPER` names your own build;
 `AGENT_GUARD_GITLEAKS_HELPER=off` keeps it unused. With it, scanned text is sent
 over a private Unix domain socket (a 0700 directory beside the support log,
@@ -124,8 +125,10 @@ The following explicit actions use the network:
 - `agent-guard checksum` fetches the published gitleaks checksum list from
   GitHub Releases. It sends no project or tool content.
 - Approval-gated `agent-guard setup --install` downloads a versioned gitleaks
-  archive from GitHub Releases and requires its SHA-256. It sends no project or
-  tool content.
+  archive from GitHub Releases and requires its SHA-256. When the gitleaks in
+  use is the one it installs and `AGENT_GUARD_GITLEAKS_HELPER` is not set, it
+  also downloads the warm gitleaks helper archive of the next item. It sends
+  no project or tool content.
 - `agent-guard setup --install-gitleaks-helper` downloads this version's warm
   gitleaks helper archive for the running platform from this project's GitHub
   Releases page and installs it only when it matches the SHA-256 values built

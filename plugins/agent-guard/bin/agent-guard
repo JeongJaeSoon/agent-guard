@@ -3118,6 +3118,17 @@ setup_install_gitleaks() {
   esac
 }
 
+# The release target of the warm gitleaks helper for this platform, in
+# helper_target. Fails where no helper is released.
+gitleaks_helper_target() {
+  case "$(uname -s):$(uname -m)" in
+    Linux:x86_64|Linux:amd64) helper_target=x86_64-unknown-linux-musl ;;
+    Linux:aarch64|Linux:arm64) helper_target=aarch64-unknown-linux-musl ;;
+    Darwin:arm64) helper_target=aarch64-apple-darwin ;;
+    *) return 1 ;;
+  esac
+}
+
 # Install the released warm gitleaks helper for this platform (#569). Both
 # binaries must match the checksums this CLI pins in
 # config/gitleaks-helper.sha256 before anything is installed, so a release
@@ -3125,12 +3136,8 @@ setup_install_gitleaks() {
 # where gitleaks_helper_installed finds them. Any failure leaves an earlier
 # installed helper as it was.
 setup_install_gitleaks_helper() {
-  case "$(uname -s):$(uname -m)" in
-    Linux:x86_64|Linux:amd64) helper_target=x86_64-unknown-linux-musl ;;
-    Linux:aarch64|Linux:arm64) helper_target=aarch64-unknown-linux-musl ;;
-    Darwin:arm64) helper_target=aarch64-apple-darwin ;;
-    *) die "setup: no warm gitleaks helper is released for this platform ($(uname -s) $(uname -m))" ;;
-  esac
+  gitleaks_helper_target \
+    || die "setup: no warm gitleaks helper is released for this platform ($(uname -s) $(uname -m))"
   need_cmd curl
   need_cmd shasum
   need_cmd tar
@@ -3196,6 +3203,54 @@ setup_install_gitleaks_helper() {
   unset AG_GITLEAKS_HELPER_INSTALLED
   info "$PROGRAM: installed the warm gitleaks helper at $helper_dir"
   info "$PROGRAM: scans use it from now on; AGENT_GUARD_GITLEAKS_HELPER=off turns it off"
+}
+
+# `setup --install` installs the helper as well, when the gitleaks it manages
+# is the one scans run: the private gitleaks, at the version the helper links.
+# The helper answers for no other scanner, so any other gets one line saying
+# why nothing was downloaded. It is skipped without a word where the status
+# line has already said it: turned off or replaced by the user's own client
+# (AGENT_GUARD_GITLEAKS_HELPER set), no helper released for this platform, or
+# this version's helper already installed. The helper is optional: a failed
+# download or checksum is a warning and never fails the gitleaks install.
+# Call it after setup_gitleaks_status_line found a ready scanner; it reads
+# that probe's version and runs no probe of its own.
+setup_install_gitleaks_helper_with_gitleaks() {
+  [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] || return 0
+  gitleaks_helper_target || return 0
+  ! gitleaks_helper_installed || return 0
+  cli_ref_init
+  # The order of resolve_gitleaks: the variable, the private gitleaks, PATH.
+  if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
+    helper_reason='AGENT_GUARD_GITLEAKS_BIN selects the scanner'
+  elif [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ]; then
+    helper_reason='the selected gitleaks comes from PATH, such as a Homebrew build'
+  elif [ "${GITLEAKS_PROBE_VERSION:-}" != "$GITLEAKS_DEFAULT_VERSION" ]; then
+    helper_reason="the installed gitleaks is ${GITLEAKS_PROBE_VERSION:-of an unknown version}, not $GITLEAKS_DEFAULT_VERSION"
+  else
+    helper_reason=
+  fi
+  if [ -n "$helper_reason" ]; then
+    info "$PROGRAM: gitleaks helper  not installed  ($helper_reason; the helper only answers the gitleaks $GITLEAKS_DEFAULT_VERSION that $AG_CLI_REF setup --install puts in $GITLEAKS_PRIVATE_BIN_DIR when no other gitleaks is selected)"
+    return 0
+  fi
+  # In a subshell, so that the installer's fatal errors end only this step.
+  # A subshell starts with this shell's traps reset: it removes its own
+  # temporary directory, also when a signal ends it (without the two signal
+  # traps dash would die there and skip the EXIT trap), and leaves this
+  # shell's directory alone.
+  if (
+    AG_EXIT_TMP_DIR=
+    trap '[ -z "$AG_EXIT_TMP_DIR" ] || rm -rf "$AG_EXIT_TMP_DIR"' 0
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    setup_install_gitleaks_helper
+  ); then
+    unset AG_GITLEAKS_HELPER_INSTALLED
+  else
+    info "$PROGRAM: warning: the warm gitleaks helper was not installed; scans run gitleaks directly, as without it. To try again: $AG_CLI_REF setup --install-gitleaks-helper"
+  fi
+  return 0
 }
 
 # One line on the warm gitleaks helper, from files and variables only. It
@@ -3282,6 +3337,11 @@ Pass --install to download gitleaks. The checksum is required and must
 match the published value at:
   https://github.com/gitleaks/gitleaks/releases/download/vX.Y.Z/gitleaks_X.Y.Z_checksums.txt
 
+--install also installs the warm gitleaks helper, which keeps gitleaks
+loaded between scans, when the gitleaks in use is the one --install puts in
+the private directory. A helper that cannot be downloaded or does not match
+is a warning only. AGENT_GUARD_GITLEAKS_HELPER=off skips it.
+
 Pass --install-gitleaks-helper to download this version's warm gitleaks
 helper for this platform from the Agent Guard release. It is installed only
 when it matches the checksums built into this CLI, and scans then use it
@@ -3326,6 +3386,7 @@ EOF
         setup_suggest_gitleaks_runtime_repair || :
       fi
     fi
+    [ "$gitleaks_runtime_ok" -eq 0 ] || setup_install_gitleaks_helper_with_gitleaks
     if [ "$jq_ok" -eq 0 ]; then
       info "$PROGRAM: jq is not auto-installed; use your system package manager:"
       setup_suggest_pkg_install jq https://stedolan.github.io/jq/download/
