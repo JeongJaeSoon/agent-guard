@@ -655,6 +655,17 @@ gate_closed - 2 "echo x | for d in a; do true; done; $OW worktree create --name 
 gate_closed - 2 "true || for d in a; do true; done; $OW orchestration send --to x:\$d --body 'x'"
 gate_closed - 2 "for d in a; do true; done; $OW orchestration send --to x:\$d --body 'x'"
 gate_closed - 2 "$OW status | for d in a; do $OW orchestration send --to x:\$d --body 'x'; done"
+# A loop with no message command in its body is read as before: one after
+# the message command leaves it alone, and one before it still counts.
+gate_closed - 0 "$OW orchestration send --to lead --body x; for f in a b; do make \$f; done"
+gate_closed - 0 "$OW orchestration send --to lead --body x && for f in a b; do git status; done"
+gate_closed - 0 "$OW orchestration send --to lead --body x; for f in a b; do echo \$f; done | tail -1"
+gate_closed - 0 "$OW orchestration send --to lead --body x; for f in a b; do echo \$f; done > $CASE/log"
+gate_closed - 0 "$OW orchestration send --to lead --body x; for f in a b; make \$f"
+gate_closed - 2 "for f in a b; do make \$f; done; $OW orchestration send --to lead --body x"
+gate_closed - 2 "for f in a b; do echo \$f; done > $CASE/orca; $OW orchestration send --to lead --body x"
+# A loop in the background runs beside what follows it.
+gate_closed - 2 "for d in a b; do $OW worktree list --x \$d; done & cp $CASE/note.md $CASE/orca"
 # The body runs again after its last command, which must be one the gate
 # accepts too; what reads the loop's output or a file it writes runs beside it.
 gate_closed - 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --body 'x'; make; done"
