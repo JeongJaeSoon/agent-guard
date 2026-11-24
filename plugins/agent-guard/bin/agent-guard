@@ -10831,6 +10831,8 @@ AWK_READ_OPERAND_RECORDS='
           }
           i = j; continue
         }
+        # $"..." is translated text; its result is not known here.
+        if (n1 == "\"") { out = out "\002"; continue }
         if (n1 == "(") {
           j = closer(w, i + 1)
           if (!j) return out "\002"
@@ -10844,7 +10846,7 @@ AWK_READ_OPERAND_RECORDS='
           if (!j) return out "\002"
           inner = substr(w, i + 2, j - 1)
           if (inner == "PWD" && !moved && !("PWD" in tab)) { out = out "."; subst = 1 }
-          else if (looped(inner)) { out = out "\005"; subst = 1 }
+          else if (looped(inner)) { out = out ((dq || !ifsset) ? "\005" : "\002"); subst = 1 }
           else if (inner ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && known(inner)) { out = out word1(lv, dq); subst = 1 }
           else out = out "\002"
           i += j + 1; continue
@@ -10853,7 +10855,7 @@ AWK_READ_OPERAND_RECORDS='
           match(substr(w, i + 1), /^[A-Za-z_][A-Za-z0-9_]*/)
           nm = substr(w, i + 1, RLENGTH)
           if (nm == "PWD" && !moved && !(nm in tab)) { out = out "."; subst = 1 }
-          else if (looped(nm)) { out = out "\005"; subst = 1 }
+          else if (looped(nm)) { out = out ((dq || !ifsset) ? "\005" : "\002"); subst = 1 }
           else if (known(nm)) { out = out word1(lv, dq); subst = 1 } else out = out "\002"
           i += RLENGTH; continue
         }
@@ -10959,6 +10961,15 @@ AWK_READ_OPERAND_RECORDS='
   }
   # Forget the variable word w names; a name only known at run time may be
   # any of them.
+  # ${NAME:=word} and ${NAME=word} assign NAME.
+  function defaults(w,   s, nm) {
+    s = w
+    while (match(s, /\$\{[A-Za-z_][A-Za-z0-9_]*:?=/)) {
+      nm = substr(s, RSTART + 2, RLENGTH - 2); sub(/:?=$/, "", nm)
+      delete tab[nm]; delete loopv[nm]
+      s = substr(s, RSTART + RLENGTH)
+    }
+  }
   function forget(w,   k) {
     if (w ~ /[$`]/) { for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k]; return }
     if (name_of(w) == "IFS") ifsset = 1
@@ -10973,10 +10984,10 @@ AWK_READ_OPERAND_RECORDS='
   function end_segment(   k) {
     # The list is expanded before the loop variable changes.
     if (mode ~ /^for(in|list)$/) { delete tab[forname]; delete loopv[forname] }
-    if (mode == "forlist" && forok && forl != "") { loopv[forname] = forl; loopd[forname] = depth }
+    if (mode == "forlist" && forok && forl != "" && !nofollow) { loopv[forname] = forl; loopd[forname] = depth }
     for (k = 1; k <= npa; k++) {
       delete loopv[pan[k]]
-      if (cmdseen || cond || depth || pav[k] == "\002") delete tab[pan[k]]
+      if (cmdseen || cond || depth || nofollow || pav[k] == "\002") delete tab[pan[k]]
       else tab[pan[k]] = pav[k]
     }
     if (prog == "cp" && cppend != "" && cpt) operand(cppend)
@@ -10997,7 +11008,7 @@ AWK_READ_OPERAND_RECORDS='
     if (add) v = (v != "\002" && known(nm)) ? lv v : "\002"
     if (now) delete loopv[nm]
     if (!now) { npa++; pan[npa] = nm; pav[npa] = v; ptab[nm] = v; return }
-    if (cond || depth || v == "\002") delete tab[nm]
+    if (cond || depth || nofollow || v == "\002") delete tab[nm]
     else tab[nm] = v
   }
   BEGIN {
@@ -11056,6 +11067,10 @@ AWK_READ_OPERAND_RECORDS='
       return
     }
     subs(w)
+    defaults(w)
+    # A function or trap may set any variable when it runs, so no value is
+    # followed once one is defined.
+    if (w ~ /^\(\)/ || w ~ /^[A-Za-z_][A-Za-z0-9_]*\(\)/ || (cpos && w ~ /^(function|trap)$/)) { nofollow = 1; for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k] }
     if (mode == "cmp") { if (w == "]]") mode = "skip"; return }
     if (mode == "arith") { if (w ~ /\)\)$/) mode = "skip"; return }
     if (skipw) { skipw--; return }
@@ -11124,7 +11139,7 @@ AWK_READ_OPERAND_RECORDS='
     }
     # A loop over literal words without globs gives its variable those words.
     if (mode == "select") { forget(w); mode = "skip"; return }
-    if (mode == "for") { forname = name_of(w); mode = "forin"; return }
+    if (mode == "for") { forname = name_of(w); if (forname == "IFS") ifsset = 1; mode = "forin"; return }
     if (mode == "forin") { if (w == "in") { mode = "forlist"; forl = ""; forok = 1 } else { forget(forname); mode = "skip" }; return }
     if (mode == "forlist") {
       ow = value(w)

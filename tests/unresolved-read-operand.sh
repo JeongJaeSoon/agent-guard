@@ -243,6 +243,16 @@ check 2 "an operand split by a changed IFS" 'IFS=x; p=READMEx.e; cat ${p}nv'
 check 2 "an ANSI-C escape in a loop word" "for f in \$'\\056e'; do cat \"\${f}nv\"; done"
 check 2 "an ANSI-C escape in an assignment" "p=\$'\\056e'; cat \"\${p}nv\""
 check 0 "an ANSI-C word without escapes" "p=\$'README'; cat \"\${p}.md\""
+check 2 "an unquoted loop use after IFS changed" 'IFS=x; p=id_; for f in "${p}rsaxREADME"; do cat ${f}; done'
+check 2 "a loop over IFS itself" 'p=id_; for IFS in x; do for f in "${p}rsaxREADME"; do cat $f; done; done'
+check 2 "a locale-quoted loop word" 'for f in .e$"nv"; do cat "$f"; done'
+check 2 "a locale-quoted assignment" 'p=.e$"nv"; cat "$p"'
+check 2 "a function that rewrites the loop variable" "g(){ f=$S; }; for f in README.md; do g; cat \"\$f\"; done"
+check 2 "a function that rewrites an assigned variable" "g(){ f=$S; }; f=README.md; g; cat \"\$f\""
+check 2 "a function keyword definition" "function g { f=$S; }; for f in README.md; do g; cat \"\$f\"; done"
+check 2 "a trap that rewrites the loop variable" "trap 'f=$S' DEBUG; for f in README.md; do cat \"\$f\"; done"
+check 2 "a default assignment on an empty loop word" 'p=.e; for f in ""; do : "${f:=${p}nv}"; cat "./$f"; done'
+check 2 "a default assignment on an empty variable" 'p=.e; f=; : "${f:=${p}nv}"; cat "./$f"'
 check 0 "a loop variable inside its body after a nested loop" 'for f in README.md; do for g in a; do :; done; cat "$f"; done'
 
 HOST=codex

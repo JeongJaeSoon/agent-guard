@@ -1015,8 +1015,8 @@
   {
     "id": "bash-unresolved-operand-prefix-assignment",
     "rule": "bash_unresolved_read_operand: an assignment before a command does not resolve its operands",
-    "old": "      if (cmdseen || cond || depth || pav[k] == \"\\002\") delete tab[pan[k]]",
-    "new": "      if (pav[k] == \"\\002\") delete tab[pan[k]]",
+    "old": "      if (cmdseen || cond || depth || nofollow || pav[k] == \"\\002\") delete tab[pan[k]]",
+    "new": "      if (nofollow || pav[k] == \"\\002\") delete tab[pan[k]]",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -1260,6 +1260,42 @@
     "rule": "AWK_READ_OPERAND_RECORDS: an escape inside $'...' is unresolved",
     "old": "            if (substr(w, j, 1) == \"\\\\\") { out = out \"\\002\"; j++; continue }\n",
     "new": "            if (substr(w, j, 1) == \"\\\\\") j++\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-function-trap",
+    "rule": "AWK_READ_OPERAND_RECORDS: no value is followed once a function or trap is defined",
+    "old": "    if (w ~ /^\\(\\)/ || w ~ /^[A-Za-z_][A-Za-z0-9_]*\\(\\)/ || (cpos && w ~ /^(function|trap)$/)) { nofollow = 1; for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k] }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-default-assign",
+    "rule": "AWK_READ_OPERAND_RECORDS: ${NAME:=word} forgets NAME",
+    "old": "    defaults(w)\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-locale-quote",
+    "rule": "AWK_READ_OPERAND_RECORDS: $\"...\" text is unresolved",
+    "old": "        if (n1 == \"\\\"\") { out = out \"\\002\"; continue }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-ifs",
+    "rule": "AWK_READ_OPERAND_RECORDS: an unquoted loop use after IFS changed is unresolved",
+    "old": "          else if (looped(nm)) { out = out ((dq || !ifsset) ? \"\\005\" : \"\\002\"); subst = 1 }\n",
+    "new": "          else if (looped(nm)) { out = out \"\\005\"; subst = 1 }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
