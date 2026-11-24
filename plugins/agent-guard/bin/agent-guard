@@ -14615,17 +14615,19 @@ secretish_env_values() {
       return v ~ /^(example|dummy)[_-]?(token|key|secret|password)$/ \
           || v ~ /^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$/ \
           || v ~ /^redacted$/ \
+          || v ~ /^(change|replace)[-_]?(me|this)$/ \
+          || v ~ /^xxx+$/ \
           || your_here_placeholder(v) \
           || angle_placeholder(v)
     }
-    # A sample config writes `your-client-secret-here` or `your_api_key_here`
-    # for a value to fill in. Every word between `your` and `here` must be a
+    # A sample config writes `your-client-secret-here`, `your_api_key_here` or
+    # `your-token` for a value to fill in. Every word between `your` and `here` must be a
     # known placeholder word, as in angle_placeholder, so a real value inside
     # the frame (`your-<value>-here`) or an unlisted word still masks.
     function your_here_placeholder(v, n, i, words) {
-      if (v !~ /^your([-_][a-z]+)+[-_]here$/) return 0
+      if (v !~ /^your([-_][a-z]+)+$/) return 0
       n = split(v, words, /[-_]/)
-      for (i = 2; i < n; i++)
+      for (i = 2; i <= n; i++)
         if (!(words[i] in placeholder_word)) return 0
       return 1
     }
@@ -15057,6 +15059,21 @@ secretish_env_values() {
     # Whole core only, so `trueX1...` still masks.
     function config_literal(value) {
       return prose_core(value) ~ /^(true|false|yes|no|on|off|null|nil|none|undefined|enabled|disabled)$/
+    }
+    # A key-file path (`/run/secrets/api_token`, `~/.config/app/token`) says
+    # where the value is read from. An absolute path starts at a filesystem
+    # root and needs two segments, so a
+    # password that only starts with a slash keeps masking, and a segment
+    # that could itself be a value (`/run/secrets/<random>`) keeps masking.
+    function key_file_path(value, n, parts, i) {
+      if (value !~ /^(~|\.\.?)?\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/) return 0
+      if (value ~ /^\// && value !~ /^\/[^\/]+\/./) return 0
+      # A route (`/v1/providers`) is not a file location and stays a value.
+      if (value ~ /^\// && value !~ /^\/(run|etc|var|home|Users|opt|srv|tmp|mnt|secrets|usr)\//) return 0
+      n = split(value, parts, "/")
+      for (i = 2; i <= n; i++)
+        if (credential_shaped(parts[i]) || value_word(parts[i])) return 0
+      return 1
     }
     # A field or parameter annotated with a bare type word (the TypeScript and
     # Python forms) names a type, not a value. Only a colon label and a bare
@@ -15745,6 +15762,10 @@ secretish_env_values() {
           return 1
         }
         value = substr(raw, 1, end - 1)
+        # Empty quotes glued to a word (`""<value>`) are one shell word, and
+        # the word is its value.
+        if (value == "" && substr(raw, end + 1) ~ /^[A-Za-z0-9]/)
+          return emit_value(assignment substr(raw, end + 1), length(assignment) + 1, assignment, require_credential)
         # Classify an edge-trimmed copy, replace the original. A quoted value
         # with padding (`" <secret>"`) failed the whitespace-is-prose test on
         # its padding alone, on this single-line path as well as the multiline
@@ -15756,6 +15777,7 @@ secretish_env_values() {
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (interpolated_reference(value)) return 0
+        if (key_file_path(value) && prose_words(substr(raw, end + 1)) >= 0) return 0
         if (!main_reading && operator_reference(value)) {
           if (!exempt_tail(assignment, substr(raw, end + 1))) return 0
           refused_span = substr(raw, end + 1) "\n" leaf_tail
@@ -15897,6 +15919,7 @@ secretish_env_values() {
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (config_literal(value)) return 0
+        if (key_file_path(value) && prose_words(substr(raw, length(token) + 1)) >= 0) return 0
         if (prose_status_word(value)) return 0
         if (masked_placeholder(value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0

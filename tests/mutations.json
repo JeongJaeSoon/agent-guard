@@ -607,5 +607,86 @@
     "tests": [
       "tests/colon-assignment-equivalence.sh"
     ]
+  },
+  {
+    "id": "key-file-path-segment",
+    "rule": "key_file_path: no segment may be a value",
+    "old": "        if (credential_shaped(parts[i]) || value_word(parts[i])) return 0",
+    "new": "        if (0) return 0",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "key-file-path-two-segments",
+    "rule": "key_file_path: an absolute path needs two segments",
+    "old": "      if (value ~ /^\\// && value !~ /^\\/[^\\/]+\\/./) return 0\n",
+    "new": "",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "key-file-path-unquoted-tail",
+    "rule": "emit_value: a value word after an unquoted path keeps blocking",
+    "old": "        if (key_file_path(value) && prose_words(substr(raw, length(token) + 1)) >= 0) return 0",
+    "new": "        if (key_file_path(value)) return 0",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "key-file-path-quoted-tail",
+    "rule": "emit_value: a value word after a quoted path keeps blocking",
+    "old": "        if (key_file_path(value) && prose_words(substr(raw, end + 1)) >= 0) return 0",
+    "new": "        if (key_file_path(value)) return 0",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "empty-quotes-glued-word",
+    "rule": "emit_value: a word glued to empty quotes is the value",
+    "old": "        if (value == \"\" && substr(raw, end + 1) ~ /^[A-Za-z0-9]/)\n          return emit_value(",
+    "new": "        if (0)\n          return emit_value(",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "your-placeholder-words",
+    "rule": "your_here_placeholder: every word is a placeholder word",
+    "old": "      for (i = 2; i <= n; i++)\n        if (!(words[i] in placeholder_word)) return 0",
+    "new": "      for (i = 2; i <= n; i++)\n        if (0) return 0",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "change-me-anchored",
+    "rule": "obvious_word_placeholder: changeme matches the whole value",
+    "old": "          || v ~ /^(change|replace)[-_]?(me|this)$/ \\",
+    "new": "          || v ~ /^(change|replace)[-_]?(me|this)/ \\",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "x-run-anchored",
+    "rule": "obvious_word_placeholder: an x run matches the whole value",
+    "old": "          || v ~ /^xxx+$/ \\",
+    "new": "          || v ~ /^xxx/ \\",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
+  },
+  {
+    "id": "key-file-path-root",
+    "rule": "key_file_path: an absolute path starts at a filesystem root",
+    "old": "      if (value ~ /^\\// && value !~ /^\\/(run|etc|var|home|Users|opt|srv|tmp|mnt|secrets|usr)\\//) return 0\n",
+    "new": "",
+    "tests": [
+      "tests/prompt-empty-path-placeholder.sh"
+    ]
   }
 ]
