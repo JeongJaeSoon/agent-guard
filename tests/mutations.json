@@ -649,8 +649,8 @@
   {
     "id": "perl-sub-replacement-array",
     "rule": "perl_script_without_regex: an array in a replacement is interpolated",
-    "old": "        if (c == \"@\") exit 1\n",
-    "new": "",
+    "old": "x !~ /[1-9]/ || c == \"@\" || c",
+    "new": "x !~ /[1-9]/ || c",
     "tests": [
       "tests/unit-deny-path.sh"
     ]
@@ -662,6 +662,16 @@
     "new": "index(\":-0123456789\", substr(t, i + 2, 1))",
     "tests": [
       "tests/unit-deny-path.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-backref-subscript",
+    "rule": "perl_script_without_regex: perl reads \\1 in a replacement as $1, subscript and all",
+    "old": "(c == \"$\" || c == \"\\\\\" && x ~ /[1-9]/) && index(",
+    "new": "c == \"$\" && index(",
+    "tests": [
+      "tests/unit-deny-path.sh",
+      "tests/search-operand-ground-truth.sh"
     ]
   },
   {

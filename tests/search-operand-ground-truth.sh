@@ -363,6 +363,7 @@ read ls -a . | perl -ne 's/^(?!\.e[m-o]v$).*\n//; for my $f (split) { open(F, $f
 read ls -a . | perl -ne 's/^(?!\.e[m-o]v$).*\n//;' -e 'open(F, (split)[0]) and print <F>'
 read ls -a . | perl -pe 's/^(?!\.e[m-o]v$).*\n//' | xargs cat
 read ls -a . | perl -pe 's/^(\.e[m-o]v)\n/open(F, $1); <F>/'e
+read ls -a . | perl -pe 's/^(\.e[m-o]v)$/\1[open(F, $1) and print <F>]/'
 read perl -pe 's/\e\[[0-9;]*m//g' 'cat .e[m-o]v |'
 read perl -pe 's/^notes$/@{[ `cat .e[m-o]v` ]}/' list.txt
 read perl -pe 's/^notes@{[ print `cat .e[m-o]v` ]}//' list.txt

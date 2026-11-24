@@ -8876,7 +8876,8 @@ sed_script_without_regex() {
 # - text perl may interpolate. In a pattern `$` stays only where it is an
 #   anchor (before `)`, `|` or the end) and `@` only before a character that
 #   starts no array name there. In a replacement `@` never stays, and `$`
-#   only as $1 to $9 with no subscript, package or digit after it;
+#   only as $1 to $9 with no subscript, package or digit after it. `\1` to
+#   `\9` there are the same variables to perl, under the same limit;
 # - `\c`, which takes the next byte even when that is a backslash, so the
 #   escape pairs counted here would be off by one.
 # Bytes are counted as in sed_script_without_regex, with its multibyte
@@ -8901,9 +8902,10 @@ perl_script_without_regex() {
       out = out "s" d d
       for (i++; i <= n && (c = substr(t, i, 1)) != d; i++) {
         x = substr(t, i + 1, 1)
-        if (c == "\\") { if (x == "c") exit 1; out = out c x; i++; continue }
-        if (c == "@") exit 1
-        if (c == "$" && (x !~ /[1-9]/ || index("[{:-0123456789", substr(t, i + 2, 1)))) exit 1
+        if (c == "$" && x !~ /[1-9]/ || c == "@" || c == "\\" && x == "c") exit 1
+        # perl reads \1 in a replacement as $1.
+        if ((c == "$" || c == "\\" && x ~ /[1-9]/) && index("[{:-0123456789", substr(t, i + 2, 1))) exit 1
+        if (c == "\\") { out = out c x; i++; continue }
         out = out c
       }
       if (i > n) exit 1
