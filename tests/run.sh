@@ -3003,6 +3003,8 @@ run_expect 0 "status words and named placeholders are prose, real values still b
   sh "$ROOT/tests/prompt-prose-placeholder.sh"
 run_expect 0 "empty values, key-file paths and obvious placeholders are not values, real ones still block" \
   sh "$ROOT/tests/prompt-empty-path-placeholder.sh"
+run_expect 0 "a colon key that opens a JSON string value is read, an empty one is not (#657)" \
+  sh "$ROOT/tests/json-string-colon-key.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \
