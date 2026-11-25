@@ -1922,24 +1922,6 @@
     ]
   },
   {
-    "id": "bash-gh-segments-redirect-expansion",
-    "rule": "gh program in any segment (#662): an expansion as a redirect target disqualifies",
-    "old": "    case \"$jq_before\" in 0*'<'|0*'>'|0*'>|') return 1 ;; esac\n",
-    "new": "",
-    "tests": [
-      "tests/gh-program-segments.sh"
-    ]
-  },
-  {
-    "id": "bash-gh-segments-expansion-any-command",
-    "rule": "gh program in any segment (#662): an expansion counts only as an echo or printf argument",
-    "old": "        [ \"$jq_mode:$jq_cmdname\" = all:echo ] || return 1",
-    "new": "        [ \"$jq_mode\" = all ] || return 1",
-    "tests": [
-      "tests/gh-program-segments.sh"
-    ]
-  },
-  {
     "id": "bash-gh-segments-sink-any",
     "rule": "gh program in any segment (#662): a gh that feeds a pipe needs a plain text filter after it",
     "old": "          *) jq_ghpend= ;;\n        esac\n      elif",
@@ -2005,17 +1987,8 @@
   {
     "id": "bash-gh-segments-stdout-file",
     "rule": "gh program in any segment (#662): gh standard output sent to a file disqualifies",
-    "old": "        [ \"$jq_state\" != ghopt ] || jq_seg_bad=1\n",
+    "old": "    [ \"$jq_state\" != ghopt ] || jq_seg_bad=1\n",
     "new": "",
-    "tests": [
-      "tests/gh-program-segments.sh"
-    ]
-  },
-  {
-    "id": "bash-gh-segments-echo-expansion-out",
-    "rule": "gh program in any segment (#662): an echo of an expansion that feeds a pipe or file disqualifies",
-    "old": "      [ \"${1-}\" != '|' ] && [ \"$jq_segout\" = 0 ] || jq_ghbad=1\n",
-    "new": "      :\n",
     "tests": [
       "tests/gh-program-segments.sh"
     ]
@@ -2023,7 +1996,7 @@
   {
     "id": "bash-gh-segments-sink-to-file",
     "rule": "gh program in any segment (#662): a filter after gh that writes a file disqualifies",
-    "old": "        [ -z \"$jq_sink\" ] || jq_ghpend=\n",
+    "old": "    [ -z \"$jq_sink\" ] || jq_ghpend=\n",
     "new": "",
     "tests": [
       "tests/gh-program-segments.sh"
@@ -2050,71 +2023,8 @@
   {
     "id": "bash-gh-segments-exec",
     "rule": "gh program in any segment (#662): an exec word keeps every gh program as written",
-    "old": "      0exec|0export|0declare|0typeset|0local|0readonly) jq_ghbad=1 ;;",
-    "new": "      0export|0declare|0typeset|0local|0readonly) jq_ghbad=1 ;;",
-    "tests": [
-      "tests/gh-program-segments.sh"
-    ]
-  },
-  {
-    "id": "bash-gh-segments-input-expansion",
-    "rule": "gh program in any segment (#662): an expansion as an --input or -F value disqualifies",
-    "old": "        case \"$jq_before\" in 0--input|0-F|0--field|0-f|0--raw-field) return 1 ;; esac\n",
+    "old": "      0exec) jq_ghbad=1 ;;\n",
     "new": "",
-    "tests": [
-      "tests/gh-program-segments.sh"
-    ]
-  },
-  {
-    "id": "bash-gh-segments-field-at-expansion",
-    "rule": "gh program in any segment (#662): an expansion in a word with @ or a leading dash disqualifies",
-    "old": "        case \"${jq_rec#?}\" in -*|*@*) return 1 ;; esac\n",
-    "new": "",
-    "tests": [
-      "tests/gh-program-segments.sh"
-    ]
-  },
-  {
-    "id": "bash-gh-segments-echo-plain-ref",
-    "rule": "gh program in any segment (#662): an echo argument may hold only plain $name references",
-    "old": "        }' || return 1\n        jq_dynout=1 jq_dynused=1",
-    "new": "        }' || :\n        jq_dynout=1 jq_dynused=1",
-    "tests": [
-      "tests/gh-program-segments.sh"
-    ]
-  },
-  {
-    "id": "bash-gh-segments-echo-only",
-    "rule": "gh program in any segment (#662): printf is not an echo of plain references",
-    "old": "        [ \"$jq_mode:$jq_cmdname\" = all:echo ] || return 1",
-    "new": "        case \"$jq_mode:$jq_cmdname\" in all:echo|all:printf) ;; *) return 1 ;; esac",
-    "tests": [
-      "tests/gh-program-segments.sh"
-    ]
-  },
-  {
-    "id": "bash-gh-segments-assign-prefix",
-    "rule": "gh program in any segment (#662): an assignment of an expansion that prefixes a command disqualifies",
-    "old": "      case \"$jq_rec\" in \"0;\"|\"0&&\"|\"0||\"|\"3(\") ;; *) jq_ghbad=1 ;; esac\n",
-    "new": "      :\n",
-    "tests": [
-      "tests/gh-program-segments.sh"
-    ]
-  },
-  {
-    "id": "bash-gh-segments-export",
-    "rule": "gh program in any segment (#662): export and its kin keep every gh program as written",
-    "old": "      0exec|0export|0declare|0typeset|0local|0readonly) jq_ghbad=1 ;;",
-    "new": "      0exec) jq_ghbad=1 ;;",
-    "tests": [
-      "tests/gh-program-segments.sh"
-    ]
-  },
-  {
-    "id": "bash-gh-segments-set-allexport",
-    "rule": "gh program in any segment (#662): set -a keeps every gh program as written",
-    "old": "      case \"$jq_word\" in -*a*|allexport) jq_ghbad=1 ;; esac\n",
-    "new": "      :\n",
     "tests": [
       "tests/gh-program-segments.sh"
     ]
@@ -2129,10 +2039,37 @@
     ]
   },
   {
-    "id": "bash-gh-segments-jq-after-expansion",
-    "rule": "gh program in any segment (#662): a jq or sed rewrite with an expansion read in all mode keeps the old rule",
-    "old": "  if [ \"$jq_mode:$jq_dynused:$jq_jqrew\" = all:1:1 ]; then jq_bail; fi\n",
-    "new": "",
+    "id": "bash-gh-segments-body-echo-plain",
+    "rule": "gh program in any segment (#662): an echo argument in a loop body may hold only plain $name references",
+    "old": "      exit index(v, \"$\") || index(v, \"`\") || substr(v, 1, 1) == \"~\"\n",
+    "new": "      exit 0\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-body-echo-only",
+    "rule": "gh program in any segment (#662): only an echo argument in a loop body may be an expansion",
+    "old": "    [ \"$jq_sink:$jq_state:$jq_cmdname\" = 2:other:echo ] || return 1\n",
+    "new": "    [ \"$jq_sink:$jq_state\" = 2:other ] || return 1\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-loop-end",
+    "rule": "gh program in any segment (#662): nothing may follow a while loop a gh pipe feeds",
+    "old": "    elif [ \"$jq_loopend\" = 2 ]; then\n      jq_ghbad=1\n",
+    "new": "    elif false; then\n      jq_ghbad=1\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-stderr-file",
+    "rule": "gh program in any segment (#662): standard error sent to a file disqualifies",
+    "old": "      [ \"$jq_rec\" = \"3&\" ] || jq_out_file\n",
+    "new": "      :\n",
     "tests": [
       "tests/gh-program-segments.sh"
     ]
