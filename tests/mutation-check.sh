@@ -10,6 +10,8 @@
 #
 # Usage: sh tests/mutation-check.sh [--lint] [ID...]
 #   --lint  only validate the list and the workflow that runs it, run no test.
+#   --group NAME  check the mutations of one workflow group (core, handback,
+#           bash-N); --lint proves the workflow's groups cover each id once.
 #   ID      check only these mutations.
 # AGENT_GUARD_MUTATION_JOBS (default 2) sets how many tree copies run side by
 # side. A test stops at its first "not ok" line once it has caught a mutation.
@@ -19,7 +21,7 @@
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 LIST=${AGENT_GUARD_MUTATION_LIST:-$ROOT/tests/mutations.json}
-WORKFLOW=$ROOT/.github/workflows/mutation-check.yml
+WORKFLOW=${AGENT_GUARD_MUTATION_WORKFLOW:-$ROOT/.github/workflows/mutation-check.yml}
 BIN_REL=plugins/agent-guard/bin/agent-guard
 JOBS=${AGENT_GUARD_MUTATION_JOBS:-2}
 # The mutants loosen awk and shell rules, not the scanner. Tests that honor
@@ -35,10 +37,34 @@ die() {
 
 case $JOBS in ''|*[!0-9]*|0) die "AGENT_GUARD_MUTATION_JOBS must be a positive integer, got: $JOBS" ;; esac
 lint=0
+group=
 if [ "${1-}" = --lint ]; then
   lint=1
   shift
+elif [ "${1-}" = --group ]; then
+  [ "$#" -eq 2 ] || die "--group takes exactly one group name"
+  group=$2
+  shift 2
 fi
+
+# group_ids GROUP N: the ids of one group, N being the number of bash-* shards.
+# Every id falls in exactly one group: handback-*, bash-* spread over N by
+# position, and everything else in core.
+group_ids() {
+  jq -r --arg g "$1" --argjson n "$2" '
+    map(.id) as $all
+    | if $g == "core" then $all[] | select((startswith("handback-") or startswith("bash-")) | not)
+      elif $g == "handback" then $all[] | select(startswith("handback-"))
+      else [$all[] | select(startswith("bash-"))] | to_entries[]
+        | select(.key % $n == ($g | ltrimstr("bash-") | tonumber) - 1) | .value
+      end
+  ' "$LIST"
+}
+
+# The groups the workflow matrix runs, one per line.
+workflow_groups() {
+  sed -n 's/^ *group: \[\(.*\)\] *$/\1/p' "$WORKFLOW" | tr -d ' ' | tr ',' '\n'
+}
 
 jq -e '
   type == "array" and length > 0
@@ -62,6 +88,20 @@ done
 
 if [ "$lint" -eq 1 ]; then
   for id in "$@"; do die "--lint takes no mutation id: $id"; done
+  groups=$(workflow_groups)
+  [ -n "$groups" ] || die "no matrix group list found in $WORKFLOW"
+  shards=$(printf '%s\n' "$groups" | grep -c '^bash-[0-9][0-9]*$')
+  for g in $groups; do
+    case $g in
+      core|handback) ;;
+      bash-[1-9]|bash-[1-9][0-9]) [ "${g#bash-}" -le "$shards" ] || die "shard $g is beyond the $shards bash shards" ;;
+      *) die "unknown matrix group in $WORKFLOW: $g" ;;
+    esac
+  done
+  for g in $groups; do group_ids "$g" "$shards"; done | sort >"${TMPDIR:-/tmp}/mutation-lint.$$" || die "cannot compute the groups"
+  jq -r '.[].id' "$LIST" | sort | cmp -s - "${TMPDIR:-/tmp}/mutation-lint.$$" \
+    || { rm -f "${TMPDIR:-/tmp}/mutation-lint.$$"; die "the workflow groups do not cover every mutation exactly once"; }
+  rm -f "${TMPDIR:-/tmp}/mutation-lint.$$"
   printf 'mutation-check: list and workflow paths are valid (%s mutations)\n' "$(jq length "$LIST")"
   exit 0
 fi
@@ -69,6 +109,12 @@ fi
 ORIG=$ROOT/$BIN_REL
 # jq carries the bin as a string; it must come back byte for byte.
 jq -j -Rs . "$ORIG" | cmp -s - "$ORIG" || die "jq does not reproduce $BIN_REL byte for byte"
+
+if [ -n "$group" ]; then
+  shards=$(workflow_groups | grep -c '^bash-[0-9][0-9]*$')
+  set -- $(group_ids "$group" "$shards")
+  [ "$#" -gt 0 ] || die "no mutation in group $group"
+fi
 
 if [ "$#" -gt 0 ]; then
   indexes=
