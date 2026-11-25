@@ -2229,5 +2229,50 @@
       "tests/search-operand-ground-truth.sh",
       "tests/bash-path-text-data.sh"
     ]
+  },
+  {
+    "id": "leaf-colon-key-unread",
+    "rule": "scan_line_once: a colon key that opens a JSON string value is a candidate assignment",
+    "old": "        if (leaf_colon_start > 0 && (colon_start == 0 || leaf_colon_start < colon_start)) {",
+    "new": "        if (0) {",
+    "tests": [
+      "tests/json-string-colon-key.sh"
+    ]
+  },
+  {
+    "id": "leaf-colon-key-not-leftmost",
+    "rule": "scan_line_once: the key that opens a JSON string value goes first when it is left of the other colon key",
+    "old": "        if (leaf_colon_start > 0 && (colon_start == 0 || leaf_colon_start < colon_start)) {",
+    "new": "        if (leaf_colon_start > 0 && colon_start == 0) {",
+    "tests": [
+      "tests/json-string-colon-key.sh"
+    ]
+  },
+  {
+    "id": "leaf-colon-key-empty-value",
+    "rule": "leaf_colon_assignment: a string that closes right after the delimiter holds no value",
+    "old": "leaf_colon_assignment = \":\\\"\" key \"[ \\t]*:[ \\t]*[^ \\t\\r\\\"]\"",
+    "new": "leaf_colon_assignment = \":\\\"\" key \"[ \\t]*:\"",
+    "tests": [
+      "tests/json-string-colon-key.sh"
+    ]
+  },
+  {
+    "id": "leaf-colon-key-copy-escaped-value",
+    "rule": "find_leaf_colon: the copy reading takes a value that opens with an escaped quote",
+    "old": "      if (copy_reading ? match(low, leaf_colon_copy_assignment) \\",
+    "new": "      if (0 ? match(low, leaf_colon_copy_assignment) \\",
+    "tests": [
+      "tests/json-string-colon-key.sh"
+    ]
+  },
+  {
+    "id": "leaf-colon-key-length",
+    "rule": "find_leaf_colon: the assignment ends at its delimiter, before the value",
+    "old": "leaf_colon_length = index(substr(low, RSTART + 1, RLENGTH - 1), \":\")",
+    "new": "leaf_colon_length = RLENGTH - 1",
+    "tests": [
+      "tests/json-string-colon-key.sh"
+    ]
   }
 ]

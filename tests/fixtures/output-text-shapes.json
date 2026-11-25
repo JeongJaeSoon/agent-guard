@@ -160,24 +160,6 @@
    "shape": "json",
    "verdict": "x",
    "reason": "By design (#561): a field in mid-line, as in a table cell or a JSON string, keeps masking"
-  },
-  {
-   "label": "YAML key",
-   "shape": "json",
-   "verdict": "=",
-   "reason": "#657: a colon key at the start of a JSON string value is not read as an assignment; an `=` key there is (#178)"
-  },
-  {
-   "label": "short human password",
-   "shape": "json",
-   "verdict": "=",
-   "reason": "#657: a colon key at the start of a JSON string value is not read as an assignment; an `=` key there is (#178)"
-  },
-  {
-   "label": "dotted YAML key",
-   "shape": "json",
-   "verdict": "=",
-   "reason": "#657: a colon key at the start of a JSON string value is not read as an assignment; an `=` key there is (#178)"
   }
  ]
 }
