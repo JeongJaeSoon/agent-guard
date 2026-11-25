@@ -1,0 +1,458 @@
+[
+  {
+    "id": "report-subst-then-gh",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "report case: a gh call after an assignment from a substitution that runs gh",
+    "command": "run=$(gh run list -R o/r --limit 1 --json databaseId --jq '.[0].databaseId'); gh api repos/o/r/actions/runs/$run/pending_deployments --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"'"
+  },
+  {
+    "id": "report-for-body",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "report case: a gh call in a for body after an echo of the loop variable",
+    "command": "for id in 1 2; do echo \"== $id\"; gh api repos/o/r/actions/runs/$id/pending_deployments --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"'; done"
+  },
+  {
+    "id": "report-cd-and-gh",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "report case: a gh call after cd and another gh query",
+    "command": "cd /Users/jaesoon && gh run view 1 -R o/r --json status && gh api repos/o/r/actions/runs/1/pending_deployments --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"'"
+  },
+  {
+    "id": "report-assign-quoted-endpoint",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "report case: a gh call after an assignment, the endpoint a quoted expansion, piped to head",
+    "command": "R=o/r; gh api \"repos/$R/actions/runs/1/pending_deployments\" --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"' 2>&1 | head -5"
+  },
+  {
+    "id": "report-script-then-gh",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "report case: a gh call after a script",
+    "command": "./scripts/check.sh; gh api repos/o/r/actions/runs/1/pending_deployments --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"'"
+  },
+  {
+    "id": "report-gh-into-while-read",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "report case: a gh call piped into a while read loop",
+    "command": "gh api repos/o/r/actions/runs/1/pending_deployments --jq '.[]|\"\\(.environment.name) \\(.environment.id) \\(.current_user_can_approve)\"' | while read -r n i a; do echo \"$n $i $a\"; done"
+  },
+  {
+    "id": "short-q-after-make",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the -q spelling after another segment",
+    "command": "make; gh api repos/o/r/environments -q '.environments[].name'"
+  },
+  {
+    "id": "jq-equals-after-make",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the --jq= spelling after another segment",
+    "command": "make; gh api repos/o/r/environments --jq='.environments[] | .name'"
+  },
+  {
+    "id": "template-after-make",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the --template spelling after another segment",
+    "command": "make; gh api repos/o/r/environments --template '{{range .environments}}{{.name}}{{end}}'"
+  },
+  {
+    "id": "short-t-after-make",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the -t spelling after another segment",
+    "command": "git status && gh api repos/o/r/environments -t '{{range .environments}}{{.name}} {{end}}'"
+  },
+  {
+    "id": "template-equals-after-make",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the --template= spelling after another segment",
+    "command": "make; gh api repos/o/r/environments --template='{{range .environments}}{{.name}}{{end}}'"
+  },
+  {
+    "id": "template-alone",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a --template program alone",
+    "command": "gh api repos/o/r/environments -t '{{range .environments}}{{.name}}{{end}}'"
+  },
+  {
+    "id": "template-pr-list",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "gh pr list with a --template program after a cd",
+    "command": "cd /tmp && gh pr list --json headRefName --template '{{range .}}{{.environment}}{{end}}'"
+  },
+  {
+    "id": "jq-alone-expansion-endpoint",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a gh --jq filter alone with an expansion in the endpoint",
+    "command": "gh api \"repos/$R/environments\" --jq '.environments[].name'"
+  },
+  {
+    "id": "for-body-short-q",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a -q filter in a for body",
+    "command": "for r in o/a o/b; do gh api repos/$r/environments -q '.environments[].name'; done"
+  },
+  {
+    "id": "if-body-template",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a --template program in an if body",
+    "command": "if test -f a.json; then gh api repos/o/r/environments --template '{{range .environments}}{{.name}}{{end}}'; fi"
+  },
+  {
+    "id": "expansion-before-option",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an expansion before the program option can make the program word at most a positional argument, which no query subcommand opens",
+    "command": "make; gh api x $O --jq '.environment'"
+  },
+  {
+    "id": "sink-sort-unique",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a gh program after another segment piped to sort -u",
+    "command": "make; gh api repos/o/r/environments --jq '.environments[].name' | sort -u"
+  },
+  {
+    "id": "input-env-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an --input file is still read",
+    "command": "make; gh api repos/o/r/dispatches --input .env --jq '.environment'"
+  },
+  {
+    "id": "field-at-env-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a -F field=@file is still read",
+    "command": "make; gh api repos/o/r/issues -F body=@.env --jq '.environments[].name'"
+  },
+  {
+    "id": "field-at-quoted-env-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a quoted -F field=@file is still read",
+    "command": "make; gh api repos/o/r/issues -F 'body=@config/.env.local' -q '.id'"
+  },
+  {
+    "id": "positional-env-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a path argument stays checked",
+    "command": "make; gh api repos/o/r --jq '.id' .env"
+  },
+  {
+    "id": "template-redirect-env-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an output redirect stays checked",
+    "command": "make; gh api repos/o/r -t '{{.id}}' > .env"
+  },
+  {
+    "id": "jq-reads-env-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a jq that reads an env file after another segment",
+    "command": "make; jq -r '.environment.name' .env.local"
+  },
+  {
+    "id": "cp-to-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an earlier segment copies a file to a gh path",
+    "command": "cp ./tool ~/bin/gh; gh api x --jq '.environment'"
+  },
+  {
+    "id": "cp-to-gh-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an earlier segment copies to a glob that can name gh",
+    "command": "cp ./tool bin/g?; gh api x --jq '.environment'"
+  },
+  {
+    "id": "redirect-to-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an earlier segment redirects into a gh path",
+    "command": "make > bin/gh; gh api x --jq '.environment'"
+  },
+  {
+    "id": "redirect-glued-gh-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a glued redirect into a glob that can name gh",
+    "command": "make >bin/g*; gh api x --jq '.environment'"
+  },
+  {
+    "id": "case-variant-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a link named gh in another case",
+    "command": "ln -sf /bin/cat bin/GH && gh api x --jq '.environment'"
+  },
+  {
+    "id": "posix-class-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a POSIX class glob that can name gh",
+    "command": "cp /bin/cat bin/[[:alpha:]]h; gh api x --jq '.environment'"
+  },
+  {
+    "id": "plant-later-in-loop",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a gh path written later in the same loop body",
+    "command": "for i in 1 2; do gh api x --jq '.environment'; cp tool bin/gh; done"
+  },
+  {
+    "id": "plant-by-expansion",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a cp whose target is built from an expansion",
+    "command": "d=bin/g; cp tool ${d}h; gh api x --jq '.environment'"
+  },
+  {
+    "id": "echo-redirect-expansion",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an echo whose redirect target is an expansion",
+    "command": "for i in 1 2; do echo x > \"$f\"; gh api x --jq '.environment'; done"
+  },
+  {
+    "id": "background-before-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a background job before gh",
+    "command": "make & gh api x --jq '.environment'"
+  },
+  {
+    "id": "env-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh behind env",
+    "command": "make; env gh api x --jq '.environment'"
+  },
+  {
+    "id": "command-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh behind command",
+    "command": "make; command gh api x --jq '.environment'"
+  },
+  {
+    "id": "xargs-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh behind xargs",
+    "command": "make; printf x | xargs gh api --jq '.environment'"
+  },
+  {
+    "id": "sudo-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh behind sudo",
+    "command": "make; sudo gh api x --jq '.environment'"
+  },
+  {
+    "id": "path-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh by a path",
+    "command": "make; /opt/homebrew/bin/gh api x --jq '.environment'"
+  },
+  {
+    "id": "gh-variable",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh by a variable",
+    "command": "make; $G api x --jq '.environment'"
+  },
+  {
+    "id": "gh-glob-command",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh by a glob command name",
+    "command": "make; g? api x --jq '.environment'"
+  },
+  {
+    "id": "alias-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an alias in the command",
+    "command": "alias gh=cat; make; gh api x --jq '.environment'"
+  },
+  {
+    "id": "function-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a function definition in the command",
+    "command": "gh() { cat \"$@\"; }; make; gh api x --jq '.environment'"
+  },
+  {
+    "id": "eval-before-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an eval before gh",
+    "command": "make; eval x; gh api x --jq '.environment'"
+  },
+  {
+    "id": "source-before-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a sourced script before gh",
+    "command": "make; . ./tools.sh; gh api x --jq '.environment'"
+  },
+  {
+    "id": "hash-before-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a hash word in the command",
+    "command": "hash -r; make; gh api x --jq '.environment'"
+  },
+  {
+    "id": "path-assign-before-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a PATH assignment in the command",
+    "command": "PATH=./bin:/usr/bin; make; gh api x --jq '.environment'"
+  },
+  {
+    "id": "relative-path-entry-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a relative PATH entry",
+    "command": "make; gh api x --jq '.environment'",
+    "path_prefix": "bin"
+  },
+  {
+    "id": "heredoc-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a here-document in the command",
+    "command": "cat > l.txt <<'EOF'\nx\nEOF\ngh api x --jq '.environment'"
+  },
+  {
+    "id": "filter-expansion",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a filter with an expansion",
+    "command": "make; gh api x --jq \".environment$F\""
+  },
+  {
+    "id": "expansion-subcommand",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an expansion as the subcommand",
+    "command": "make; gh $S --jq '.environment'"
+  },
+  {
+    "id": "extension-short-q",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an extension, not a built-in query",
+    "command": "make; gh envtool -q '.environment'"
+  },
+  {
+    "id": "pr-create-title",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "-t of gh pr create is a title, not a template",
+    "command": "make; gh pr create -t '.environment'"
+  },
+  {
+    "id": "header-swallows-q",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an option before -q takes it as its value",
+    "command": "make; gh api -H -q '.environment' repos/o/r"
+  },
+  {
+    "id": "double-dash-jq",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "--jq after -- is an argument",
+    "command": "make; gh api repos/o/r -- --jq '.environment'"
+  },
+  {
+    "id": "template-glued-redirect",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a --template= value with a glued redirect",
+    "command": "make; gh api repos/o/r --template={{.id}}>.env"
+  },
+  {
+    "id": "sink-xargs",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "what the program prints is handed to xargs",
+    "command": "make; gh api x --jq '.environment' | xargs cat"
+  },
+  {
+    "id": "sink-files0-from",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "what the program prints is read as a list of files",
+    "command": "make; gh api x --jq '.environment' | sort --files0-from=-"
+  },
+  {
+    "id": "sink-shell",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "what the program prints is run by a shell",
+    "command": "make; gh api x --jq '.environment' | sh"
+  },
+  {
+    "id": "sink-while-cat-var",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a while loop opens each line it reads",
+    "command": "gh api x --jq '.environment' | while read -r f; do cat \"$f\"; done"
+  },
+  {
+    "id": "sink-while-xargs",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a while loop body hands the rest of its input to xargs",
+    "command": "gh api x --jq '.environment' | while read -r f; do xargs cat; done"
+  },
+  {
+    "id": "two-programs",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "two program options in one gh call",
+    "command": "make; gh api x --jq '.a' --jq '.environment'"
+  },
+  {
+    "id": "plant-after-background",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "words after a background job in a loop body are not read, so the gh program stays as written",
+    "command": "for i in 1 2; do gh api x --jq '.environment'; make & cp tool bin/gh; done"
+  },
+  {
+    "id": "plant-by-positional",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a cp whose target is an expansion",
+    "command": "cp tool \"$1\"; gh api x --jq '.environment'"
+  },
+  {
+    "id": "sink-files0-from-after-tr",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "names the program prints are joined by tr and read by wc as a list of files",
+    "command": "make; gh api x --jq 'path(.environment) | join(\".\")' | tr '\\n' '\\0' | wc --files0-from=-"
+  }
+]
