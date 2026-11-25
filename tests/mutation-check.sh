@@ -98,10 +98,8 @@ if [ "$lint" -eq 1 ]; then
       *) die "unknown matrix group in $WORKFLOW: $g" ;;
     esac
   done
-  for g in $groups; do group_ids "$g" "$shards"; done | sort >"${TMPDIR:-/tmp}/mutation-lint.$$" || die "cannot compute the groups"
-  jq -r '.[].id' "$LIST" | sort | cmp -s - "${TMPDIR:-/tmp}/mutation-lint.$$" \
-    || { rm -f "${TMPDIR:-/tmp}/mutation-lint.$$"; die "the workflow groups do not cover every mutation exactly once"; }
-  rm -f "${TMPDIR:-/tmp}/mutation-lint.$$"
+  covered=$(for g in $groups; do group_ids "$g" "$shards" || exit 1; done | sort) || die "cannot compute the groups"
+  [ "$covered" = "$(jq -r '.[].id' "$LIST" | sort)" ] || die "the workflow groups do not cover every mutation exactly once"
   printf 'mutation-check: list and workflow paths are valid (%s mutations)\n' "$(jq length "$LIST")"
   exit 0
 fi
