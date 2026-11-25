@@ -1933,8 +1933,8 @@
   {
     "id": "bash-gh-segments-expansion-any-command",
     "rule": "gh program in any segment (#662): an expansion counts only as an echo or printf argument",
-    "old": "        case \"$jq_cmdname\" in echo|printf) ;; *) return 1 ;; esac\n",
-    "new": "",
+    "old": "        [ \"$jq_mode:$jq_cmdname\" = all:echo ] || return 1",
+    "new": "        [ \"$jq_mode\" = all ] || return 1",
     "tests": [
       "tests/gh-program-segments.sh"
     ]
@@ -1994,19 +1994,10 @@
     ]
   },
   {
-    "id": "bash-gh-segments-done-commits",
-    "rule": "gh program in any segment (#662): a pipe after a while loop is read again",
-    "old": "          0done) jq_sink=1 jq_sinkcmd=done ;;",
-    "new": "          0done) jq_ghq=$jq_ghq$jq_ghpend jq_ghpend= jq_sink= ;;",
-    "tests": [
-      "tests/gh-program-segments.sh"
-    ]
-  },
-  {
     "id": "bash-gh-segments-subshell-sink",
     "rule": "gh program in any segment (#662): a group or subshell in the pipe a gh feeds disqualifies",
-    "old": "        if [ \"$jq_sinkwant\" = 1 ] || [ -n \"$jq_sink\" ]; then jq_ghpend= jq_sinkwant=0 jq_sink=; fi\n",
-    "new": "",
+    "old": "      3*) if [ \"$jq_sinkwant\" = 1 ] || [ -n \"$jq_sink\" ]; then jq_ghpend= jq_sinkwant=0 jq_sink=; fi ;;\n",
+    "new": "      3*) ;;\n",
     "tests": [
       "tests/gh-program-segments.sh"
     ]
@@ -2050,7 +2041,7 @@
   {
     "id": "bash-gh-segments-process-subst",
     "rule": "gh program in any segment (#662): a gh inside a process substitution keeps every gh program as written",
-    "old": "      \"3(\") case \"$jq_before\" in 0*'<'|0*'>') jq_ghbad=1 ;; esac ;;\n",
+    "old": "      \"3(\") case \"$jq_before\" in 0*'<'|0*'>'|0*=) jq_ghbad=1 ;; esac ;;\n",
     "new": "",
     "tests": [
       "tests/gh-program-segments.sh"
@@ -2059,8 +2050,8 @@
   {
     "id": "bash-gh-segments-exec",
     "rule": "gh program in any segment (#662): an exec word keeps every gh program as written",
-    "old": "      0exec) jq_ghbad=1 ;;\n",
-    "new": "",
+    "old": "      0exec|0export|0declare|0typeset|0local|0readonly) jq_ghbad=1 ;;",
+    "new": "      0export|0declare|0typeset|0local|0readonly) jq_ghbad=1 ;;",
     "tests": [
       "tests/gh-program-segments.sh"
     ]
@@ -2084,9 +2075,63 @@
     ]
   },
   {
-    "id": "bash-gh-segments-assign-in-sink",
-    "rule": "gh program in any segment (#662): an assignment prefix in the pipe a gh feeds disqualifies",
-    "old": "        [ \"$jq_sinkwant\" = 0 ] && [ \"$jq_sink\" != 2 ] || return 1\n",
+    "id": "bash-gh-segments-echo-plain-ref",
+    "rule": "gh program in any segment (#662): an echo argument may hold only plain $name references",
+    "old": "        }' || return 1\n        jq_dynout=1 jq_dynused=1",
+    "new": "        }' || :\n        jq_dynout=1 jq_dynused=1",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-echo-only",
+    "rule": "gh program in any segment (#662): printf is not an echo of plain references",
+    "old": "        [ \"$jq_mode:$jq_cmdname\" = all:echo ] || return 1",
+    "new": "        case \"$jq_mode:$jq_cmdname\" in all:echo|all:printf) ;; *) return 1 ;; esac",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-assign-prefix",
+    "rule": "gh program in any segment (#662): an assignment of an expansion that prefixes a command disqualifies",
+    "old": "      case \"$jq_rec\" in \"0;\"|\"0&&\"|\"0||\"|\"3(\") ;; *) jq_ghbad=1 ;; esac\n",
+    "new": "      :\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-export",
+    "rule": "gh program in any segment (#662): export and its kin keep every gh program as written",
+    "old": "      0exec|0export|0declare|0typeset|0local|0readonly) jq_ghbad=1 ;;",
+    "new": "      0exec) jq_ghbad=1 ;;",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-set-allexport",
+    "rule": "gh program in any segment (#662): set -a keeps every gh program as written",
+    "old": "      case \"$jq_word\" in -*a*|allexport) jq_ghbad=1 ;; esac\n",
+    "new": "      :\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-equals-subst",
+    "rule": "gh program in any segment (#662): a zsh =(...) substitution keeps every gh program as written",
+    "old": "0*'<'|0*'>'|0*=) jq_ghbad=1 ;; esac ;;",
+    "new": "0*'<'|0*'>') jq_ghbad=1 ;; esac ;;",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-jq-after-expansion",
+    "rule": "gh program in any segment (#662): a jq or sed rewrite with an expansion read in all mode keeps the old rule",
+    "old": "  if [ \"$jq_mode:$jq_dynused:$jq_jqrew\" = all:1:1 ]; then jq_bail; fi\n",
     "new": "",
     "tests": [
       "tests/gh-program-segments.sh"

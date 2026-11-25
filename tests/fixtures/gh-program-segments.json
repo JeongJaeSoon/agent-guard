@@ -629,5 +629,110 @@
     "classification": "must-fail",
     "description": "a glued --field value with @ and an expansion",
     "command": "x=$(gh api x --jq '.environment'); gh api y --field=\"b=@$x\""
+  },
+  {
+    "id": "export-captured",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "x=$(gh api x --jq '.environment'); export x; sh -c 'cat \"$x\"'"
+  },
+  {
+    "id": "set-a-captured",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "set -a; x=$(gh api x --jq '.environment'); sh -c 'cat \"$x\"'"
+  },
+  {
+    "id": "set-o-allexport",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "set -o allexport; x=$(gh api x --jq '.environment'); sh -c 'cat \"$x\"'"
+  },
+  {
+    "id": "declare-x-captured",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "x=$(gh api x --jq '.environment'); declare -x x; sh -c 'cat \"$x\"'"
+  },
+  {
+    "id": "while-var-exported",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "gh api x --jq '.environment' | while read -r f; do echo; done; export f; sh -c 'cat \"$f\"'"
+  },
+  {
+    "id": "assign-prefix-command",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "x=$(gh api x --jq '.environment'); y=$x sh -c 'cat \"$y\"'"
+  },
+  {
+    "id": "echo-eval-flag",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "x=$(gh api x --jq '.environment'); echo \"${(e)x}\""
+  },
+  {
+    "id": "echo-glob-subst",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "x=$(gh api x --jq '.environment'); echo $~x"
+  },
+  {
+    "id": "echo-prompt-expand",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "x=$(gh api x --jq '.environment'); echo \"${x@P}\""
+  },
+  {
+    "id": "printf-v-captured",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "x=$(gh api x --jq '.environment'); printf -v \"$x\" '%s' 1"
+  },
+  {
+    "id": "printf-v-in-while",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "gh api x --jq '.environment' | while read -r f; do printf -v \"$f\" x; done"
+  },
+  {
+    "id": "zsh-equals-subst",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "tar -cf o.tar -T =(gh api x --jq '.environment')"
+  },
+  {
+    "id": "jq-captured-echo-xargs",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "x=$(jq -r '.environment' list.json); echo \"$x\" | xargs cat"
+  },
+  {
+    "id": "jq-captured-after-make",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable or substitution that carries program output on",
+    "command": "make; x=$(jq -r '.environment' list.json); echo \"$x\""
+  },
+  {
+    "id": "subshell-sink-rest-of-input",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a subshell after gh hands the rest of its input to xargs",
+    "command": "gh api x --jq '.environment' | (cat; xargs cat)"
   }
 ]
