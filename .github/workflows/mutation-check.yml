@@ -45,9 +45,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Every id falls in exactly one group: handback-*, bash-* split in
-        # two by position, and everything else in core.
-        group: [core, handback, bash-1, bash-2]
+        # Every id falls in exactly one group (tests/mutation-check.sh --lint
+        # checks it): handback-*, bash-* spread over the bash-N shards by
+        # position, and everything else in core. Keep each shard under about
+        # 35 minutes; add a bash-N entry when one grows past that.
+        group: [core, handback, bash-1, bash-2, bash-3, bash-4, bash-5, bash-6]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,17 +62,4 @@ jobs:
           AGENT_GUARD_MUTATION_JOBS: '4'
         run: |
           set -eu
-          ids=$(jq -r --arg g "$GROUP" '
-            map(.id) as $all
-            | if $g == "core" then $all[] | select((startswith("handback-") or startswith("bash-")) | not)
-              elif $g == "handback" then $all[] | select(startswith("handback-"))
-              else [$all[] | select(startswith("bash-"))] | to_entries[]
-                | select(.key % 2 == ($g | ltrimstr("bash-") | tonumber) - 1) | .value
-              end
-          ' tests/mutations.json)
-          if [ -z "$ids" ]; then
-            echo "::error::no mutation in group $GROUP" >&2
-            exit 1
-          fi
-          # shellcheck disable=SC2086
-          sh tests/mutation-check.sh $ids
+          sh tests/mutation-check.sh --group "$GROUP"
