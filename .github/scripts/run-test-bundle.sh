@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Run at most two independent partitions on one runner. Each keeps its own
+# Run at most three independent partitions on one runner. Each keeps its own
 # temporary files, complete output, exit status and timing. Do not fail fast:
 # both results must be collected, including when the first partition fails.
 set -uo pipefail
-case $# in 1|2) ;; *) echo 'expected one or two partition IDs' >&2; exit 2 ;; esac
+case $# in 1|2|3) ;; *) echo 'expected one to three partition IDs' >&2; exit 2 ;; esac
 seen=' '
 for shard in "$@"; do
-  case "$shard" in 1|2|3|4|5) ;; *) echo "invalid partition: $shard" >&2; exit 2 ;; esac
+  case "$shard" in 1|2|3|4|5|6|7) ;; *) echo "invalid partition: $shard" >&2; exit 2 ;; esac
   case "$seen" in *" $shard "*) echo "duplicate partition: $shard" >&2; exit 2 ;; esac
   seen="$seen$shard "
 done

@@ -322,6 +322,78 @@
     ]
   },
   {
+    "id": "handback-empty-span-code-span",
+    "rule": "closed_key_quote (#655): only a code span reads as an empty value on a line that says it is empty",
+    "old": "if (quote == \"`\" && span ~",
+    "new": "if (span ~",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-name-only",
+    "rule": "closed_key_quote (#655): the code span holds only a name and its equals sign",
+    "old": "span ~ /^[A-Za-z_][A-Za-z0-9_]*=$/",
+    "new": "span ~ /=$/",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-equals",
+    "rule": "closed_key_quote (#655): the code span ends in an equals sign, not a colon",
+    "old": "span ~ /^[A-Za-z_][A-Za-z0-9_]*=$/",
+    "new": "span ~ /^[A-Za-z_][A-Za-z0-9_]*[=:]$/",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-states-empty",
+    "rule": "empty_statement (#655): the line holds a word for an empty value",
+    "old": "      return last\n",
+    "new": "      return 1\n",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-last-word",
+    "rule": "empty_statement (#655): the last word on the line is a word for an empty value",
+    "old": "        last = 0\n",
+    "new": "",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-other-word",
+    "rule": "empty_statement (#655): any other word on the line keeps the old reading",
+    "old": "+=`$/) return 0\n",
+    "new": "+=`$/) continue\n",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-name-letters",
+    "rule": "empty_statement (#655): the name in another empty span is letters and underscores",
+    "old": "w !~ /^`[a-z_]+=`$/",
+    "new": "w !~ /^`[a-z0-9_]+=`$/",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-name-value",
+    "rule": "empty_statement (#655): the name in another empty span is not a value word",
+    "old": "        if (value_word(name)) return 0\n",
+    "new": "",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
     "id": "bash-awk-getline",
     "rule": "awk line filter (#624): getline is refused",
     "old": "if (v ~ /getline|system|[|@`]|ARGV|ARGC|SYMTAB|FUNCTAB/",
@@ -2072,6 +2144,60 @@
     "new": "      :\n",
     "tests": [
       "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-search-rg-config-env-ignored",
+    "rule": "search pattern (rg): a config path set for the hook keeps the pattern",
+    "old": "!noconf && rg_env != \"\"",
+    "new": "0",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-search-rg-no-config-ignored",
+    "rule": "search pattern (rg): --no-config leaves the pattern out under a config path",
+    "old": "!noconf && rg_env != \"\"",
+    "new": "rg_env != \"\"",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-search-rg-config-named-ignored",
+    "rule": "search pattern (rg): a line naming RIPGREP_CONFIG_PATH keeps the pattern",
+    "old": "env_named[\"rg\"] || !noconf",
+    "new": "!noconf",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-search-grep-options-named-ignored",
+    "rule": "search pattern (grep): a line naming GREP_OPTIONS keeps the pattern",
+    "old": "(env_named[\"grep\"] || grep_env != \"\")",
+    "new": "grep_env != \"\"",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-search-grep-options-env-ignored",
+    "rule": "search pattern (grep): GREP_OPTIONS set for the hook keeps the pattern",
+    "old": "(env_named[\"grep\"] || grep_env != \"\")",
+    "new": "env_named[\"grep\"]",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-search-env-name-quotes-kept",
+    "rule": "search pattern: quotes and backslashes do not hide an option variable name",
+    "old": "named = s; gsub(/[\\047\"\\\\]/, \"\", named)",
+    "new": "named = s",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
     ]
   },
   {
