@@ -16690,10 +16690,17 @@ secretish_env_values() {
       if (quote == "'\''")
         gsub(/[A-Za-z0-9]'\''[A-Za-z0-9]/, "a_a", before)
       if (!match(before, quote "[^" quote "]*$")) return 0
+      span = substr(before, RSTART + 1)
       if (RSTART > 1 && substr(before, RSTART - 1, 1) !~ /[ \t([{*>]/) return 0
       if (gsub(quote, quote, before) % 2 == 0) return 0
       after = substr(raw, 2)
       if (!closed_off(after)) return 0
+      # A code span that holds only a name and its equals sign, on a line
+      # that then says it is empty (#655), is an empty value, and the lines
+      # below are not read as its value.
+      if (quote == "`" && span ~ /^[A-Za-z_][A-Za-z0-9_]*=$/ \
+          && empty_statement(after))
+        return 1
       n = span_words(after)
       # The old reading may take only the text up to the next quote; the
       # value words after it are masked along with it.
@@ -16702,6 +16709,38 @@ secretish_env_values() {
         return 0
       }
       return n == 0 || n > 1
+    }
+    # Whether the rest of a line after an empty code span says the span is
+    # empty and holds nothing else: every word is a sentence mark, a
+    # connective (`and`, `or`, `then`), another empty code span, or a word for
+    # an empty value (`empty`, `unset`, `blank`, `nothing`), and the last
+    # word is one of the last kind. The name in another span is letters and
+    # underscores and not a value word, so a value written as a name stays a
+    # value. Any other word, or a line that ends on a connective, keeps the
+    # old reading (#655).
+    #
+    # Residual, accepted: a value that stands on a line below such a line
+    # with no key of its own is not read as the value of the empty span.
+    function empty_statement(text, n, words, i, w, last, name) {
+      n = split(text, words, /[ \t\r]+/)
+      last = 0
+      for (i = 1; i <= n; i++) {
+        w = tolower(words[i])
+        sub(/^[(]/, "", w)
+        sub(/[,.;:!?)]+$/, "", w)
+        if (w == "") continue
+        if (w ~ /^(empty|unset|blank|nothing)$/) {
+          last = 1
+          continue
+        }
+        last = 0
+        if (w ~ /^(and|or|then)$/) continue
+        if (w !~ /^`[a-z_]+=`$/) return 0
+        name = words[i]
+        gsub(/^[(]?`|=`.*$/, "", name)
+        if (value_word(name)) return 0
+      }
+      return last
     }
     # A note in brackets or parentheses after `=` that says the value is not
     # there: `API_KEY= [none]`, `API_KEY= (not set here, the deploy step

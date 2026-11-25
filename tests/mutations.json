@@ -322,6 +322,78 @@
     ]
   },
   {
+    "id": "handback-empty-span-code-span",
+    "rule": "closed_key_quote (#655): only a code span reads as an empty value on a line that says it is empty",
+    "old": "if (quote == \"`\" && span ~",
+    "new": "if (span ~",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-name-only",
+    "rule": "closed_key_quote (#655): the code span holds only a name and its equals sign",
+    "old": "span ~ /^[A-Za-z_][A-Za-z0-9_]*=$/",
+    "new": "span ~ /=$/",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-equals",
+    "rule": "closed_key_quote (#655): the code span ends in an equals sign, not a colon",
+    "old": "span ~ /^[A-Za-z_][A-Za-z0-9_]*=$/",
+    "new": "span ~ /^[A-Za-z_][A-Za-z0-9_]*[=:]$/",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-states-empty",
+    "rule": "empty_statement (#655): the line holds a word for an empty value",
+    "old": "      return last\n",
+    "new": "      return 1\n",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-last-word",
+    "rule": "empty_statement (#655): the last word on the line is a word for an empty value",
+    "old": "        last = 0\n",
+    "new": "",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-other-word",
+    "rule": "empty_statement (#655): any other word on the line keeps the old reading",
+    "old": "+=`$/) return 0\n",
+    "new": "+=`$/) continue\n",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-name-letters",
+    "rule": "empty_statement (#655): the name in another empty span is letters and underscores",
+    "old": "w !~ /^`[a-z_]+=`$/",
+    "new": "w !~ /^`[a-z0-9_]+=`$/",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-name-value",
+    "rule": "empty_statement (#655): the name in another empty span is not a value word",
+    "old": "        if (value_word(name)) return 0\n",
+    "new": "",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
     "id": "bash-awk-getline",
     "rule": "awk line filter (#624): getline is refused",
     "old": "if (v ~ /getline|system|[|@`]|ARGV|ARGC|SYMTAB|FUNCTAB/",
