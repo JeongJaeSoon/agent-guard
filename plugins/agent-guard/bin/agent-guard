@@ -8021,7 +8021,7 @@ bash_strip_literal_message_values() (
 # query counts as an inert earlier segment, and a segment qualifies only
 # when everything its pipeline feeds is a plain text filter (sink_ok).
 search_operand_spans() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
+  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v rg_env="${RIPGREP_CONFIG_PATH-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
     -v home_ok="$(home_is_plain_path && echo 1)" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_INERT_COMMAND"'
     function bail() { failed = 1; exit }
@@ -8240,9 +8240,10 @@ search_operand_spans() {
         }
       }
       # Options from the environment come before these words and can turn the
-      # pattern into a file: a ripgrep config file unless --no-config is
-      # given, and GREP_OPTIONS, which BSD grep still reads.
-      if (rg == 1 ? !noconf : rg == 0 && grep_env != "") return ""
+      # pattern into a file: the ripgrep config file RIPGREP_CONFIG_PATH names
+      # (unless --no-config is given), and GREP_OPTIONS, which BSD grep still
+      # reads. A line that names either variable may set it.
+      if (rg == 1 ? env_named["rg"] || !noconf && rg_env != "" : rg == 0 && (env_named["grep"] || grep_env != "")) return ""
       return out
     }
     # A value moved off its option by a valueless one before it would be a
@@ -8644,6 +8645,9 @@ search_operand_spans() {
     NR > 1 { bail() }
     {
       s = $0; n = length(s); q = ""; nseg = 1
+      named = s; gsub(/[\047"\\]/, "", named)
+      env_named["rg"] = index(named, "RIPGREP_CONFIG_PATH") > 0
+      env_named["grep"] = index(named, "GREP_OPTIONS") > 0
       if (index(s, "`") || index(s, "$(") || index(s, "<<") || index(s, "<(") || index(s, ">(")) bail()
       for (i = 1; i <= n; i++) {
         c = substr(s, i, 1)

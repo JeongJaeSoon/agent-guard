@@ -2073,5 +2073,59 @@
     "tests": [
       "tests/gh-program-segments.sh"
     ]
+  },
+  {
+    "id": "bash-search-rg-config-env-ignored",
+    "rule": "search pattern (rg): a config path set for the hook keeps the pattern",
+    "old": "!noconf && rg_env != \"\"",
+    "new": "0",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-search-rg-no-config-ignored",
+    "rule": "search pattern (rg): --no-config leaves the pattern out under a config path",
+    "old": "!noconf && rg_env != \"\"",
+    "new": "rg_env != \"\"",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-search-rg-config-named-ignored",
+    "rule": "search pattern (rg): a line naming RIPGREP_CONFIG_PATH keeps the pattern",
+    "old": "env_named[\"rg\"] || !noconf",
+    "new": "!noconf",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-search-grep-options-named-ignored",
+    "rule": "search pattern (grep): a line naming GREP_OPTIONS keeps the pattern",
+    "old": "(env_named[\"grep\"] || grep_env != \"\")",
+    "new": "grep_env != \"\"",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-search-grep-options-env-ignored",
+    "rule": "search pattern (grep): GREP_OPTIONS set for the hook keeps the pattern",
+    "old": "(env_named[\"grep\"] || grep_env != \"\")",
+    "new": "env_named[\"grep\"]",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-search-env-name-quotes-kept",
+    "rule": "search pattern: quotes and backslashes do not hide an option variable name",
+    "old": "named = s; gsub(/[\\047\"\\\\]/, \"\", named)",
+    "new": "named = s",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
   }
 ]
