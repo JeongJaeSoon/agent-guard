@@ -7912,8 +7912,11 @@ message_heredoc_placeholders() (
 
 # Replace each message value message_value_records finds, quotes included,
 # with `_`. A value is replaced only when it is one quoted literal (single
-# quotes, or double quotes holding no `$`, backquote or backslash) and
-# re-tokenizing shows that it changed that record and nothing else. Leaving no
+# quotes, or double quotes holding no `$` or backquote, escaped or not) and
+# re-tokenizing shows that it changed that record and nothing else. A
+# backslash before an ordinary character is text inside double quotes; one
+# that escapes a quote or a backslash makes the text differ from the value
+# the tokenizer read, so that value stays as written. Leaving no
 # quotes lets the deny-path check skip its dequoted pass.
 #
 # Any other substitution in a message value, or anywhere in the command,
@@ -7973,7 +7976,7 @@ bash_strip_literal_message_values() (
           if (j > n) exit 1
           body = substr(s, i + 1, j - i - 1)
           flat = body; gsub(/\n/, " ", flat)
-          if (flat == v && !(q == "\"" && body ~ /[$`\\]/) && ++seen == want) {
+          if (flat == v && !(q == "\"" && body ~ /[$`]/) && ++seen == want) {
             printf "%s", substr(s, 1, i - 1) "_" substr(s, j + 1)
             exit 0
           }
@@ -8856,10 +8859,11 @@ search_operand_spans() {
         # operand could expand to a file named like an option (--pre=sh).
         if (known) continue
         if (wv[h] == "sed" && (sed_prints_lines(h, e) || sed_substitutes(h, e))) continue
-        # A gh query that feeds a pipe runs in a subshell and writes no file,
-        # so it cannot change what the next command name runs. Sequenced with
-        # `;` or `&&` it stays outside the inert list, as before.
-        if (mode == "program" && a == h && segpipe[wseg[k]] && gh_query(h, e, 0)) continue
+        # A gh query writes no file and rebinds no name, whether it feeds a
+        # pipe or is sequenced with `;`, `&&` or `||` (`gh run watch N &&
+        # gh run view N --log | sed ...`), so it cannot change what the next
+        # command name runs.
+        if (mode == "program" && a == h && gh_query(h, e, 0)) continue
         # So do `git ls-files` and `git diff` that feed a pipe: they print
         # names or changed lines and write nothing.
         if (a == h && segpipe[wseg[k]] && (git_lists_files(h, e) || git_diff_prints(h, e))) continue

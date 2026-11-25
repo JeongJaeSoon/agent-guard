@@ -579,5 +579,61 @@
     "classification": "must-still-block",
     "description": "a git diff operand shaped like an assignment, where bash expands the tilde",
     "command": "git diff a=~/x | grep -n 'secrets.yaml'"
+  },
+  {
+    "id": "sed-program-after-sequenced-gh-queries",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed regex in a log pipeline that follows gh queries sequenced with && (#502 case 15)",
+    "command": "gh run watch 1907 && gh run list --limit 3 --json databaseId,conclusion --jq '.[] | \"\\(.databaseId) \\(.conclusion)\"' && gh run view 1907 --log | grep -E 'not ok|error' | sed -E 's/^[^\\t]*\\t[^\\t]*\\t[0-9TZ:.-]+ //' | head -40"
+  },
+  {
+    "id": "sed-reads-file-after-sequenced-gh-query",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed that reads a dotenv file after a sequenced gh query",
+    "command": "gh run watch 1907 && sed -E 's/^VALUE=//' .env"
+  },
+  {
+    "id": "sed-program-after-gh-checks-semicolon",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the same sed regex after a gh query sequenced with a semicolon",
+    "command": "gh pr checks 12; gh run view 1907 --log-failed | sed -E 's/^[^\\t]*\\t[^\\t]*\\t[0-9TZ:.-]+ //' | head"
+  },
+  {
+    "id": "sed-program-after-gh-download",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same sed regex after a gh command that writes files",
+    "command": "gh run download 1907 && gh run view 1907 --log | sed -E 's/^[^\\t]*\\t[^\\t]*\\t[0-9TZ:.-]+ //' | head"
+  },
+  {
+    "id": "sed-program-after-gh-query-with-expansion",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same sed regex after a gh query that holds an expansion",
+    "command": "gh run watch $RUN && gh run view 1907 --log | sed -E 's/^[^\\t]*\\t[^\\t]*\\t[0-9TZ:.-]+ //' | head"
+  },
+  {
+    "id": "grep-pattern-after-sequenced-gh-query",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern after a gh query sequenced with &&, read as it is behind a piped one",
+    "command": "gh run watch 1907 && grep -n 'secrets.yaml' README.md"
+  },
+  {
+    "id": "grep-reads-file-after-sequenced-gh-query",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep that reads a dotenv file after a sequenced gh query",
+    "command": "gh run watch 1907 && grep -n name .env"
+  },
+  {
+    "id": "inline-script-reads-file-after-sequenced-gh-query",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an inline script whose string literal names a dotenv file after a sequenced gh query",
+    "command": "gh run watch 1907 && node -e 'require(\"fs\").readFileSync(\".env\")'"
   }
 ]
