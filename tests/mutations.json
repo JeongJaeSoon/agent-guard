@@ -2014,8 +2014,8 @@
   {
     "id": "bash-gh-segments-stdout-file",
     "rule": "gh program in any segment (#662): gh standard output sent to a file disqualifies",
-    "old": "      *'>'*) jq_segout=1; [ \"$jq_state\" != ghopt ] || jq_seg_bad=1 ;;",
-    "new": "      *'>'*) jq_segout=1 ;;",
+    "old": "        [ \"$jq_state\" != ghopt ] || jq_seg_bad=1\n",
+    "new": "",
     "tests": [
       "tests/gh-program-segments.sh"
     ]
@@ -2025,6 +2025,15 @@
     "rule": "gh program in any segment (#662): an echo of an expansion that feeds a pipe or file disqualifies",
     "old": "      [ \"${1-}\" != '|' ] && [ \"$jq_segout\" = 0 ] || jq_ghbad=1\n",
     "new": "      :\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-sink-to-file",
+    "rule": "gh program in any segment (#662): a filter after gh that writes a file disqualifies",
+    "old": "        [ -z \"$jq_sink\" ] || jq_ghpend=\n",
+    "new": "",
     "tests": [
       "tests/gh-program-segments.sh"
     ]

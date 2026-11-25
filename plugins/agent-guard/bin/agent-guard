@@ -9693,7 +9693,11 @@ $jq_records
     # the names in it, so a gh program written there is kept.
     case "$jq_word" in
       2'>'*) ;;
-      *'>'*) jq_segout=1; [ "$jq_state" != ghopt ] || jq_seg_bad=1 ;;
+      *'>'*)
+        jq_segout=1
+        [ "$jq_state" != ghopt ] || jq_seg_bad=1
+        [ -z "$jq_sink" ] || jq_ghpend=
+        ;;
     esac
     # A long option or sort -o can make a filter open a list of files it
     # reads (--files0-from) or write one.

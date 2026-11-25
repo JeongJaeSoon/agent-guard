@@ -517,5 +517,19 @@
     "classification": "must-fail",
     "description": "gh error output written to a path an expansion names, in a loop that runs gh again",
     "command": "for i in 1 2; do gh api x --jq '.environment' 2> \"$p\"; done"
+  },
+  {
+    "id": "sink-filter-to-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a filter after gh writes the names to a file a later command reads",
+    "command": "gh api x --jq 'path(.environment) | join(\".\") | \".\"+.' | cat > list.txt; xargs cat < list.txt"
+  },
+  {
+    "id": "sink-while-to-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a while loop after gh writes the lines to a file a later command reads",
+    "command": "gh api x --jq '.environment' | while read -r f; do echo x; done > list.txt; xargs cat < list.txt"
   }
 ]
