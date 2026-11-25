@@ -9199,6 +9199,7 @@ bash_neutralize_jq_field_names() (
   # needs a `sed` command word, and words such as "passed" hold the letters.
   case "$nj_cmd" in
     *jq*|sed|sed[!A-Za-z0-9_]*|*[!A-Za-z0-9_]sed|*[!A-Za-z0-9_]sed[!A-Za-z0-9_]*) ;;
+    *gh*' -q'*|*gh*' -t'*|*gh*--template*) ;;
     *) printf '%s' "$nj_cmd"; exit 0 ;;
   esac
   case "$nj_cmd" in
@@ -9222,8 +9223,10 @@ bash_neutralize_jq_field_names() (
   # the filter text is no defense there (94S-2135). When that rewrite gives
   # up, the first pipeline alone is rewritten as before. A command with no
   # jq, or with no later segment or body, gives the same text either way.
+  # The program of a gh query (--jq, -q, --template, -t) is rewritten the
+  # same way, with gh in place of jq (#662).
   case "$nj_cmd" in
-    *jq*) ;;
+    *jq*|*gh*' -q'*|*gh*' -t'*|*gh*--template*) ;;
     *) bash_neutralize_first_pipeline "$nj_cmd"; exit 0 ;;
   esac
   case "$nj_cmd" in
@@ -9363,6 +9366,13 @@ bash_neutralize_first_pipeline() (
   # see bash_jq_any_segment_vars for when the caller may ask that. A sed
   # there is left as written.
   jq_mode=${2-} jq_vars=" ${3-} " jq_crossed=0 jq_tool=
+  # gh programs found so far (jq_ghq, by record index, `=` when glued to
+  # the option), those of the current gh segment (jq_ghseg), and whether
+  # any word could put a gh on disk or run one another way (jq_ghbad).
+  jq_pre= jq_ghq= jq_ghseg= jq_ghbad=0 jq_broke=0 jq_cmdname= jq_err2=0 jq_loopend=0
+  # Programs of a gh that feeds a pipe wait in jq_ghpend until every command
+  # the pipe feeds is shown to only print what it reads (jq_sink).
+  jq_ghpend= jq_sink= jq_sinkwant=0 jq_sinkcmd= jq_closer=0
   jq_cmd=$jq_orig
   jq_records=$(git_command_records "$jq_orig")
   jq_sed=0
@@ -9384,24 +9394,60 @@ $jq_records
     esac
     return 1
   }
+  # A word that can name a file gh: its last name part (past a / or =, and
+  # past a glued redirect operator) is gh in any case, or a glob that can
+  # match it. A command before the gh could write that file, so then no gh
+  # program is rewritten. A word with a blank was quoted and matches nothing.
+  jq_names_gh() {
+    jq_gb=${1##*[/=]}
+    while :; do
+      case "$jq_gb" in [0-9]?*|'<'?*|'>'?*|'|'?*|'&'?*) jq_gb=${jq_gb#?} ;; *) break ;; esac
+    done
+    case "$jq_gb" in
+      [gG][hH]) return 0 ;;
+      ''|*[[:space:]]*) return 1 ;;
+      *[#^]*) return 0 ;;
+      *[\*?[]*) ;;
+      *) return 1 ;;
+    esac
+    for jq_gn in gh GH Gh gH; do
+      case "$jq_gn" in $jq_gb) return 0 ;; esac
+    done
+    return 1
+  }
+  # An echo argument in the body of a while loop a gh pipe feeds: only plain
+  # $name or ${name} references: an expansion flag, a modifier or a nested
+  # expansion can run the value. A redirection there drops the program anyway.
+  jq_body_echo_ok() {
+    [ "$jq_sink:$jq_state:$jq_cmdname" = 2:other:echo ] || return 1
+    JQ_DV=${jq_rec#?} LC_ALL=C awk 'BEGIN {
+      v = ENVIRON["JQ_DV"]; gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", v)
+      gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "", v)
+      exit index(v, "$") || index(v, "`") || substr(v, 1, 1) == "~"
+    }'
+  }
+  jq_out_file() {
+    [ "$jq_state" != ghopt ] || jq_seg_bad=1
+    [ -z "$jq_sink" ] || jq_ghpend=
+  }
   jq_try_rewrite() {
     case "$jq_tool" in
       sed) jq_new=$(sed_script_without_regex "$jq_filter") || return 0 ;;
       *) jq_new=$(jq_filter_without_field_names "$jq_filter") ;;
     esac
     [ "$jq_new" = "$jq_filter" ] && return 0
-    jq_expected=$(printf '%s\n' "$jq_records" | JQ_NEW=$jq_new awk -v k="$jq_filter_at" '
+    jq_expected=$(printf '%s\n' "$jq_records" | JQ_NEW=$jq_pre$jq_new awk -v k="$jq_filter_at" '
       NR == k { print "0" ENVIRON["JQ_NEW"]; next } { print }')
     for jq_form in single double bare; do
       case "$jq_form:$jq_filter" in
         single:*\'*) continue ;;
-        single:*) jq_old="'$jq_filter'" jq_repl="'$jq_new'" ;;
+        single:*) jq_old="$jq_pre'$jq_filter'" jq_repl="$jq_pre'$jq_new'" ;;
         double:*\"*|double:*\\*|double:*'$'*|double:*'`'*) continue ;;
-        double:*) jq_old="\"$jq_filter\"" jq_repl="\"$jq_new\"" ;;
+        double:*) jq_old="$jq_pre\"$jq_filter\"" jq_repl="$jq_pre\"$jq_new\"" ;;
         # Unquoted, only a plain field chain is sure to stay one literal
         # word: zsh extended glob also expands `#` and `^`.
         bare:*[!A-Za-z0-9_.]*) continue ;;
-        bare:*) jq_old=$jq_filter jq_repl=$jq_new ;;
+        bare:*) jq_old=$jq_pre$jq_filter jq_repl=$jq_pre$jq_new ;;
       esac
       jq_candidate=$(JQ_CMD=$jq_cmd JQ_OLD=$jq_old JQ_REPL=$jq_repl LC_ALL=C awk 'BEGIN {
         s = ENVIRON["JQ_CMD"]; p = index(s, ENVIRON["JQ_OLD"])
@@ -9417,7 +9463,15 @@ $jq_records
   }
   jq_end_segment() {
     [ "$jq_state:$jq_seg_bad" = after:0 ] && jq_try_rewrite
-    jq_state=start jq_cmdw=
+    if [ "$jq_sink" = 1 ]; then
+      [ "${1-}" = '|' ] || { jq_ghq=$jq_ghq$jq_ghpend; jq_ghpend=; }
+      jq_sink=
+    fi
+    if [ "$jq_state:$jq_seg_bad" = ghopt:0 ]; then
+      if [ "${1-}" = '|' ]; then jq_ghpend=$jq_ghpend$jq_ghseg; else jq_ghq=$jq_ghq$jq_ghseg; fi
+    fi
+    [ "${1-}:$jq_sink" != '|:' ] || [ -z "$jq_ghpend" ] || jq_sinkwant=1
+    jq_state=start jq_cmdw= jq_ghseg=
   }
   jq_bail() {
     printf '%s' "$jq_orig"
@@ -9434,6 +9488,34 @@ $jq_records
     case "$jq_prev:$jq_rec" in "3(:3)") jq_bail ;; esac
     jq_before=$jq_prev
     jq_prev=$jq_rec
+    # Output of a loop, condition, group or substitution can go on past its
+    # closer; only an end of the list or another closer may follow one. A
+    # process substitution feeds a command with what runs inside it, and
+    # exec can send all later output to a file.
+    if [ "$jq_err2" = 1 ]; then
+      jq_err2=0
+      [ "$jq_rec" = "3&" ] || jq_out_file
+    fi
+    # zsh runs that loop in this shell, so the names it read stay set (and
+    # exported, when the shell exports what it sets): nothing may follow it.
+    if [ "$jq_loopend" = 1 ]; then
+      case "$jq_rec" in 0done) ;; *) jq_loopend=2 ;; esac
+    elif [ "$jq_loopend" = 2 ]; then
+      jq_ghbad=1
+    fi
+    # A group or subshell in the pipe a gh feeds is not read as a filter.
+    case "$jq_rec" in
+      3*) if [ "$jq_sinkwant" = 1 ] || [ -n "$jq_sink" ]; then jq_ghpend= jq_sinkwant=0 jq_sink=; fi ;;
+    esac
+    if [ "$jq_closer" = 1 ]; then
+      jq_closer=0
+      case "$jq_rec" in "0;"|"0&&"|"0||"|"3)"|0done|0fi|0esac) ;; *) jq_ghbad=1 ;; esac
+    fi
+    case "$jq_rec" in
+      "3)"|0done|0fi|0esac) jq_closer=1 ;;
+      0exec) jq_ghbad=1 ;;
+      "3(") case "$jq_before" in 0*'<'|0*'>'|0*=) jq_ghbad=1 ;; esac ;;
+    esac
     case "$jq_rec" in
       0eval|0trap|0function) jq_bail ;;
       # The `&` of `2>&1` keeps jq's arguments going, so a later -f is still
@@ -9441,10 +9523,11 @@ $jq_records
       # more arguments and keeps the command unchanged.
       3'&')
         case "$jq_state:$jq_before" in
-          after:*'>'|after:*'<') continue ;;
-          opt:*|operand:*|after:*) jq_seg_bad=1 ;;
+          after:*'>'|after:*'<'|ghopt:*'>'|ghopt:*'<') continue ;;
+          opt:*|operand:*|after:*|ghopt:*) jq_seg_bad=1 ;;
         esac
         jq_end_segment
+        jq_broke=1
         break
         ;;
       # A record cannot tell a `{ ...; }` group from brace expansion, which
@@ -9464,7 +9547,8 @@ $jq_records
         jq_crossed=1
         continue
         ;;
-      0'|'|3*) jq_end_segment; continue ;;
+      0'|') jq_end_segment '|'; continue ;;
+      3*) jq_end_segment; continue ;;
       0*) ;;
       4*)
         case "$jq_mode:$jq_state:$jq_tool:$jq_rec" in
@@ -9475,8 +9559,9 @@ $jq_records
             case "$jq_vars" in *" $jq_var "*) continue ;; esac
             ;;
         esac
-        [ "$jq_state" = opt ] && [ "$jq_need" -gt 0 ] || jq_bail
+        [ "$jq_state" = opt ] && [ "$jq_need" -gt 0 ] || jq_body_echo_ok || jq_bail
         ;;
+      1*) jq_body_echo_ok || jq_bail ;;
       *) jq_bail ;;
     esac
     jq_word=${jq_rec#?}
@@ -9487,6 +9572,25 @@ $jq_records
       start:.|start:source|other:.|other:source|*:eval|*:trap|*:function) jq_bail ;;
     esac
     if [ "$jq_state" = start ]; then
+      # What a gh program prints can reach the commands its pipe feeds, as
+      # in sink_ok: each must be a plain text filter, or, in `all` mode, a
+      # while loop that only reads and prints lines.
+      if [ "$jq_sinkwant" = 1 ]; then
+        jq_sinkwant=0
+        case "$jq_rec" in
+          0wc|0head|0tail|0sort|0tr|0cut|0nl|0grep|0egrep|0fgrep|0column|0cat|0jq)
+            jq_sink=1 jq_sinkcmd=$jq_word ;;
+          0while) if [ "$jq_mode" = all ]; then jq_sink=2; else jq_ghpend=; fi ;;
+          *) jq_ghpend= ;;
+        esac
+      elif [ "$jq_sink" = 2 ]; then
+        case "$jq_rec" in
+          0read|0echo|0printf|0do) ;;
+          # The loop ends a filter segment: a pipe after it is read again.
+          0done) jq_sink=1 jq_sinkcmd=done jq_loopend=1 ;;
+          *) jq_ghpend= jq_sink= ;;
+        esac
+      fi
       # A glob can expand to a command name such as eval (`ev?l`); zsh
       # extended glob adds `#` and `^`.
       case "$jq_word" in *[\*?[#^]*) jq_bail ;; esac
@@ -9508,9 +9612,13 @@ $jq_records
         *:0jq|*:0sed|:0/usr/bin/jq|:0/bin/jq|:0/usr/local/bin/jq|:0/opt/homebrew/bin/jq|\
         :0/usr/bin/sed|:0/bin/sed|:0/usr/local/bin/sed|:0/opt/homebrew/bin/sed)
           jq_tool=${jq_word##*/} jq_state=opt jq_need=0 jq_seg_bad=0 jq_e=0 ;;
-        *:0gh) jq_state=ghopt jq_seg_bad=0 jq_ghnext=0 jq_ghn=0 jq_ghsub= jq_ghprev= jq_ghdd=0 ;;
-        *) jq_state=other ;;
+        *:0gh) jq_state=ghopt jq_seg_bad=0 jq_ghnext=0 jq_ghn=0 jq_ghsub= jq_ghprev= jq_ghdd=0 jq_ghseg= jq_ghnp=0 ;;
+        *) jq_state=other jq_cmdname=$jq_word ;;
       esac
+      # Only a bare gh at a command start runs the gh a PATH lookup finds:
+      # `command gh`, a path to gh or gh behind a launcher keeps every gh
+      # program as written.
+      case "$jq_state:$jq_cmdw" in ghopt:) ;; *) ! jq_names_gh "$jq_word" || jq_ghbad=1 ;; esac
       jq_cmdw=
       if [ "$jq_state:$jq_tool:$jq_crossed" = opt:sed:1 ]; then jq_state=other; continue; fi
       if [ "$jq_state" != opt ] && jq_names_tool "$jq_word"; then jq_bail; fi
@@ -9529,7 +9637,14 @@ $jq_records
         if [ "$jq_ghnext" = 1 ]; then
           jq_ghnext=0
           # A redirection is no filter word: it goes on to the checks below.
-          case "$jq_word" in *'<'*|*'>'*) ;; *) continue ;; esac
+          # A literal program word is rewritten once the segment ends well.
+          case "$jq_word" in
+            *'<'*|*'>'*) ;;
+            *)
+              case "$jq_rec" in 0*) jq_ghseg="$jq_ghseg $jq_i" ;; esac
+              continue
+              ;;
+          esac
         fi
         jq_ghn=$((jq_ghn + 1))
         case "$jq_ghn" in
@@ -9537,25 +9652,56 @@ $jq_records
           2) [ "$jq_ghsub" = api ] || jq_ghsub="$jq_ghsub $jq_word" ;;
         esac
         [ "$jq_word" != -- ] || jq_ghdd=1
-        if [ "$jq_word" = --jq ]; then
-          [ "$jq_ghdd" = 0 ] || jq_bail
+        # The same holds for -q, --template and -t (and the --jq= and
+        # --template= forms), whose value is a program gh runs itself: a jq
+        # filter or a Go template, which opens no file it names (#662).
+        # Where one of those is not that option for sure, it is a plain word,
+        # but --jq still stops the rewrite.
+        case "$jq_rec" in
+          0--jq|0-q|0--template|0-t|0--jq=?*|0--template=?*) jq_ghok=1 ;;
+          *) jq_ghok= ;;
+        esac
+        if [ -n "$jq_ghok" ]; then
+          # With two programs, gh runs only one: rewrite neither.
+          jq_ghnp=$((jq_ghnp + 1))
+          [ "$jq_ghnp" = 1 ] || jq_seg_bad=1
+          [ "$jq_ghdd" = 0 ] || jq_ghok=0
           case "$jq_ghsub" in
             api|'run view'|'run list'|'pr view'|'pr list'|'pr checks'|'pr status'|\
             'issue view'|'issue list'|'issue status'|'release view'|'release list'|\
             'repo view'|'repo list') ;;
-            *) jq_bail ;;
+            *) jq_ghok=0 ;;
           esac
           case "$jq_ghprev" in
             --paginate|--slurp|--include|-i|--silent|--verbose) ;;
-            -*) jq_bail ;;
+            -*) jq_ghok=0 ;;
           esac
-          jq_ghnext=1
-          continue
+          case "$jq_ghok:$jq_word" in
+            0:--jq|0:--jq=*) jq_bail ;;
+            1:*=*)
+              case "$jq_word" in *'<'*|*'>'*) ;; *) jq_ghseg="$jq_ghseg $jq_i=" ;; esac
+              continue
+              ;;
+            1:*) jq_ghnext=1; continue ;;
+          esac
         fi
         jq_ghprev=$jq_word
         ;;
     esac
     if jq_names_tool "$jq_word"; then jq_bail; fi
+    ! jq_names_gh "$jq_word" || jq_ghbad=1
+    # Output sent to a file can reach a later command that opens the names
+    # in it, so a gh program written there is kept. A jq program prints to
+    # standard error too (debug, halt_error), so only 2>&1 is no file.
+    case "$jq_word" in
+      2'>') jq_err2=1 ;;
+      *'>'*) jq_out_file ;;
+    esac
+    # A long option or sort -o can make a filter open a list of files it
+    # reads (--files0-from) or write one.
+    if [ "$jq_sink" = 1 ]; then
+      case "$jq_sinkcmd:$jq_word" in *:--*|sort:-*o*) jq_ghpend= ;; esac
+    fi
     # Records drop quoting, so any glob character in an option value or a
     # later operand may expand into several words, or into an -f option
     # (zsh extended glob: `^x` is every file but x; zsh numeric range: `<0-9>`;
@@ -9564,6 +9710,7 @@ $jq_records
       opt:[12]:*[\*?[#^]*|operand:[12]:*[\*?[#^]*|after:*[\*?[#^]*) jq_seg_bad=1 ;;
       opt:[12]:*'<'*'>'*|operand:[12]:*'<'*'>'*|after:*'<'*'>'*) jq_seg_bad=1 ;;
       opt:[12]:'~'*|operand:[12]:'~'*|after:*:'~'*) jq_seg_bad=1 ;;
+      ghopt:*:*[\*?[#^]*|ghopt:*:*'<'*'>'*|ghopt:*:'~'*) jq_seg_bad=1 ;;
     esac
     case "$jq_state" in
       opt|operand)
@@ -9632,6 +9779,20 @@ $jq_records
     esac
   done
   jq_end_segment
+  # The gh programs go last: a word after one can still put a gh on disk
+  # (a loop runs it before the gh again), and a background job in `all`
+  # mode leaves words after it unread.
+  if [ -n "$jq_ghq" ] && [ "$jq_ghbad" = 0 ] && [ "$jq_mode:$jq_broke" != all:1 ]; then
+    IFS=' '
+    for jq_g in $jq_ghq; do
+      jq_filter_at=${jq_g%=}
+      jq_filter=$(printf '%s\n' "$jq_records" | sed -n "${jq_filter_at}p")
+      jq_filter=${jq_filter#0} jq_pre=
+      case "$jq_g" in *=) jq_pre=${jq_filter%%=*}= jq_filter=${jq_filter#*=} ;; esac
+      jq_tool=gh
+      jq_try_rewrite
+    done
+  fi
   printf '%s' "$jq_cmd"
 )
 

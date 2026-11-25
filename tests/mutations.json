@@ -1884,5 +1884,194 @@
     "tests": [
       "tests/jq-program-segments.sh"
     ]
+  },
+  {
+    "id": "bash-gh-segments-name-ignored",
+    "rule": "gh program in any segment (#662): a word that names gh keeps every gh program as written",
+    "old": "      [gG][hH]) return 0 ;;\n      ''|*[[:space:]]*) return 1 ;;",
+    "new": "      [gG][hH]) return 1 ;;\n      ''|*[[:space:]]*) return 1 ;;",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-case-variant",
+    "rule": "gh program in any segment (#662): a word that names gh in another case counts",
+    "old": "      [gG][hH]) return 0 ;;",
+    "new": "      gh) return 0 ;;",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-glob-ignored",
+    "rule": "gh program in any segment (#662): a glob word that can match gh counts",
+    "old": "      *[#^]*) return 0 ;;\n      *[\\*?[]*) ;;",
+    "new": "      *[#^]*) return 0 ;;\n      *[\\*?[]*) return 1 ;;",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-launcher",
+    "rule": "gh program in any segment (#662): only a bare gh at a command start qualifies",
+    "old": "case \"$jq_state:$jq_cmdw\" in ghopt:) ;;",
+    "new": "case \"$jq_state:$jq_cmdw\" in ghopt:*) ;;",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-sink-any",
+    "rule": "gh program in any segment (#662): a gh that feeds a pipe needs a plain text filter after it",
+    "old": "          *) jq_ghpend= ;;\n        esac\n      elif",
+    "new": "          *) jq_sink=1 jq_sinkcmd=$jq_word ;;\n        esac\n      elif",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-sink-long-option",
+    "rule": "gh program in any segment (#662): a long option of a filter after gh disqualifies",
+    "old": "case \"$jq_sinkcmd:$jq_word\" in *:--*|sort:-*o*) jq_ghpend= ;; esac",
+    "new": "case \"$jq_sinkcmd:$jq_word\" in sort:-*o*) jq_ghpend= ;; esac",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-while-body",
+    "rule": "gh program in any segment (#662): a while loop after gh may only read and print",
+    "old": "          *) jq_ghpend= jq_sink= ;;\n        esac\n      fi",
+    "new": "          *) ;;\n        esac\n      fi",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-pipe-commit",
+    "rule": "gh program in any segment (#662): the programs of a gh that feeds a pipe wait for the filters after it",
+    "old": "jq_ghpend=$jq_ghpend$jq_ghseg; else",
+    "new": "jq_ghq=$jq_ghq$jq_ghseg; else",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-two-programs",
+    "rule": "gh program in any segment (#662): two program options in one gh call keep both as written",
+    "old": "          [ \"$jq_ghnp\" = 1 ] || jq_seg_bad=1\n",
+    "new": "",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-background",
+    "rule": "gh program in any segment (#662): a background job in all mode keeps every gh program as written",
+    "old": " && [ \"$jq_mode:$jq_broke\" != all:1 ]; then",
+    "new": "; then",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-subshell-sink",
+    "rule": "gh program in any segment (#662): a group or subshell in the pipe a gh feeds disqualifies",
+    "old": "      3*) if [ \"$jq_sinkwant\" = 1 ] || [ -n \"$jq_sink\" ]; then jq_ghpend= jq_sinkwant=0 jq_sink=; fi ;;\n",
+    "new": "      3*) ;;\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-stdout-file",
+    "rule": "gh program in any segment (#662): gh standard output sent to a file disqualifies",
+    "old": "    [ \"$jq_state\" != ghopt ] || jq_seg_bad=1\n",
+    "new": "",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-sink-to-file",
+    "rule": "gh program in any segment (#662): a filter after gh that writes a file disqualifies",
+    "old": "    [ -z \"$jq_sink\" ] || jq_ghpend=\n",
+    "new": "",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-closer-pipe",
+    "rule": "gh program in any segment (#662): only an end of the list or another closer may follow a loop, condition or group closer",
+    "old": "      case \"$jq_rec\" in \"0;\"|\"0&&\"|\"0||\"|\"3)\"|0done|0fi|0esac) ;; *) jq_ghbad=1 ;; esac\n",
+    "new": "      :\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-process-subst",
+    "rule": "gh program in any segment (#662): a gh inside a process substitution keeps every gh program as written",
+    "old": "      \"3(\") case \"$jq_before\" in 0*'<'|0*'>'|0*=) jq_ghbad=1 ;; esac ;;\n",
+    "new": "",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-exec",
+    "rule": "gh program in any segment (#662): an exec word keeps every gh program as written",
+    "old": "      0exec) jq_ghbad=1 ;;\n",
+    "new": "",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-equals-subst",
+    "rule": "gh program in any segment (#662): a zsh =(...) substitution keeps every gh program as written",
+    "old": "0*'<'|0*'>'|0*=) jq_ghbad=1 ;; esac ;;",
+    "new": "0*'<'|0*'>') jq_ghbad=1 ;; esac ;;",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-body-echo-plain",
+    "rule": "gh program in any segment (#662): an echo argument in a loop body may hold only plain $name references",
+    "old": "      exit index(v, \"$\") || index(v, \"`\") || substr(v, 1, 1) == \"~\"\n",
+    "new": "      exit 0\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-body-echo-only",
+    "rule": "gh program in any segment (#662): only an echo argument in a loop body may be an expansion",
+    "old": "    [ \"$jq_sink:$jq_state:$jq_cmdname\" = 2:other:echo ] || return 1\n",
+    "new": "    [ \"$jq_sink:$jq_state\" = 2:other ] || return 1\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-loop-end",
+    "rule": "gh program in any segment (#662): nothing may follow a while loop a gh pipe feeds",
+    "old": "    elif [ \"$jq_loopend\" = 2 ]; then\n      jq_ghbad=1\n",
+    "new": "    elif false; then\n      jq_ghbad=1\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-stderr-file",
+    "rule": "gh program in any segment (#662): standard error sent to a file disqualifies",
+    "old": "      [ \"$jq_rec\" = \"3&\" ] || jq_out_file\n",
+    "new": "      :\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
   }
 ]
