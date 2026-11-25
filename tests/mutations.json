@@ -2073,5 +2073,32 @@
     "tests": [
       "tests/gh-program-segments.sh"
     ]
+  },
+  {
+    "id": "bash-sink-uniq-output-operand",
+    "rule": "sink_ok: uniq with a second (output) operand is not a plain filter",
+    "old": "if (ops > 1) return 0",
+    "new": "if (ops > 9) return 0",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-sink-uniq-dash-operand",
+    "rule": "sink_ok: a lone dash counts as a uniq operand",
+    "old": "if (wv[g] == \"-\" || substr(wv[g], 1, 1) != \"-\") ops++",
+    "new": "if (substr(wv[g], 1, 1) != \"-\") ops++",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-sink-uniq-option-value",
+    "rule": "sink_ok: the value of uniq -f, -s or -w is no operand",
+    "old": "if (wv[g] ~ /^-[fsw]$/) g++",
+    "new": "if (0) g++",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
   }
 ]

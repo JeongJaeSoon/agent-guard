@@ -8544,7 +8544,7 @@ search_operand_spans() {
     # matched text of grep -o), so every command its pipeline feeds must be a
     # plain text filter: none that runs or opens what it reads (sh, xargs, a
     # pager with shell escapes).
-    function sink_ok(k,   j, f, g) {
+    function sink_ok(k,   j, f, g, ops) {
       for (j = wseg[k]; segpipe[j]; j++) {
         if (!((j + 1) in segfirst)) return 0
         f = segfirst[j + 1]
@@ -8562,6 +8562,15 @@ search_operand_spans() {
         # reads (--files0-from) or write one; every word must be literal.
         for (g = f; g <= nw && wseg[g] == wseg[f]; g++)
           if (bad(g) || substr(wv[g], 1, 2) == "--" || wv[f] == "sort" && wv[g] ~ /^-[A-Za-z]*o/) return 0
+        # The second operand of uniq is the file it writes its output to.
+        if (wv[f] == "uniq") {
+          ops = 0
+          for (g = f + 1; g <= nw && wseg[g] == wseg[f]; g++) {
+            if (wv[g] ~ /^-[fsw]$/) g++
+            else if (wv[g] == "-" || substr(wv[g], 1, 1) != "-") ops++
+          }
+          if (ops > 1) return 0
+        }
       }
       return 1
     }
