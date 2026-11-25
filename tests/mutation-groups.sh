@@ -18,9 +18,9 @@ fail=0
 echo "TAP version 13"
 shards=$(sed -n 's/^ *group: \[\(.*\)\] *$/\1/p' "$WF")
 check 0 "the workflow's own groups are accepted" "$shards"
-check 2 "a dropped bash shard is rejected" "core, handback, bash-1, bash-2, bash-4"
-check 2 "a dropped core group is rejected" "handback, bash-1, bash-2, bash-3, bash-4"
-check 2 "a repeated group is rejected" "core, core, handback, bash-1, bash-2, bash-3, bash-4"
-check 2 "an unknown group is rejected" "core, handback, bash-1, bash-2, bash-3, bash-4, extra"
+check 2 "a dropped bash shard is rejected" "core, handback, bash-1, bash-2, bash-3, bash-5, bash-6"
+check 2 "a dropped core group is rejected" "handback, bash-1, bash-2, bash-3, bash-4, bash-5, bash-6"
+check 2 "a repeated group is rejected" "core, core, handback, bash-1, bash-2, bash-3, bash-4, bash-5, bash-6"
+check 2 "an unknown group is rejected" "core, handback, bash-1, bash-2, bash-3, bash-4, bash-5, bash-6, extra"
 echo "1..$n"
 exit "$fail"
