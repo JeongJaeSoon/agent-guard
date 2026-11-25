@@ -531,5 +531,103 @@
     "classification": "must-fail",
     "description": "a while loop after gh writes the lines to a file a later command reads",
     "command": "gh api x --jq '.environment' | while read -r f; do echo x; done > list.txt; xargs cat < list.txt"
+  },
+  {
+    "id": "group-or-flow-1",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "for i in 1 2; do gh api x --jq '.environment'; done | xargs cat"
+  },
+  {
+    "id": "group-or-flow-2",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "if true; then gh api x --jq '.environment'; fi | xargs cat"
+  },
+  {
+    "id": "group-or-flow-3",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "(gh api x --jq '.environment') | xargs cat"
+  },
+  {
+    "id": "group-or-flow-4",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "(gh api x --jq '.environment') > list.txt; xargs cat < list.txt"
+  },
+  {
+    "id": "group-or-flow-5",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "xargs cat < <(gh api x --jq '.environment')"
+  },
+  {
+    "id": "group-or-flow-6",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "make; gh api x --jq '.environment' | X=$Y xargs cat; cat /dev/null"
+  },
+  {
+    "id": "group-or-flow-7",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "gh api x --jq '.environment' | while read -r f; do X=$f xargs cat; done"
+  },
+  {
+    "id": "group-or-flow-8",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "make; gh api x --jq '.environment' | uniq - list.txt; xargs cat < list.txt"
+  },
+  {
+    "id": "group-or-flow-9",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "x=$(gh api x --jq '.environment'); gh api y --input \"$x\""
+  },
+  {
+    "id": "group-or-flow-10",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "exec >list.txt; gh api x --jq '.environment'; exec >/dev/tty; xargs cat < list.txt"
+  },
+  {
+    "id": "group-or-flow-11",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "while true; do gh api x --jq '.environment'; done > list.txt; xargs cat < list.txt"
+  },
+  {
+    "id": "group-or-flow-12",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "x=$(gh api x --jq '.environment'); gh api y -F \"b=@$x\""
+  },
+  {
+    "id": "group-or-flow-13",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output that leaves a loop, condition, group, substitution or assignment-prefixed command for a command that opens names",
+    "command": "gh api x --jq '.environment' | while read -r a; do read -r f; done; gh api y --input \"$f\""
+  },
+  {
+    "id": "field-glued-expansion",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a glued --field value with @ and an expansion",
+    "command": "x=$(gh api x --jq '.environment'); gh api y --field=\"b=@$x\""
   }
 ]

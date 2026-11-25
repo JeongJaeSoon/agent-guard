@@ -2037,5 +2037,59 @@
     "tests": [
       "tests/gh-program-segments.sh"
     ]
+  },
+  {
+    "id": "bash-gh-segments-closer-pipe",
+    "rule": "gh program in any segment (#662): only an end of the list or another closer may follow a loop, condition or group closer",
+    "old": "      case \"$jq_rec\" in \"0;\"|\"0&&\"|\"0||\"|\"3)\"|0done|0fi|0esac) ;; *) jq_ghbad=1 ;; esac\n",
+    "new": "      :\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-process-subst",
+    "rule": "gh program in any segment (#662): a gh inside a process substitution keeps every gh program as written",
+    "old": "      \"3(\") case \"$jq_before\" in 0*'<'|0*'>') jq_ghbad=1 ;; esac ;;\n",
+    "new": "",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-exec",
+    "rule": "gh program in any segment (#662): an exec word keeps every gh program as written",
+    "old": "      0exec) jq_ghbad=1 ;;\n",
+    "new": "",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-input-expansion",
+    "rule": "gh program in any segment (#662): an expansion as an --input or -F value disqualifies",
+    "old": "        case \"$jq_before\" in 0--input|0-F|0--field|0-f|0--raw-field) return 1 ;; esac\n",
+    "new": "",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-field-at-expansion",
+    "rule": "gh program in any segment (#662): an expansion in a word with @ or a leading dash disqualifies",
+    "old": "        case \"${jq_rec#?}\" in -*|*@*) return 1 ;; esac\n",
+    "new": "",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-assign-in-sink",
+    "rule": "gh program in any segment (#662): an assignment prefix in the pipe a gh feeds disqualifies",
+    "old": "        [ \"$jq_sinkwant\" = 0 ] && [ \"$jq_sink\" != 2 ] || return 1\n",
+    "new": "",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
   }
 ]

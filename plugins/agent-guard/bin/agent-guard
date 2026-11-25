@@ -9372,7 +9372,7 @@ bash_neutralize_first_pipeline() (
   jq_pre= jq_ghq= jq_ghseg= jq_ghbad=0 jq_broke=0 jq_cmdname= jq_assign=0
   # Programs of a gh that feeds a pipe wait in jq_ghpend until every command
   # the pipe feeds is shown to only print what it reads (jq_sink).
-  jq_ghpend= jq_sink= jq_sinkwant=0 jq_sinkcmd= jq_dynout=0 jq_segout=0
+  jq_ghpend= jq_sink= jq_sinkwant=0 jq_sinkcmd= jq_dynout=0 jq_segout=0 jq_closer=0
   jq_cmd=$jq_orig
   jq_records=$(git_command_records "$jq_orig")
   jq_sed=0
@@ -9426,9 +9426,15 @@ $jq_records
     case "${jq_rec#?}" in *'<'*|*'>'*) return 1 ;; esac
     case "$jq_before" in 0*'<'|0*'>'|0*'>|') return 1 ;; esac
     case "$jq_state" in
-      ghopt) ;;
+      ghopt)
+        # Not the value of an option that opens a file, and no @file field.
+        case "$jq_before" in 0--input|0-F|0--field|0-f|0--raw-field) return 1 ;; esac
+        case "${jq_rec#?}" in -*|*@*) return 1 ;; esac
+        ;;
       start)
         [ "$jq_mode" = all ] && [ -z "$jq_cmdw" ] || return 1
+        # An assignment prefix would hide the command a gh pipe feeds.
+        [ "$jq_sinkwant" = 0 ] && [ "$jq_sink" != 2 ] || return 1
         jq_aname=${jq_rec#?}
         case "$jq_aname" in [A-Za-z_]*=*) ;; *) return 1 ;; esac
         jq_aname=${jq_aname%%=*}
@@ -9506,6 +9512,19 @@ $jq_records
     case "$jq_prev:$jq_rec" in "3(:3)") jq_bail ;; esac
     jq_before=$jq_prev
     jq_prev=$jq_rec
+    # Output of a loop, condition, group or substitution can go on past its
+    # closer; only an end of the list or another closer may follow one. A
+    # process substitution feeds a command with what runs inside it, and
+    # exec can send all later output to a file.
+    if [ "$jq_closer" = 1 ]; then
+      jq_closer=0
+      case "$jq_rec" in "0;"|"0&&"|"0||"|"3)"|0done|0fi|0esac) ;; *) jq_ghbad=1 ;; esac
+    fi
+    case "$jq_rec" in
+      "3)"|0done|0fi|0esac) jq_closer=1 ;;
+      0exec) jq_ghbad=1 ;;
+      "3(") case "$jq_before" in 0*'<'|0*'>') jq_ghbad=1 ;; esac ;;
+    esac
     case "$jq_rec" in
       0eval|0trap|0function) jq_bail ;;
       # The `&` of `2>&1` keeps jq's arguments going, so a later -f is still
@@ -9577,7 +9596,7 @@ $jq_records
       if [ "$jq_sinkwant" = 1 ]; then
         jq_sinkwant=0
         case "$jq_rec" in
-          0wc|0head|0tail|0sort|0uniq|0tr|0cut|0nl|0grep|0egrep|0fgrep|0column|0cat|0jq)
+          0wc|0head|0tail|0sort|0tr|0cut|0nl|0grep|0egrep|0fgrep|0column|0cat|0jq)
             jq_sink=1 jq_sinkcmd=$jq_word ;;
           0while) if [ "$jq_mode" = all ]; then jq_sink=2; else jq_ghpend=; fi ;;
           *) jq_ghpend= ;;
