@@ -16178,6 +16178,16 @@ secretish_env_values() {
       # find_quote_colon looks for it apart, so that a line without one
       # reads exactly as before.
       quote_colon_assignment = ":[\"'\''`][\"'\''`]" key "[\"'\''`][ \t]*:"
+      # A colon key at the very start of a JSON string value follows the
+      # colon and the quote that open that string
+      # (`"text":"password: <secret>"`), the place an `=` key is read from
+      # (#178, #657). The same quote right after the delimiter closes the
+      # string on an empty value, and that line reads as before. In the copy
+      # scan_line reads, the quote there can be an escaped one that opens the
+      # value, so the copy takes it and emit_value reads what it holds.
+      # find_leaf_colon looks for the key apart, as find_quote_colon does.
+      leaf_colon_assignment = ":\"" key "[ \t]*:[ \t]*[^ \t\r\"]"
+      leaf_colon_copy_assignment = ":\"" key "[ \t]*:[ \t]*[^ \t\r]"
       # Skipping after ANY colon-terminated token also let real structured log
       # lines through unmasked (`response: api_key: <secret>`), so only these
       # status words justify the skip. Deliberately short: an unlisted label
@@ -17906,6 +17916,19 @@ secretish_env_values() {
         quote_length = RLENGTH - 1
       }
     }
+    # The leftmost key that opens a JSON string value, from the quote
+    # through its delimiter, in leaf_colon_start/leaf_colon_length (0 and -1
+    # when there is none). A key holds no colon, so the delimiter is the
+    # first one after the quote.
+    function find_leaf_colon(low) {
+      leaf_colon_start = 0
+      leaf_colon_length = -1
+      if (copy_reading ? match(low, leaf_colon_copy_assignment) \
+                       : match(low, leaf_colon_assignment)) {
+        leaf_colon_start = RSTART + 1
+        leaf_colon_length = index(substr(low, RSTART + 1, RLENGTH - 1), ":")
+      }
+    }
     function find_assignment(low, delimiter, before) {
       assignment_start = 0
       assignment_length = -1
@@ -18035,6 +18058,11 @@ secretish_env_values() {
         if (quote_start > 0 && (colon_start == 0 || quote_start < colon_start)) {
           colon_start = quote_start
           colon_length = quote_length
+        }
+        find_leaf_colon(low)
+        if (leaf_colon_start > 0 && (colon_start == 0 || leaf_colon_start < colon_start)) {
+          colon_start = leaf_colon_start
+          colon_length = leaf_colon_length
         }
 
         start = eq_start
