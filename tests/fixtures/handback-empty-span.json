@@ -1,0 +1,226 @@
+[
+  {
+    "id": "es-paren-then-nothing",
+    "classification": "must-pass",
+    "expected": "pass",
+    "text": "- an empty value (`API_TOKEN=`, then nothing);",
+    "description": "issue shape 1: an empty code span in parentheses, a comma, then words that say nothing follows (#655)"
+  },
+  {
+    "id": "es-leave-empty-task-id",
+    "classification": "must-pass",
+    "expected": "pass",
+    "text": "Leave `API_TOKEN=` empty.\nThe task ID is task_{{DIGITS}}{{DIGITS}}.",
+    "description": "issue shape 2: the line says the span is empty, and a task ID stands on the line below (#655)"
+  },
+  {
+    "id": "es-leave-empty-version",
+    "classification": "must-pass",
+    "expected": "pass",
+    "text": "Leave `API_TOKEN=` empty.\nReproduced on v3.13.4 and origin/main.",
+    "description": "issue shape 2: the line says the span is empty, and a version number stands on the line below (#655)"
+  },
+  {
+    "id": "es-two-spans-unset",
+    "classification": "must-pass",
+    "expected": "pass",
+    "text": "Leave `API_TOKEN=` and `DB_PASSWORD=` unset.",
+    "description": "issue shape 3: two empty code spans joined by and, then a word that says they are unset (#655)"
+  },
+  {
+    "id": "es-other-key-blank",
+    "classification": "must-pass",
+    "expected": "pass",
+    "text": "Keep `CLIENT_SECRET=` blank.\nThen open the pull request.",
+    "description": "another key name and another word for empty, with a short English line below"
+  },
+  {
+    "id": "es-colon-after-span",
+    "classification": "must-pass",
+    "expected": "pass",
+    "text": "- `DB_PASSWORD=`: empty\n- the port: 5432",
+    "description": "a colon after the span, then the word empty"
+  },
+  {
+    "id": "es-comma-after-span",
+    "classification": "must-pass",
+    "expected": "pass",
+    "text": "The example file has `SESSION_SECRET=`, empty.\nSee #655 for the report.",
+    "description": "a comma after the span, then the word empty and a period"
+  },
+  {
+    "id": "es-two-spans-or",
+    "classification": "must-pass",
+    "expected": "pass",
+    "text": "Leave `API_TOKEN=` or `WORKER_TOKEN=` blank.\nEither one works for run 20261125.",
+    "description": "two empty code spans joined by or"
+  },
+  {
+    "id": "es-three-spans",
+    "classification": "must-pass",
+    "expected": "pass",
+    "text": "`DATABASE_URL=`, `REDIS_URL=` and `JWT_SECRET=` empty.\nThe rest of the file is unchanged.",
+    "description": "three empty code spans separated by a comma and by and"
+  },
+  {
+    "id": "es-capital-word",
+    "classification": "must-pass",
+    "expected": "pass",
+    "text": "`API_KEY=` (Empty)\nbuild 4821 passed",
+    "description": "the word for empty capitalized and in parentheses"
+  },
+  {
+    "id": "es-crlf",
+    "classification": "must-pass",
+    "expected": "pass",
+    "text": "Leave `API_TOKEN=` empty.\r\nThe task ID is task_{{DIGITS}}{{DIGITS}}.\r\n",
+    "description": "the same on CRLF lines"
+  },
+  {
+    "id": "es-value-after-word",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `API_TOKEN=` empty {{SECRET}}",
+    "description": "a value word after the word empty on the same line"
+  },
+  {
+    "id": "es-value-before-word",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "`API_TOKEN=` {{SECRET}} then nothing",
+    "description": "a value word between the span and the words that say nothing follows"
+  },
+  {
+    "id": "es-other-word-same-line",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `API_TOKEN=` empty qwzxkv\n{{SECRET}}",
+    "description": "a word outside the list on the same line keeps the old reading, so the value below still blocks"
+  },
+  {
+    "id": "es-no-empty-word-next-line",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Use `API_TOKEN=` there.\n{{SECRET}}",
+    "description": "the line does not say the span is empty, and a value stands on the line below"
+  },
+  {
+    "id": "es-punctuation-only-next-line",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Use `API_TOKEN=`,\n{{SECRET}}",
+    "description": "only a comma after the span, and a value on the line below"
+  },
+  {
+    "id": "es-connective-only-next-line",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Use `API_TOKEN=` and then\n{{SECRET}}",
+    "description": "only connectives after the span, and a value on the line below"
+  },
+  {
+    "id": "es-spans-only-next-line",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "`API_TOKEN=` and `DB_PASSWORD=`\n{{SECRET}}",
+    "description": "two empty spans and a connective with no word for empty, and a value on the line below"
+  },
+  {
+    "id": "es-word-then-connective",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "`API_TOKEN=` empty, then\n{{SECRET}}",
+    "description": "the line ends on a connective after the word empty, and a value stands on the line below"
+  },
+  {
+    "id": "es-span-holds-value",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `API_TOKEN={{SECRET}}` empty.",
+    "description": "the span holds a value after the equals sign"
+  },
+  {
+    "id": "es-span-holds-more",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Run `export API_TOKEN=` empty.\n{{SECRET}}",
+    "description": "the span holds more than a name and an equals sign"
+  },
+  {
+    "id": "es-double-quoted-key",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave \"API_TOKEN=\" empty.\n{{SECRET}}",
+    "description": "a double-quoted key is not a code span"
+  },
+  {
+    "id": "es-single-quoted-key",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave 'API_TOKEN=' empty.\n{{SECRET}}",
+    "description": "a single-quoted key is not a code span"
+  },
+  {
+    "id": "es-colon-key",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `api_token:` empty.\n{{SECRET}}",
+    "description": "a colon key in a code span is not an assignment with an equals sign"
+  },
+  {
+    "id": "es-word-with-suffix",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `API_TOKEN=` empty-{{SECRET}}.",
+    "description": "a value joined to the word empty by a hyphen"
+  },
+  {
+    "id": "es-word-with-cr",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `API_TOKEN=` empty.\r{{SECRET}}",
+    "description": "a lone carriage return inside the line, then a value"
+  },
+  {
+    "id": "es-word-with-nbsp",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `API_TOKEN=` empty {{SECRET}}",
+    "description": "a no-break space between the word empty and a value"
+  },
+  {
+    "id": "es-next-line-assignment",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `API_TOKEN=` empty.\nWORKER_TOKEN={{SECRET}}",
+    "description": "the empty span does not hide an assignment on the line below"
+  },
+  {
+    "id": "es-second-span-value",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `API_TOKEN=` and `DB_PASSWORD={{SECRET}}` unset.",
+    "description": "the second span holds a value"
+  },
+  {
+    "id": "es-lone-backquote",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "`API_TOKEN=` empty `\n{{SECRET}}`",
+    "description": "a backquote after the word empty opens a span that holds a value on the line below"
+  },
+  {
+    "id": "es-glued-word",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "`API_TOKEN=`empty\n{{SECRET}}",
+    "description": "the word empty glued to the closing backquote"
+  },
+  {
+    "id": "es-passphrase-after-word",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "`API_TOKEN=` empty blxhh qecgxolf ncbbzyelu pplnmp",
+    "description": "a generated passphrase after the word empty"
+  }
+]
