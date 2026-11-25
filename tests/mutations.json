@@ -1887,7 +1887,7 @@
   },
   {
     "id": "bash-gh-segments-name-ignored",
-    "rule": "gh program in any segment (#663): a word that names gh keeps every gh program as written",
+    "rule": "gh program in any segment (#662): a word that names gh keeps every gh program as written",
     "old": "      [gG][hH]) return 0 ;;\n      ''|*[[:space:]]*) return 1 ;;",
     "new": "      [gG][hH]) return 1 ;;\n      ''|*[[:space:]]*) return 1 ;;",
     "tests": [
@@ -1896,7 +1896,7 @@
   },
   {
     "id": "bash-gh-segments-case-variant",
-    "rule": "gh program in any segment (#663): a word that names gh in another case counts",
+    "rule": "gh program in any segment (#662): a word that names gh in another case counts",
     "old": "      [gG][hH]) return 0 ;;",
     "new": "      gh) return 0 ;;",
     "tests": [
@@ -1905,7 +1905,7 @@
   },
   {
     "id": "bash-gh-segments-glob-ignored",
-    "rule": "gh program in any segment (#663): a glob word that can match gh counts",
+    "rule": "gh program in any segment (#662): a glob word that can match gh counts",
     "old": "      *[#^]*) return 0 ;;\n      *[\\*?[]*) ;;",
     "new": "      *[#^]*) return 0 ;;\n      *[\\*?[]*) return 1 ;;",
     "tests": [
@@ -1914,7 +1914,7 @@
   },
   {
     "id": "bash-gh-segments-launcher",
-    "rule": "gh program in any segment (#663): only a bare gh at a command start qualifies",
+    "rule": "gh program in any segment (#662): only a bare gh at a command start qualifies",
     "old": "case \"$jq_state:$jq_cmdw\" in ghopt:) ;;",
     "new": "case \"$jq_state:$jq_cmdw\" in ghopt:*) ;;",
     "tests": [
@@ -1923,7 +1923,7 @@
   },
   {
     "id": "bash-gh-segments-redirect-expansion",
-    "rule": "gh program in any segment (#663): an expansion as a redirect target disqualifies",
+    "rule": "gh program in any segment (#662): an expansion as a redirect target disqualifies",
     "old": "    case \"$jq_before\" in 0*'<'|0*'>'|0*'>|') return 1 ;; esac\n",
     "new": "",
     "tests": [
@@ -1932,7 +1932,7 @@
   },
   {
     "id": "bash-gh-segments-expansion-any-command",
-    "rule": "gh program in any segment (#663): an expansion counts only as an echo or printf argument",
+    "rule": "gh program in any segment (#662): an expansion counts only as an echo or printf argument",
     "old": "        case \"$jq_cmdname\" in echo|printf) ;; *) return 1 ;; esac\n",
     "new": "",
     "tests": [
@@ -1941,7 +1941,7 @@
   },
   {
     "id": "bash-gh-segments-sink-any",
-    "rule": "gh program in any segment (#663): a gh that feeds a pipe needs a plain text filter after it",
+    "rule": "gh program in any segment (#662): a gh that feeds a pipe needs a plain text filter after it",
     "old": "          *) jq_ghpend= ;;\n        esac\n      elif",
     "new": "          *) jq_sink=1 jq_sinkcmd=$jq_word ;;\n        esac\n      elif",
     "tests": [
@@ -1950,7 +1950,7 @@
   },
   {
     "id": "bash-gh-segments-sink-long-option",
-    "rule": "gh program in any segment (#663): a long option of a filter after gh disqualifies",
+    "rule": "gh program in any segment (#662): a long option of a filter after gh disqualifies",
     "old": "case \"$jq_sinkcmd:$jq_word\" in *:--*|sort:-*o*) jq_ghpend= ;; esac",
     "new": "case \"$jq_sinkcmd:$jq_word\" in sort:-*o*) jq_ghpend= ;; esac",
     "tests": [
@@ -1959,7 +1959,7 @@
   },
   {
     "id": "bash-gh-segments-while-body",
-    "rule": "gh program in any segment (#663): a while loop after gh may only read and print",
+    "rule": "gh program in any segment (#662): a while loop after gh may only read and print",
     "old": "          *) jq_ghpend= jq_sink= ;;\n        esac\n      fi",
     "new": "          *) ;;\n        esac\n      fi",
     "tests": [
@@ -1968,7 +1968,7 @@
   },
   {
     "id": "bash-gh-segments-pipe-commit",
-    "rule": "gh program in any segment (#663): the programs of a gh that feeds a pipe wait for the filters after it",
+    "rule": "gh program in any segment (#662): the programs of a gh that feeds a pipe wait for the filters after it",
     "old": "jq_ghpend=$jq_ghpend$jq_ghseg; else",
     "new": "jq_ghq=$jq_ghq$jq_ghseg; else",
     "tests": [
@@ -1977,7 +1977,7 @@
   },
   {
     "id": "bash-gh-segments-two-programs",
-    "rule": "gh program in any segment (#663): two program options in one gh call keep both as written",
+    "rule": "gh program in any segment (#662): two program options in one gh call keep both as written",
     "old": "          [ \"$jq_ghnp\" = 1 ] || jq_seg_bad=1\n",
     "new": "",
     "tests": [
@@ -1986,7 +1986,7 @@
   },
   {
     "id": "bash-gh-segments-background",
-    "rule": "gh program in any segment (#663): a background job in all mode keeps every gh program as written",
+    "rule": "gh program in any segment (#662): a background job in all mode keeps every gh program as written",
     "old": " && [ \"$jq_mode:$jq_broke\" != all:1 ]; then",
     "new": "; then",
     "tests": [

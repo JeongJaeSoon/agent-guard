@@ -9224,7 +9224,7 @@ bash_neutralize_jq_field_names() (
   # up, the first pipeline alone is rewritten as before. A command with no
   # jq, or with no later segment or body, gives the same text either way.
   # The program of a gh query (--jq, -q, --template, -t) is rewritten the
-  # same way, with gh in place of jq (#663).
+  # same way, with gh in place of jq (#662).
   case "$nj_cmd" in
     *jq*|*gh*' -q'*|*gh*' -t'*|*gh*--template*) ;;
     *) bash_neutralize_first_pipeline "$nj_cmd"; exit 0 ;;
@@ -9641,7 +9641,7 @@ $jq_records
         [ "$jq_word" != -- ] || jq_ghdd=1
         # The same holds for -q, --template and -t (and the --jq= and
         # --template= forms), whose value is a program gh runs itself: a jq
-        # filter or a Go template, which opens no file it names (#663).
+        # filter or a Go template, which opens no file it names (#662).
         # Where one of those is not that option for sure, it is a plain word,
         # but --jq still stops the rewrite.
         case "$jq_rec" in
