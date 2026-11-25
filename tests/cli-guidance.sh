@@ -26,6 +26,9 @@ rm -f "$SYS_BIN/agent-guard" "$SYS_BIN/gitleaks" "$SYS_BIN/jq"
 ln -s "$REAL_JQ" "$SYS_BIN/jq"
 BASE_PATH=$SYS_BIN
 export AGENT_GUARD_GITLEAKS_BIN_DIR="$CASE_ROOT/no-gitleaks"
+# The caller's shell-integration marker would silence the SessionStart setup
+# notice that the temporary HOME below is meant to produce.
+unset AGENT_GUARD_SHELL_INIT_VERSION
 HOME_DIR="$CASE_ROOT/home"
 mkdir -p "$HOME_DIR"
 

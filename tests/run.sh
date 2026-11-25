@@ -279,8 +279,11 @@ run_expect 0 "NUL redaction preserves clean leaves" sh "$ROOT/tests/unit-nul-red
 run_expect 0 "quote gate skips only texts the quote pass leaves unchanged" sh "$ROOT/tests/unit-quoted-words.sh"
 run_expect 0 "printenv argument boundaries preserve empty and public values" sh "$ROOT/tests/printenv-argument-contract.sh"
 run_expect 0 "known dotenv values are masked only in deny-read mask mode" sh "$ROOT/tests/known-env-value.sh"
+# A session that loaded the shell integration exports its marker to every
+# subprocess, and the marker silences the SessionStart setup notice. Run the
+# suite with one set, as an agent worker does, so it cannot depend on it (#619).
 run_expect 0 "CLI guidance names a command that runs for plugin-only installs" \
-  sh "$ROOT/tests/cli-guidance.sh"
+  env AGENT_GUARD_SHELL_INIT_VERSION=0.0.1 sh "$ROOT/tests/cli-guidance.sh"
 
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
