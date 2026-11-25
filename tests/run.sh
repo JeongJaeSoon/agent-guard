@@ -179,6 +179,7 @@ run_expect 0 "CI records completed suite timings and warns on job time budget" s
 run_expect 0 "the suites moved off partition 1 to balance the macOS jobs still run in partition 2" sh "$ROOT/tests/partition-membership.sh"
 run_expect 0 "core function contracts" sh "$ROOT/tests/unit-core.sh"
 run_expect 0 "rule mutation list and its workflow paths are valid" sh "$ROOT/tests/mutation-check.sh" --lint
+run_expect 0 "mutation workflow groups cover every mutation exactly once" sh "$ROOT/tests/mutation-groups.sh"
 run_expect 0 "framing producer contracts" sh "$ROOT/tests/unit-framing.sh"
 run_expect 0 "deny-path character producer contracts" sh "$ROOT/tests/unit-deny-path.sh"
 run_expect 0 "probe eligibility contracts" sh "$ROOT/tests/unit-probe.sh"
