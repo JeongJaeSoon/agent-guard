@@ -2201,6 +2201,36 @@
     ]
   },
   {
+    "id": "bash-git-diff-rev-tilde-refused",
+    "rule": "git diff before a search (#626): a revision with a tilde or caret keeps it a printing command",
+    "old": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\\/@~^-]*$/) return 0",
+    "new": "if (bad(k)) return 0",
+    "tests": [
+      "tests/search-operand-ground-truth.sh",
+      "tests/bash-path-text-data.sh"
+    ]
+  },
+  {
+    "id": "bash-git-diff-rev-leading-tilde",
+    "rule": "git diff before a search (#626): a word that starts with a tilde is refused",
+    "old": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\\/@~^-]*$/) return 0",
+    "new": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_~][A-Za-z0-9_.\\/@~^-]*$/) return 0",
+    "tests": [
+      "tests/search-operand-ground-truth.sh",
+      "tests/bash-path-text-data.sh"
+    ]
+  },
+  {
+    "id": "bash-git-diff-rev-assignment-tilde",
+    "rule": "git diff before a search (#626): a tilde in a word shaped like an assignment is refused",
+    "old": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\\/@~^-]*$/) return 0",
+    "new": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\\/@~^=-]*$/) return 0",
+    "tests": [
+      "tests/search-operand-ground-truth.sh",
+      "tests/bash-path-text-data.sh"
+    ]
+  },
+  {
     "id": "leaf-colon-key-unread",
     "rule": "scan_line_once: a colon key that opens a JSON string value is a candidate assignment",
     "old": "        if (leaf_colon_start > 0 && (colon_start == 0 || leaf_colon_start < colon_start)) {",
