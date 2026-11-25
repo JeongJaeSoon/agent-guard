@@ -2229,5 +2229,41 @@
       "tests/search-operand-ground-truth.sh",
       "tests/bash-path-text-data.sh"
     ]
+  },
+  {
+    "id": "bash-gh-query-sequenced-not-inert",
+    "rule": "program text after a gh query (#502): a query sequenced with ; or && is inert too",
+    "old": "if (mode == \"program\" && a == h && gh_query(h, e, 0)) continue",
+    "new": "if (mode == \"program\" && a == h && segpipe[wseg[k]] && gh_query(h, e, 0)) continue",
+    "tests": [
+      "tests/bash-path-text-data.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-query-download-inert",
+    "rule": "program text after a gh query (#502): a gh command that writes files is no query",
+    "old": "return sub1 ~ /^(api|run view|run list|run watch|pr view|pr list|pr checks|pr diff|pr status|issue view|issue list|issue status)$/",
+    "new": "return sub1 ~ /^(api|run view|run list|run watch|run download|pr view|pr list|pr checks|pr diff|pr status|issue view|issue list|issue status)$/",
+    "tests": [
+      "tests/bash-path-text-data.sh"
+    ]
+  },
+  {
+    "id": "bash-message-value-backslash-refused",
+    "rule": "message value (#502): a double-quoted value with a backslash before an ordinary character is one literal",
+    "old": "if (flat == v && !(q == \"\\\"\" && body ~ /[$`]/) && ++seen == want) {",
+    "new": "if (flat == v && !(q == \"\\\"\" && body ~ /[$`\\\\]/) && ++seen == want) {",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
+  },
+  {
+    "id": "bash-message-value-dollar-accepted",
+    "rule": "message value (#409): a double-quoted value with a dollar sign stays in the scan",
+    "old": "if (flat == v && !(q == \"\\\"\" && body ~ /[$`]/) && ++seen == want) {",
+    "new": "if (flat == v && !(q == \"\\\"\" && body ~ /[`]/) && ++seen == want) {",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
   }
 ]

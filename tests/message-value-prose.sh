@@ -59,6 +59,18 @@ check 0 "cd /tmp && git commit -am 'docs: .env guide'"
 check 0 "orca orchestration send --to lead --body 'blocked: printenv and gh auth token were refused'"
 
 check 2 'orca orchestration send --to x --subject s --body-file state.env'
+# Inside double quotes a backslash before an ordinary character is text, so
+# such a value is still one literal (#502 case 16: a report that quotes a
+# regex). A value with `$` or a backquote, escaped or not, stays in the scan,
+# and so does whatever follows a quote that an escaped backslash closes.
+check 0 'orca orchestration send --to lead --subject s --body "the regex \.env\.local matched a search word"'
+check 0 'orca orchestration send --to lead --subject blocked --body "blocked: sed -E '"'"'s/^[^\t]*\t[^\t]*\t[0-9TZ:.-]+ //'"'"' | head -40"'
+check 0 'git commit -m "docs: escape the dot in \.env\.local"'
+check 2 'orca orchestration send --to lead --subject s --body "a\\" --body-file state.env'
+check 2 'orca orchestration send --to lead --subject s --body "see \\$(cat .env)"'
+check 2 'orca orchestration send --to lead --subject s --body "see \$(cat .env)"'
+check 2 'orca orchestration send --to lead --subject s --body "see \`cat .env\`"'
+check 2 'orca orchestration send --to lead --subject s --body "say \"hi\" about .env.local"'
 # `ask --question` carries the question text as data too (#410); only `ask`
 # takes it, and a file-taking or substituted form is still checked.
 check 0 "orca orchestration ask --to lead --question 'is state.env still read by the loader?'"
