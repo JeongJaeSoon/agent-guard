@@ -544,5 +544,40 @@
     "classification": "must-still-block",
     "description": "a grep operand variable whose only assignment follows || and may not run",
     "command": "true || L=~/logs/app.log; grep \"accepted\" $L | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort"
+  },
+  {
+    "id": "grep-after-git-diff-tilde-revision",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern after git diff of a revision written with a tilde",
+    "command": "git diff HEAD~1 -- src | grep -c '\\.env'"
+  },
+  {
+    "id": "grep-after-git-diff-tilde-revision-output-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same revision before an option that names an output file",
+    "command": "git diff HEAD~1 --output=p -- src | grep -c '\\.env'"
+  },
+  {
+    "id": "grep-after-git-diff-caret-range",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern after git diff of a range written with a tilde and a caret",
+    "command": "git diff --stat HEAD~3..HEAD^ | grep -n 'secrets.yaml'"
+  },
+  {
+    "id": "grep-after-git-diff-home-tilde-word",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a git diff operand that starts with a tilde, which the shell expands",
+    "command": "git diff ~/x | grep -n 'secrets.yaml'"
+  },
+  {
+    "id": "grep-after-git-diff-assignment-tilde-word",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a git diff operand shaped like an assignment, where bash expands the tilde",
+    "command": "git diff a=~/x | grep -n 'secrets.yaml'"
   }
 ]
