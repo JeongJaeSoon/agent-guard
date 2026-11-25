@@ -4,6 +4,8 @@
 # sandbox whose protected files hold a canary. An allowed command must not
 # print the canary; a `read` command must both be blocked and print it when
 # run, which proves the harness can see a leak.
+# The rows below assume no grep or rg options come from the environment.
+unset RIPGREP_CONFIG_PATH GREP_OPTIONS
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 BIN="$ROOT/plugins/agent-guard/bin/agent-guard"
@@ -214,7 +216,31 @@ held cat list.txt >&grep .env
 held cat list.txt & grep .env
 held sudo grep VALUE .env
 held xargs grep .env < list.txt
-held rg -n 'process\.env' src
+allow rg -n '\.env\.local' src/a.ts notes.txt list.txt
+allow rg -n ".env" src/a.ts notes.txt list.txt
+allow grep -E -n '\.env\.local' src/a.ts notes.txt list.txt
+allow rg -i '\.env' src/a.ts notes.txt list.txt
+allow rg -n -e '\.env\.local' src/a.ts notes.txt list.txt
+allow rg --regexp='\.env\.local' src/a.ts notes.txt list.txt
+allow rg -n 'process\.env' src
+read rg -n VALUE .env.local
+read rg -n 'VALUE|\.env' src/a.ts .env
+read rg .env -e VALUE
+read rg .env --regexp VALUE
+read rg .env -f list.txt
+read A=-e; rg .env $A VALUE
+held rg -n VALUE --glob '.env*' .
+held rg -n VALUE --iglob '.env*' .
+held rg -f .env list.txt
+held rg --file=.env list.txt
+held rg --type-add x:*.ts '\.env' src/a.ts notes.txt
+held rg --engine auto '\.env' src/a.ts
+held rg $X '\.env' list.txt
+held echo RIPGREP_CONFIG_PATH; rg -n '\.env' list.txt
+held echo RIP"GREP_CONFIG"_PATH; rg -n '\.env' list.txt
+held echo RIPGREP_CONFIG_PATH; rg --no-config -n '\.env' list.txt
+held echo GREP_OPTIONS; grep -n '\.env' list.txt
+held echo GREP_\OPTIONS; grep -n '\.env' list.txt
 held rg --pre cat VALUE .env
 held rg -g '*.env' VALUE .
 held cd sub && openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=t -keyout fresh2.key -out t.crt
@@ -426,12 +452,30 @@ if command -v rg >/dev/null 2>&1; then
   (cd "$W" && RIPGREP_CONFIG_PATH="$CASE/rgrc" rg .env) </dev/null >"$CASE/out" 2>&1
   if grep -Fq "$canary" "$CASE/out"; then ok "control: a ripgrep config makes the pattern a path"; else bad "control: a ripgrep config makes the pattern a path"; fi
 fi
+# The search pattern of rg counts as text when no config file can add options:
+# RIPGREP_CONFIG_PATH is unset or empty for the hook, or --no-config is given.
+status=0
+(RIPGREP_CONFIG_PATH=; export RIPGREP_CONFIG_PATH; gate "rg -n '\\.env' list.txt") || status=$?
+if [ "$status" -eq 0 ]; then ok "rg pattern allowed under an empty config path"; else bad "rg pattern allowed under an empty config path (got $status)"; fi
+status=0
+(RIPGREP_CONFIG_PATH="$CASE/rgrc"; export RIPGREP_CONFIG_PATH; gate "rg --no-config -n '\\.env' list.txt") || status=$?
+if [ "$status" -eq 0 ]; then ok "rg --no-config pattern allowed under a config path"; else bad "rg --no-config pattern allowed under a config path (got $status)"; fi
+status=0
+(RIPGREP_CONFIG_PATH="$CASE/rgrc"; export RIPGREP_CONFIG_PATH; gate "rg -n '\\.env' src/a.ts notes.txt list.txt") || status=$?
+if [ "$status" -eq 2 ]; then ok "rg pattern kept under a config path with several files"; else bad "rg pattern kept under a config path with several files (got $status)"; fi
+status=0
+gate "cd $W && rg -n '\\.env\\.local' src/a.ts notes.txt list.txt" || status=$?
+if [ "$status" -eq 0 ]; then ok "rg pattern allowed after cd to an absolute path"; else bad "rg pattern allowed after cd to an absolute path (got $status)"; fi
 status=0
 gate 'grep .env' || status=$?
 if [ "$status" -eq 0 ]; then ok "grep pattern alone allowed"; else bad "grep pattern alone allowed (got $status)"; fi
 status=0
 (GREP_OPTIONS='-e VALUE'; export GREP_OPTIONS; gate 'grep .env') || status=$?
 if [ "$status" -eq 2 ]; then ok "grep pattern kept under GREP_OPTIONS"; else bad "grep pattern kept under GREP_OPTIONS (got $status)"; fi
+# A value the hook's own grep calls accept, so only the pattern rule can block.
+status=0
+(GREP_OPTIONS=--color=never; export GREP_OPTIONS; gate "grep -n '\\.env' list.txt") || status=$?
+if [ "$status" -eq 2 ]; then ok "grep pattern kept under a harmless GREP_OPTIONS"; else bad "grep pattern kept under a harmless GREP_OPTIONS (got $status)"; fi
 
 # A segment before the search can rewrite a file that a PATH entry resolves
 # the later command name to. PATH is changed only for the run, not the hook.
