@@ -203,6 +203,27 @@
     "description": "the second span holds a value"
   },
   {
+    "id": "es-value-named-span",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `API_TOKEN=` and `{{SECRET}}=` empty.",
+    "description": "a value written as the name in a second span"
+  },
+  {
+    "id": "es-digit-named-span",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `API_TOKEN=` and `PIN_{{DIGITS}}=` empty.",
+    "description": "a name with digits in a second span is outside the list"
+  },
+  {
+    "id": "es-passphrase-named-span",
+    "classification": "must-fail",
+    "expected": "block",
+    "text": "Leave `API_TOKEN=` and `correct_horse_battery_staple=` empty.",
+    "description": "a joined passphrase written as the name in a second span"
+  },
+  {
     "id": "es-lone-backquote",
     "classification": "must-fail",
     "expected": "block",

@@ -16710,12 +16710,14 @@ secretish_env_values() {
     # empty and holds nothing else: every word is a sentence mark, a
     # connective (`and`, `or`, `then`), another empty code span, or a word for
     # an empty value (`empty`, `unset`, `blank`, `nothing`), and the last
-    # word is one of the last kind. Any other word, or a line that ends on a
-    # connective, keeps the old reading (#655).
+    # word is one of the last kind. The name in another span is letters and
+    # underscores and not a value word, so a value written as a name stays a
+    # value. Any other word, or a line that ends on a connective, keeps the
+    # old reading (#655).
     #
     # Residual, accepted: a value that stands on a line below such a line
     # with no key of its own is not read as the value of the empty span.
-    function empty_statement(text, n, words, i, w, last) {
+    function empty_statement(text, n, words, i, w, last, name) {
       n = split(text, words, /[ \t\r]+/)
       last = 0
       for (i = 1; i <= n; i++) {
@@ -16728,7 +16730,11 @@ secretish_env_values() {
           continue
         }
         last = 0
-        if (w !~ /^(and|or|then)$/ && w !~ /^`[a-z_][a-z0-9_]*=`$/) return 0
+        if (w ~ /^(and|or|then)$/) continue
+        if (w !~ /^`[a-z_]+=`$/) return 0
+        name = words[i]
+        gsub(/^[(]?`|=`.*$/, "", name)
+        if (value_word(name)) return 0
       }
       return last
     }

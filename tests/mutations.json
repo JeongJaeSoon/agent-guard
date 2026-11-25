@@ -369,8 +369,26 @@
   {
     "id": "handback-empty-span-other-word",
     "rule": "empty_statement (#655): any other word on the line keeps the old reading",
-    "old": "=`$/) return 0\n",
-    "new": "=`$/) continue\n",
+    "old": "+=`$/) return 0\n",
+    "new": "+=`$/) continue\n",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-name-letters",
+    "rule": "empty_statement (#655): the name in another empty span is letters and underscores",
+    "old": "w !~ /^`[a-z_]+=`$/",
+    "new": "w !~ /^`[a-z0-9_]+=`$/",
+    "tests": [
+      "tests/handback-values.sh"
+    ]
+  },
+  {
+    "id": "handback-empty-span-name-value",
+    "rule": "empty_statement (#655): the name in another empty span is not a value word",
+    "old": "        if (value_word(name)) return 0\n",
+    "new": "",
     "tests": [
       "tests/handback-values.sh"
     ]
