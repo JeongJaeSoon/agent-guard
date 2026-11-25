@@ -9372,7 +9372,7 @@ bash_neutralize_first_pipeline() (
   jq_pre= jq_ghq= jq_ghseg= jq_ghbad=0 jq_broke=0 jq_cmdname= jq_assign=0
   # Programs of a gh that feeds a pipe wait in jq_ghpend until every command
   # the pipe feeds is shown to only print what it reads (jq_sink).
-  jq_ghpend= jq_sink= jq_sinkwant=0 jq_sinkcmd=
+  jq_ghpend= jq_sink= jq_sinkwant=0 jq_sinkcmd= jq_dynout=0 jq_segout=0
   jq_cmd=$jq_orig
   jq_records=$(git_command_records "$jq_orig")
   jq_sed=0
@@ -9438,6 +9438,7 @@ $jq_records
       other)
         [ "$jq_mode" = all ] || return 1
         case "$jq_cmdname" in echo|printf) ;; *) return 1 ;; esac
+        jq_dynout=1
         ;;
       *) return 1 ;;
     esac
@@ -9483,7 +9484,12 @@ $jq_records
       if [ "${1-}" = '|' ]; then jq_ghpend=$jq_ghpend$jq_ghseg; else jq_ghq=$jq_ghq$jq_ghseg; fi
     fi
     [ "${1-}:$jq_sink" != '|:' ] || [ -z "$jq_ghpend" ] || jq_sinkwant=1
-    jq_state=start jq_cmdw= jq_ghseg=
+    # An echo or printf of an expansion that feeds a pipe or a file may pass
+    # on what a gh program printed into a variable.
+    if [ "$jq_dynout" = 1 ]; then
+      [ "${1-}" != '|' ] && [ "$jq_segout" = 0 ] || jq_ghbad=1
+    fi
+    jq_state=start jq_cmdw= jq_ghseg= jq_dynout=0 jq_segout=0
   }
   jq_bail() {
     printf '%s' "$jq_orig"
@@ -9532,7 +9538,12 @@ $jq_records
         continue
         ;;
       0'|') jq_end_segment '|'; continue ;;
-      3*) jq_end_segment; continue ;;
+      3*)
+        # A group or subshell in the pipe a gh feeds is not read as a filter.
+        if [ "$jq_sinkwant" = 1 ] || [ -n "$jq_sink" ]; then jq_ghpend= jq_sinkwant=0 jq_sink=; fi
+        jq_end_segment
+        continue
+        ;;
       0*) ;;
       4*)
         case "$jq_mode:$jq_state:$jq_tool:$jq_rec" in
@@ -9574,7 +9585,8 @@ $jq_records
       elif [ "$jq_sink" = 2 ]; then
         case "$jq_rec" in
           0read|0echo|0printf|0do) ;;
-          0done) jq_ghq=$jq_ghq$jq_ghpend jq_ghpend= jq_sink= ;;
+          # The loop ends a filter segment: a pipe after it is read again.
+          0done) jq_sink=1 jq_sinkcmd=done ;;
           *) jq_ghpend= jq_sink= ;;
         esac
       fi
@@ -9677,6 +9689,12 @@ $jq_records
     esac
     if jq_names_tool "$jq_word"; then jq_bail; fi
     ! jq_names_gh "$jq_word" || jq_ghbad=1
+    # Standard output sent to a file can reach a later command that opens
+    # the names in it, so a gh program written there is kept.
+    case "$jq_word" in
+      2'>'*) ;;
+      *'>'*) jq_segout=1; [ "$jq_state" != ghopt ] || jq_seg_bad=1 ;;
+    esac
     # A long option or sort -o can make a filter open a list of files it
     # reads (--files0-from) or write one.
     if [ "$jq_sink" = 1 ]; then

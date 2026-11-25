@@ -1992,5 +1992,41 @@
     "tests": [
       "tests/gh-program-segments.sh"
     ]
+  },
+  {
+    "id": "bash-gh-segments-done-commits",
+    "rule": "gh program in any segment (#662): a pipe after a while loop is read again",
+    "old": "          0done) jq_sink=1 jq_sinkcmd=done ;;",
+    "new": "          0done) jq_ghq=$jq_ghq$jq_ghpend jq_ghpend= jq_sink= ;;",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-subshell-sink",
+    "rule": "gh program in any segment (#662): a group or subshell in the pipe a gh feeds disqualifies",
+    "old": "        if [ \"$jq_sinkwant\" = 1 ] || [ -n \"$jq_sink\" ]; then jq_ghpend= jq_sinkwant=0 jq_sink=; fi\n",
+    "new": "",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-stdout-file",
+    "rule": "gh program in any segment (#662): gh standard output sent to a file disqualifies",
+    "old": "      *'>'*) jq_segout=1; [ \"$jq_state\" != ghopt ] || jq_seg_bad=1 ;;",
+    "new": "      *'>'*) jq_segout=1 ;;",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-segments-echo-expansion-out",
+    "rule": "gh program in any segment (#662): an echo of an expansion that feeds a pipe or file disqualifies",
+    "old": "      [ \"${1-}\" != '|' ] && [ \"$jq_segout\" = 0 ] || jq_ghbad=1\n",
+    "new": "      :\n",
+    "tests": [
+      "tests/gh-program-segments.sh"
+    ]
   }
 ]

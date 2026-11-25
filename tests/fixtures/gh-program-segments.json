@@ -454,5 +454,68 @@
     "classification": "must-fail",
     "description": "names the program prints are joined by tr and read by wc as a list of files",
     "command": "make; gh api x --jq 'path(.environment) | join(\".\")' | tr '\\n' '\\0' | wc --files0-from=-"
+  },
+  {
+    "id": "while-then-xargs",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a while loop that prints each line, then xargs",
+    "command": "gh api x --template '{{.environment}}' | while read -r f; do echo \"$f\"; done | xargs cat"
+  },
+  {
+    "id": "while-then-shell",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a while loop that prints commands for a shell",
+    "command": "gh api x --jq '.environment' | while read -r f; do echo \"cat $f\"; done | sh"
+  },
+  {
+    "id": "subshell-then-xargs",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a subshell in the pipe before xargs",
+    "command": "gh api x --template '{{.environment}}' | (cat) | xargs cat"
+  },
+  {
+    "id": "subshell-then-shell",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a subshell in the pipe before a shell",
+    "command": "gh api x --jq '.environment' | (cat) | sh"
+  },
+  {
+    "id": "gh-output-to-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output written to a file a later command reads names from",
+    "command": "gh api x --jq '.environment' > list.txt; xargs cat < list.txt"
+  },
+  {
+    "id": "subst-echo-xargs",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output captured in a variable, echoed into xargs",
+    "command": "x=$(gh api x --jq '.environment'); echo \"$x\" | xargs cat"
+  },
+  {
+    "id": "subst-printf-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output captured in a variable, printed into a file",
+    "command": "x=$(gh api x --jq '.environment'); printf '%s\\n' \"$x\" > list.txt; xargs cat < list.txt"
+  },
+  {
+    "id": "plant-in-subst",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a substitution that plants a gh",
+    "command": "x=$(cp /bin/cat /tmp/gh); gh api x --jq '.environment'"
+  },
+  {
+    "id": "stderr-to-expansion",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh error output written to a path an expansion names, in a loop that runs gh again",
+    "command": "for i in 1 2; do gh api x --jq '.environment' 2> \"$p\"; done"
   }
 ]
