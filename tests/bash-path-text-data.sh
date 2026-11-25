@@ -117,7 +117,7 @@ PATH_TOOLS_CLAUDE_MASK="agent-guard: for an ordinary file, use the Read, Edit or
 PATH_LIMITS_MASK="agent-guard: apart from a masked view, checking a protected file or reading its metadata is not supported; if that or the content of a protected file is needed, ask the user. Do not weaken the deny list or reshape the command to pass this check."
 for MODE in block mask; do
   for HOST in claude codex; do
-    for probe in "test -f .env && echo present" "cat .env | head" "rg 'id_rsa' docs/"; do
+    for probe in "test -f .env && echo present" "cat .env | head" "rg x docs/id_rsa"; do
       check 2 "$HOST $MODE: path block for: $probe" "$probe"
       case $HOST.$MODE in
         claude.block) says "$HOST $MODE: path block names the Glob, Grep and Read tools" "$PATH_TOOLS_CLAUDE" ;;
