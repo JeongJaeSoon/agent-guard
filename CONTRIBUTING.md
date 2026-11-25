@@ -168,7 +168,7 @@ matrix can be verified before merging a CI change.
 | --- | --- |
 | Agent Guard | Real scanner against the checked-out tree |
 | Named suites (ubuntu-latest) | All suite partitions on Linux; real scanner integration and smoke test in partition 4 |
-| Named suites (macos-latest) | Core, host adapters and Git on every PR, as two jobs (partition 1 under that name, partition 3 as `Core, host adapters and Git (partition 3)`); all partitions on main and `release/` PRs, with the mock scanner |
+| Named suites (macos-latest) | Core, host adapters and Git as three jobs (partition 1 under that name, partitions 3 and 6 as `Core, host adapters and Git (partition 3)` and `(partition 6)`) and Command policies as two (partition 2 under that name, partition 7 as `Command policies (partition 7)`), plus every other partition, on main and `release/` PRs, with the mock scanner |
 | Test (ubuntu-latest), Test (macos-latest) | Full-matrix aggregate on main, release PRs and manual dispatch; names consumed by release |
 | PR subset test (ubuntu-latest), PR subset test (macos-latest) | Ordinary PR aggregate of every selected shard, including cancelled/failed jobs |
 | Lint | ShellCheck on tracked shell scripts and actionlint on workflows |
@@ -234,22 +234,25 @@ alone does not change the issue identity.
 `tests/run.sh` without `AGENT_GUARD_TEST_SHARD` runs every partition in
 order. CI runs them all on Linux for every PR and on both operating systems
 for main pushes and PRs whose source branch starts with `release/`. Other PRs
-also run partitions 1 and 3 on macOS, each on its own runner. Fixtures stay
+also run the macOS partitions on their own runners. Fixtures stay
 local to each partition, and moved groups initialize their own repositories,
 configuration and sessions.
 
 | Internal ID | Actions suite | Contents |
 | --- | --- | --- |
-| 1 | Core, host adapters and Git (with 3 on Linux; alone on macOS) | Core, host adapter and Git contracts, direct unit suites, protected-path fixture suites |
-| 2 | Command policies | Command policies, git aliases and mask suites, plus the Bash text-as-data and operand fixture suites moved from partition 1 |
-| 3 | Core, host adapters and Git (with 1 on Linux; `Core, host adapters and Git (partition 3)` on macOS) | Auto-staging cases and the heaviest hook fixture suites |
+| 1 | Core, host adapters and Git (with 3 and 6 on Linux; alone on macOS) | Core, host adapter and Git contracts, direct unit suites, protected-path fixture suites |
+| 2 | Command policies (with 7 on Linux; alone on macOS) | Command policies, git aliases and mask suites, plus the Bash text-as-data and operand fixture suites moved from partition 1 |
+| 3 | Core, host adapters and Git (with 1 and 6 on Linux; `Core, host adapters and Git (partition 3)` on macOS) | Auto-staging cases and the heaviest hook fixture suites |
 | 4 | CLI, scanner and output | Real scanner integration, output masking, PII and shell setup |
 | 5 | Shell navigation (Claude), Shell navigation (Codex) | Shell navigation, split by host |
+| 6 | Core, host adapters and Git (with 1 and 3 on Linux; `Core, host adapters and Git (partition 6)` on macOS) | The suites moved from partition 1 that each run the hook hundreds of times: the search, gh/jq program, here-document, environment-lookup, tool-coverage, plugin-management and long-input suites |
+| 7 | Command policies (with 2 on Linux; `Command policies (partition 7)` on macOS) | `tests/bash-path-text-data.sh` and `tests/handback-values.sh`, moved from partition 2 |
 
 Partitions are balanced by measured macOS job time, not assertion count. On
-Linux one core runner runs partitions 1 and 3 side by side, so the slower of
-the two sets the job time; on macOS each runs on its own runner to stay under
-the 25-minute job limit. Heavy fixture suites
+Linux one core runner runs partitions 1, 3 and 6 side by side, and one command
+runner runs 2 and 7, so the slowest of each set sets the job time; on macOS each
+runs on its own runner to stay under the 25-minute job limit (partitions 1 and 2
+alone measured 21 to 25 minutes before 6 and 7 were split off). Heavy fixture suites
 that run the hook hundreds of times go where there is room:
 `tests/key-name-masking.sh`, `tests/deny-path-regex-cache.sh` and
 `tests/message-value-prose.sh` run in partition 3, while
@@ -274,11 +277,14 @@ another partition exits with an error. The default `tests/run.sh` runs both
 hosts.
 
 Partition 1 checks that every partition is present in the matrix: partitions
-1 and 3 twice each (the Linux bundle and the two macOS entries), every other
+1, 2, 3, 6 and 7 twice each (the Linux bundle and a macOS entry), every other
 partition once, and the Claude and Codex navigation entries without a gap or a
-duplicate. The full matrix therefore has 11 test jobs; an ordinary PR runs 5 on
-Linux and the 2 macOS core jobs. Each core parent waits for every child and
-fails the job if any child fails or its output cannot be collected.
+duplicate. `tests/partition-membership.sh` checks the other side: every suite
+that `tests/run.sh` starts sits in exactly one partition block, and every other
+test file is started by a workflow, a suite or the Makefile. The full matrix
+therefore has 13 test jobs (5 on Linux, 8 on macOS); an ordinary PR runs the 5
+Linux jobs. Each core parent waits for every child and fails the job if any
+child fails or its output cannot be collected.
 
 ## Run lifecycle
 

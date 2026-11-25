@@ -143,9 +143,9 @@ chmod +x "$MOCK_BIN/gitleaks"
 # unset runs every shard in order. A shard skips the other shards' blocks, so it
 # must build its own fixtures rather than reuse one an earlier shard created.
 case ${AGENT_GUARD_TEST_SHARD:-} in
-  ''|1|2|3|4|5) ;;
+  ''|1|2|3|4|5|6|7) ;;
   *)
-    say "AGENT_GUARD_TEST_SHARD must be unset or 1-5, got: $AGENT_GUARD_TEST_SHARD" >&2
+    say "AGENT_GUARD_TEST_SHARD must be unset or 1-7, got: $AGENT_GUARD_TEST_SHARD" >&2
     exit 2
     ;;
 esac
@@ -176,7 +176,7 @@ if in_shard 1; then
 run_expect 0 "CI scope keeps reduced checks separate from release evidence" sh "$ROOT/tests/ci-scope.sh"
 run_expect 0 "workflow_dispatch runs never share a cancellable concurrency group" sh "$ROOT/tests/workflow-concurrency.sh"
 run_expect 0 "CI records completed suite timings and warns on job time budget" sh "$ROOT/tests/ci-timing.sh"
-run_expect 0 "the suites moved off partition 1 to balance the macOS jobs still run in partition 2" sh "$ROOT/tests/partition-membership.sh"
+run_expect 0 "every suite runs in exactly one partition and the suites moved to balance the macOS jobs stay where they were measured" sh "$ROOT/tests/partition-membership.sh"
 run_expect 0 "core function contracts" sh "$ROOT/tests/unit-core.sh"
 run_expect 0 "rule mutation list and its workflow paths are valid" sh "$ROOT/tests/mutation-check.sh" --lint
 run_expect 0 "mutation workflow groups cover every mutation exactly once" sh "$ROOT/tests/mutation-groups.sh"
@@ -186,13 +186,12 @@ run_expect 0 "probe eligibility contracts" sh "$ROOT/tests/unit-probe.sh"
 run_expect 0 "watchdog timer cleanup contracts" sh "$ROOT/tests/unit-watchdog.sh"
 run_expect 0 "status-label classification contracts" sh "$ROOT/tests/unit-status-label.sh"
 run_expect 0 "leftmost assignment is a candidate on every installed awk" sh "$ROOT/tests/assignment-leftmost.sh"
-run_expect 0 "large hook inputs stay within a control-relative budget" env AGENT_GUARD_TEST_REQUIRE_AWKS= AGENT_GUARD_TEST_LONG_INPUT_AWKS=default sh "$ROOT/tests/long-input.sh"
 suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.sh" | sort -u | tr '\n' ' ')
 ci_include=$(sh "$ROOT/.github/scripts/ci-scope.sh" push main < /dev/null | sed -n 's/^include=//p')
 ci_shards=$(printf '%s\n' "$ci_include" | jq -r '.[].shards' | tr ' ' '\n' | sort | tr '\n' ' ')
 ci_navigation_hosts=$(printf '%s\n' "$ci_include" | jq -r '.[].navigation_host // empty' | sort | tr '\n' ' ')
-if [ -n "$suite_shards" ] && [ "$suite_shards" = '1 2 3 4 5 ' ] \
-  && [ "$ci_shards" = '1 1 2 3 3 4 5 5 ' ] \
+if [ -n "$suite_shards" ] && [ "$suite_shards" = '1 2 3 4 5 6 7 ' ] \
+  && [ "$ci_shards" = '1 1 2 2 3 3 4 5 5 6 6 7 7 ' ] \
   && [ "$ci_navigation_hosts" = 'claude codex ' ]; then
   ok "every test shard and navigation host runs in the CI matrix"
 else
@@ -280,7 +279,6 @@ run_expect 0 "NUL redaction preserves clean leaves" sh "$ROOT/tests/unit-nul-red
 run_expect 0 "quote gate skips only texts the quote pass leaves unchanged" sh "$ROOT/tests/unit-quoted-words.sh"
 run_expect 0 "printenv argument boundaries preserve empty and public values" sh "$ROOT/tests/printenv-argument-contract.sh"
 run_expect 0 "known dotenv values are masked only in deny-read mask mode" sh "$ROOT/tests/known-env-value.sh"
-run_expect 0 "host plugin lifecycle delegates safely" sh "$ROOT/tests/plugin-management.sh"
 run_expect 0 "CLI guidance names a command that runs for plugin-only installs" \
   sh "$ROOT/tests/cli-guidance.sh"
 
@@ -1971,8 +1969,6 @@ expect_json_status 2 "Read with leading ./ is blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"./.env"}}' \
   hook-pre-tool
 
-run_expect 0 "every tool a shipped PreToolUse matcher sends reaches a check" \
-  sh "$ROOT/tests/tool-coverage.sh"
 
 expect_json_status 2 "Grep on explicit sensitive path is blocked" \
   '{"tool_name":"Grep","tool_input":{"pattern":"API_KEY","path":".env"}}' \
@@ -2997,22 +2993,8 @@ expect_json_status 0 "env VAR=x cmd piped (wrapped command, not bare env) is all
 # a new openssl output path are left out. These policy-only fixtures verify both
 # the actionable diagnosis and the supported structured/script alternatives;
 # none of the embedded commands is executed. The ground-truth script runs them.
-run_expect 0 "grep/rg search patterns and new openssl outputs leave out no protected read" \
-  sh "$ROOT/tests/search-operand-ground-truth.sh"
-run_expect 0 "runtime environment objects and jq interpolation leave out no protected read" \
-  sh "$ROOT/tests/runtime-global-text.sh"
-run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay blocked" \
-  sh "$ROOT/tests/env-lookup-allowlist.sh"
 run_expect 0 "hook process shortcuts answer exactly as the processes they replace (#407)" \
   sh "$ROOT/tests/hook-spawn-reduction.sh"
-run_expect 0 "cat/tee here-document bodies leave out no protected read" \
-  sh "$ROOT/tests/heredoc-body-text.sh"
-run_expect 0 "a gh --jq value is a jq filter and does not stop a later jq rewrite; real reads stay blocked" \
-  sh "$ROOT/tests/gh-jq-option.sh"
-run_expect 0 "a jq in any segment or loop body reads its program as jq text while nothing can change which jq runs; real reads stay blocked" \
-  sh "$ROOT/tests/jq-program-segments.sh"
-run_expect 0 "a gh query program in any segment or loop body reads as program text while nothing can change which gh runs; real reads stay blocked" \
-  sh "$ROOT/tests/gh-program-segments.sh"
 run_expect 0 "literal backquotes in quoted text read by echo or cat pass, runnable ones stay blocked" \
   sh "$ROOT/tests/literal-substitution-text.sh"
 run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \
@@ -3779,6 +3761,30 @@ else
 fi
 
 fi # end of shard 1
+
+if in_shard 6; then
+# Moved from partition 1, whose macOS job alone ran 21 to 25 minutes against the
+# 25-minute job limit. Each is a self-contained suite run. tests/partition-membership.sh
+# keeps every suite in exactly one partition.
+run_expect 0 "large hook inputs stay within a control-relative budget" env AGENT_GUARD_TEST_REQUIRE_AWKS= AGENT_GUARD_TEST_LONG_INPUT_AWKS=default sh "$ROOT/tests/long-input.sh"
+run_expect 0 "host plugin lifecycle delegates safely" sh "$ROOT/tests/plugin-management.sh"
+run_expect 0 "every tool a shipped PreToolUse matcher sends reaches a check" \
+  sh "$ROOT/tests/tool-coverage.sh"
+run_expect 0 "grep/rg search patterns and new openssl outputs leave out no protected read" \
+  sh "$ROOT/tests/search-operand-ground-truth.sh"
+run_expect 0 "runtime environment objects and jq interpolation leave out no protected read" \
+  sh "$ROOT/tests/runtime-global-text.sh"
+run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay blocked" \
+  sh "$ROOT/tests/env-lookup-allowlist.sh"
+run_expect 0 "cat/tee here-document bodies leave out no protected read" \
+  sh "$ROOT/tests/heredoc-body-text.sh"
+run_expect 0 "a gh --jq value is a jq filter and does not stop a later jq rewrite; real reads stay blocked" \
+  sh "$ROOT/tests/gh-jq-option.sh"
+run_expect 0 "a jq in any segment or loop body reads its program as jq text while nothing can change which jq runs; real reads stay blocked" \
+  sh "$ROOT/tests/jq-program-segments.sh"
+run_expect 0 "a gh query program in any segment or loop body reads as program text while nothing can change which gh runs; real reads stay blocked" \
+  sh "$ROOT/tests/gh-program-segments.sh"
+fi # end of shard 6
 
 if in_shard 2; then
 # Rank 8: shell builtins that print the whole environment.
@@ -5599,16 +5605,12 @@ fi # end of shard 3
 if in_shard 2; then
 # Moved here from partition 1, which alone took 24 to 25 minutes on macOS.
 # tests/partition-membership.sh keeps them in this partition.
-run_expect 0 "sed addresses, echo words and plain heredoc expansions are data; real reads stay blocked" \
-  sh "$ROOT/tests/bash-path-text-data.sh"
 run_expect 0 "a committed file is not blocked by its name; untracked, linked, outside and remote paths stay blocked" \
   sh "$ROOT/tests/tracked-file-exception.sh"
 run_expect 0 "program text of known tools is not a path operand; operands, literals that name a file and shell code stay blocked" \
   sh "$ROOT/tests/path-operands-only.sh"
 run_expect 0 "bracketed values mask whole and spaced angle placeholders are judged as one value on both hosts" \
   sh "$ROOT/tests/redaction-wrapped-values.sh"
-run_expect 0 "hand-back reports that name credential settings without values pass, real values still block" \
-  sh "$ROOT/tests/handback-values.sh"
 # A git alias runs the git command it expands to, read from the configuration
 # that command reads: its -c options and GIT_CONFIG_* variables, the repository
 # it runs in, include files and the global file. The hook runs with cwd=a and
@@ -5791,6 +5793,15 @@ run_expect 0 "deny-read mask mode returns a masked view or blocks without conten
 run_expect 0 "deny-read mask rules mask matches or block without content" sh "$ROOT/tests/deny-read-mask-rules.sh"
 
 fi # end of shard 2
+
+if in_shard 7; then
+# Moved from partition 2, whose macOS job ran 19 to 24 minutes against the
+# 25-minute job limit. tests/partition-membership.sh keeps these two here.
+run_expect 0 "sed addresses, echo words and plain heredoc expansions are data; real reads stay blocked" \
+  sh "$ROOT/tests/bash-path-text-data.sh"
+run_expect 0 "hand-back reports that name credential settings without values pass, real values still block" \
+  sh "$ROOT/tests/handback-values.sh"
+fi # end of shard 7
 
 if in_shard 5; then
 # A shell cd moves the commit to another repository: the scan must follow a
