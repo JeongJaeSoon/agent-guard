@@ -1,31 +1,10 @@
 [
   {
-    "id": "report-subst-then-gh",
-    "expected_status": 0,
-    "classification": "must-pass",
-    "description": "report case: a gh call after an assignment from a substitution that runs gh",
-    "command": "run=$(gh run list -R o/r --limit 1 --json databaseId --jq '.[0].databaseId'); gh api repos/o/r/actions/runs/$run/pending_deployments --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"'"
-  },
-  {
-    "id": "report-for-body",
-    "expected_status": 0,
-    "classification": "must-pass",
-    "description": "report case: a gh call in a for body after an echo of the loop variable",
-    "command": "for id in 1 2; do echo \"== $id\"; gh api repos/o/r/actions/runs/$id/pending_deployments --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"'; done"
-  },
-  {
     "id": "report-cd-and-gh",
     "expected_status": 0,
     "classification": "must-pass",
     "description": "report case: a gh call after cd and another gh query",
     "command": "cd /Users/jaesoon && gh run view 1 -R o/r --json status && gh api repos/o/r/actions/runs/1/pending_deployments --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"'"
-  },
-  {
-    "id": "report-assign-quoted-endpoint",
-    "expected_status": 0,
-    "classification": "must-pass",
-    "description": "report case: a gh call after an assignment, the endpoint a quoted expansion, piped to head",
-    "command": "R=o/r; gh api \"repos/$R/actions/runs/1/pending_deployments\" --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"' 2>&1 | head -5"
   },
   {
     "id": "report-script-then-gh",
@@ -91,20 +70,6 @@
     "command": "cd /tmp && gh pr list --json headRefName --template '{{range .}}{{.environment}}{{end}}'"
   },
   {
-    "id": "jq-alone-expansion-endpoint",
-    "expected_status": 0,
-    "classification": "must-pass",
-    "description": "a gh --jq filter alone with an expansion in the endpoint",
-    "command": "gh api \"repos/$R/environments\" --jq '.environments[].name'"
-  },
-  {
-    "id": "for-body-short-q",
-    "expected_status": 0,
-    "classification": "must-pass",
-    "description": "a -q filter in a for body",
-    "command": "for r in o/a o/b; do gh api repos/$r/environments -q '.environments[].name'; done"
-  },
-  {
     "id": "if-body-template",
     "expected_status": 0,
     "classification": "must-pass",
@@ -112,18 +77,60 @@
     "command": "if test -f a.json; then gh api repos/o/r/environments --template '{{range .environments}}{{.name}}{{end}}'; fi"
   },
   {
-    "id": "expansion-before-option",
-    "expected_status": 0,
-    "classification": "must-pass",
-    "description": "an expansion before the program option can make the program word at most a positional argument, which no query subcommand opens",
-    "command": "make; gh api x $O --jq '.environment'"
-  },
-  {
     "id": "sink-sort-unique",
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a gh program after another segment piped to sort -u",
     "command": "make; gh api repos/o/r/environments --jq '.environments[].name' | sort -u"
+  },
+  {
+    "id": "stderr-to-stdout-pipe",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "standard error joined to standard output, piped to head",
+    "command": "gh api repos/o/r/environments --jq '.environments[].name' 2>&1 | head -5"
+  },
+  {
+    "id": "report-subst-then-gh",
+    "expected_status": 2,
+    "classification": "residual",
+    "description": "report case: a gh call after an assignment from a substitution that runs gh (an expansion in the command keeps the program in the scan for now)",
+    "command": "run=$(gh run list -R o/r --limit 1 --json databaseId --jq '.[0].databaseId'); gh api repos/o/r/actions/runs/$run/pending_deployments --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"'"
+  },
+  {
+    "id": "report-for-body",
+    "expected_status": 2,
+    "classification": "residual",
+    "description": "report case: a gh call in a for body after an echo of the loop variable (an expansion in the command keeps the program in the scan for now)",
+    "command": "for id in 1 2; do echo \"== $id\"; gh api repos/o/r/actions/runs/$id/pending_deployments --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"'; done"
+  },
+  {
+    "id": "report-assign-quoted-endpoint",
+    "expected_status": 2,
+    "classification": "residual",
+    "description": "report case: a gh call after an assignment, the endpoint a quoted expansion, piped to head (an expansion in the command keeps the program in the scan for now)",
+    "command": "R=o/r; gh api \"repos/$R/actions/runs/1/pending_deployments\" --jq '.[]|\"\\(.environment.name) \\(.environment.id)\"' 2>&1 | head -5"
+  },
+  {
+    "id": "jq-alone-expansion-endpoint",
+    "expected_status": 2,
+    "classification": "residual",
+    "description": "a gh --jq filter alone with an expansion in the endpoint (an expansion in the command keeps the program in the scan for now)",
+    "command": "gh api \"repos/$R/environments\" --jq '.environments[].name'"
+  },
+  {
+    "id": "for-body-short-q",
+    "expected_status": 2,
+    "classification": "residual",
+    "description": "a -q filter in a for body (an expansion in the command keeps the program in the scan for now)",
+    "command": "for r in o/a o/b; do gh api repos/$r/environments -q '.environments[].name'; done"
+  },
+  {
+    "id": "expansion-before-option",
+    "expected_status": 2,
+    "classification": "residual",
+    "description": "an expansion before the program option (an expansion in the command keeps the program in the scan for now)",
+    "command": "make; gh api x $O --jq '.environment'"
   },
   {
     "id": "input-env-file",
@@ -734,5 +741,103 @@
     "classification": "must-fail",
     "description": "a subshell after gh hands the rest of its input to xargs",
     "command": "gh api x --jq '.environment' | (cat; xargs cat)"
+  },
+  {
+    "id": "stderr-halt-error",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "program output carried on through standard error or a shell variable",
+    "command": "gh api x --jq '.environment|halt_error' 2>list.txt; xargs cat < list.txt"
+  },
+  {
+    "id": "stderr-debug",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "program output carried on through standard error or a shell variable",
+    "command": "make; gh api x --jq '.environment|debug' 2>list.txt; xargs cat < list.txt"
+  },
+  {
+    "id": "stderr-append",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "program output carried on through standard error or a shell variable",
+    "command": "make; gh api x --jq '.environment|halt_error' 2>>list.txt; xargs cat < list.txt"
+  },
+  {
+    "id": "stderr-of-sink-jq",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "program output carried on through standard error or a shell variable",
+    "command": "make; gh api x --jq '.environment' | jq -R 'error' 2>list.txt; xargs cat < list.txt"
+  },
+  {
+    "id": "assign-home",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "program output carried on through standard error or a shell variable",
+    "command": "HOME=$(gh api x --jq '.environment'); git status"
+  },
+  {
+    "id": "assign-kubeconfig",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "program output carried on through standard error or a shell variable",
+    "command": "KUBECONFIG=$(gh api x --jq '.environment'); kubectl get pods"
+  },
+  {
+    "id": "assign-via-var-home",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "program output carried on through standard error or a shell variable",
+    "command": "x=$(gh api x --jq '.environment'); HOME=$x; cat ~/list"
+  },
+  {
+    "id": "assign-ps4",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "program output carried on through standard error or a shell variable",
+    "command": "x=$(gh api x --jq '.environment'); PS4=$x; set -x; true"
+  },
+  {
+    "id": "while-read-home",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "program output carried on through standard error or a shell variable",
+    "command": "gh api x --jq '.environment' | while read -r HOME; do echo; done; git status"
+  },
+  {
+    "id": "while-read-ps4",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "program output carried on through standard error or a shell variable",
+    "command": "gh api x --jq '.environment' | while read -r PS4; do echo; done; set -x; true"
+  },
+  {
+    "id": "zsh-all-export",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "program output carried on through standard error or a shell variable",
+    "command": "set -o ALL_EXPORT; x=$(gh api x --jq '.environment'); sh -c 'cat \"$x\"'"
+  },
+  {
+    "id": "body-echo-eval-flag",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an echo in the loop body whose expansion flag runs the value",
+    "command": "gh api x --jq '.environment' | while read -r f; do echo \"${(e)f}\"; done"
+  },
+  {
+    "id": "body-printf-var",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a printf in the loop body that names the read value",
+    "command": "gh api x --jq '.environment' | while read -r f; do printf -v \"$f\" x; done"
+  },
+  {
+    "id": "stderr-separate-word",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "standard error written to a file named in the next word",
+    "command": "gh api x --jq '.environment|halt_error' 2> list.txt; xargs cat < list.txt"
   }
 ]
