@@ -8467,12 +8467,17 @@ search_operand_spans() {
     }
     # `git diff` whose every word is literal and whose options are on this
     # list: none names an output file, an order file or a program to run.
+    # A revision may hold a tilde or a caret (`HEAD~1`, `main^`) after a
+    # name character: no shell expands a tilde there, and a zsh extended
+    # glob made of them matches only names that start the same way, so the
+    # word is still no option. A leading tilde, or one in a word shaped like
+    # an assignment (`a=~/x`, which bash expands), stays refused.
     function git_diff_prints(a, b,   k, dd) {
       if (wv[a] != "git" || a + 1 > b || wv[a + 1] != "diff") return 0
       dd = 0
       for (k = a; k <= b; k++) {
         if (quiet(k)) continue
-        if (bad(k)) return 0
+        if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\/@~^-]*$/) return 0
         if (k < a + 2 || dd || substr(wv[k], 1, 1) != "-") continue
         if (wv[k] == "--") { dd = 1; continue }
         if (wv[k] !~ /^(-U[0-9]+|--unified=[0-9]+|--stat|--numstat|--shortstat|--name-only|--name-status|--cached|--staged|--no-color|--no-ext-diff|--no-textconv|--no-renames|-M|-w|-b|--ignore-all-space|--ignore-space-change|--diff-filter=[A-Za-z]+)$/) return 0
