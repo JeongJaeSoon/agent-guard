@@ -256,6 +256,8 @@ held grep -oE '\.env' list.txt | uniq -f 1 - p
 allow grep -E '\.env' list.txt | uniq -c
 allow grep -E '\.env' list.txt | sort | uniq -f 1 -c
 allow grep -E '\.env' list.txt | uniq -s 2 -
+allow grep -E '\.env' list.txt | uniq -cf 1 -
+held grep -E '\.env' list.txt | uniq -cf 1 - p
 allow cd g && git grep -n 'process\.env' -- src
 allow cd g && git grep -n -E 'state\.env|tls\.key' -- src | head -5
 allow cd g && git grep -h -oE 'process\.env\.[A-Z]+' -- src | sort | uniq -c

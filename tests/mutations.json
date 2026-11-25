@@ -2095,8 +2095,17 @@
   {
     "id": "bash-sink-uniq-option-value",
     "rule": "sink_ok: the value of uniq -f, -s or -w is no operand",
-    "old": "if (wv[g] ~ /^-[fsw]$/) g++",
+    "old": "if (wv[g] ~ /^-[A-Za-z]*[fsw]$/) g++",
     "new": "if (0) g++",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-sink-uniq-cluster-value",
+    "rule": "sink_ok: a uniq option cluster ending in -f, -s or -w takes the next word",
+    "old": "if (wv[g] ~ /^-[A-Za-z]*[fsw]$/) g++",
+    "new": "if (wv[g] ~ /^-[fsw]$/) g++",
     "tests": [
       "tests/search-operand-ground-truth.sh"
     ]

@@ -8566,7 +8566,8 @@ search_operand_spans() {
         if (wv[f] == "uniq") {
           ops = 0
           for (g = f + 1; g <= nw && wseg[g] == wseg[f]; g++) {
-            if (wv[g] ~ /^-[fsw]$/) g++
+            # -f, -s and -w take the next word, also at the end of a cluster.
+            if (wv[g] ~ /^-[A-Za-z]*[fsw]$/) g++
             else if (wv[g] == "-" || substr(wv[g], 1, 1) != "-") ops++
           }
           if (ops > 1) return 0
