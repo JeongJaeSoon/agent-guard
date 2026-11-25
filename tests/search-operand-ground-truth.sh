@@ -54,7 +54,7 @@ gate() {
 
 runs_here() {
   case "$1" in
-    rg\ *|*'| rg '*) command -v rg >/dev/null 2>&1 ;;
+    rg\ *|*'| rg '*|*'; rg '*) command -v rg >/dev/null 2>&1 ;;
     *openssl*) command -v openssl >/dev/null 2>&1 ;;
     *) return 0 ;;
   esac
@@ -77,6 +77,7 @@ while read -r kind cmd; do
       else
         bad "blocked read (got $status): $cmd"
       fi
+      runs_here "$cmd" || { ok "# skip run, tool missing: $cmd"; continue; }
       (cd "$W" && sh -c "$cmd") </dev/null >"$CASE/out" 2>&1
       if grep -Fq "$canary" "$CASE/out"; then ok "control reads protected content: $cmd"; else bad "control did not read protected content: $cmd"; fi
       ;;
