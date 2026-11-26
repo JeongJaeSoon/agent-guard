@@ -318,6 +318,15 @@ held sort -o p list.txt; grep .env
 held cp shim pbin/grep; grep .env
 held cp notes.txt /tmp/n2.txt; grep .env
 held find . -name p -delete; grep .env
+held grep -E '\.env' list.txt | uniq - p
+held grep -E '\.env' list.txt | uniq -c - p
+held grep -E '\.env' list.txt | sort | uniq list.txt p
+held grep -oE '\.env' list.txt | uniq -f 1 - p
+allow grep -E '\.env' list.txt | uniq -c
+allow grep -E '\.env' list.txt | sort | uniq -f 1 -c
+allow grep -E '\.env' list.txt | uniq -s 2 -
+allow grep -E '\.env' list.txt | uniq -cf 1 -
+held grep -E '\.env' list.txt | uniq -cf 1 - p
 allow cd g && git grep -n 'process\.env' -- src
 allow cd g && git grep -n -E 'state\.env|tls\.key' -- src | head -5
 allow cd g && git grep -h -oE 'process\.env\.[A-Z]+' -- src | sort | uniq -c

@@ -2201,6 +2201,42 @@
     ]
   },
   {
+    "id": "bash-sink-uniq-output-operand",
+    "rule": "sink_ok: uniq with a second (output) operand is not a plain filter",
+    "old": "if (ops > 1) return 0",
+    "new": "if (ops > 9) return 0",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-sink-uniq-dash-operand",
+    "rule": "sink_ok: a lone dash counts as a uniq operand",
+    "old": "if (wv[g] == \"-\" || substr(wv[g], 1, 1) != \"-\") ops++",
+    "new": "if (substr(wv[g], 1, 1) != \"-\") ops++",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-sink-uniq-option-value",
+    "rule": "sink_ok: the value of uniq -f, -s or -w is no operand",
+    "old": "if (wv[g] ~ /^-[A-Za-z]*[fsw]$/) g++",
+    "new": "if (0) g++",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "bash-sink-uniq-cluster-value",
+    "rule": "sink_ok: a uniq option cluster ending in -f, -s or -w takes the next word",
+    "old": "if (wv[g] ~ /^-[A-Za-z]*[fsw]$/) g++",
+    "new": "if (wv[g] ~ /^-[fsw]$/) g++",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+      ]
+    },
+    {
     "id": "bash-git-diff-rev-tilde-refused",
     "rule": "git diff before a search (#626): a revision with a tilde or caret keeps it a printing command",
     "old": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\\/@~^-]*$/) return 0",
