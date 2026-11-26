@@ -82,6 +82,15 @@ for name in BIN_DIR GITLEAKS_CHECKSUMS_URL REPO PII_HOOK_REQUEST; do
 done
 expect "and their values are not printed" '! grep -F "setting  " "$CASE/err" | grep -qF -e zq9 -e "$CASE/links"'
 
+doctor $OFFLINE AGENT_GUARD_PROMPT_GUARD_MODE=block,warn AGENT_GUARD_SCAN_INPUT_MAX_BYTES=1 AGENT_GUARD_PII_TIMEOUT_SECONDS=0 \
+  AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB=5000
+expect "two accepted words joined are not one accepted value" 'line PROMPT_GUARD_MODE | grep -qF unrecognized'
+expect "numbers outside what the runtime accepts are marked" 'line SCAN_INPUT_MAX_BYTES | grep -qF unrecognized \
+  && line PII_TIMEOUT_SECONDS | grep -qF unrecognized && line GITLEAKS_HELPER_MAX_RSS_MIB | grep -qF unrecognized'
+doctor $OFFLINE AGENT_GUARD_PII_SKIP=EMAIL AGENT_GUARD_PII_PROVIDER=http
+expect "a skip list that the provider does not use is marked" 'line PII_SKIP | grep -qF unrecognized'
+doctor $OFFLINE AGENT_GUARD_PII_SKIP='EMAIL PHONE'
+expect "a space-separated skip list is accepted, as at runtime" '! line PII_SKIP | grep -qF unrecognized'
 doctor $OFFLINE AGENT_GUARD_PII_SKIP='*'
 expect "a list value is not expanded as a pathname pattern" 'line PII_SKIP | grep -qF unrecognized'
 
