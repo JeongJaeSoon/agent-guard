@@ -16,6 +16,8 @@ on:
       - 'tests/*.sh'
       - 'tests/*.py'
       - 'tests/helpers/**'
+      # An executable scanner stub the listed tests run, not fixture data.
+      - tests/fixtures/mock-gitleaks
       # tests/*.sh covers the listed tests below; --lint requires each by name.
       - tests/bash-path-text-data.sh
       - tests/colon-assignment-equivalence.sh

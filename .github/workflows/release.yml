@@ -374,6 +374,9 @@ jobs:
               if sh .github/scripts/release-checks.sh "$SOURCE_SHA" 0 "$workflow" > /dev/null 2>&1; then
                 echo "$workflow already passed at $SOURCE_SHA; not dispatching again"
               else
+                # A dispatch takes a branch, not a SHA: refuse once main moved.
+                git fetch origin main
+                [ "$(git rev-parse origin/main)" = "$SOURCE_SHA" ] || exit 1
                 gh workflow run "$workflow" --ref main
               fi
             done

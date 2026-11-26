@@ -376,4 +376,20 @@ jq -n --arg sha "$current" '[{workflow_runs:[{id:3,event:"workflow_dispatch",hea
 if grep -Fq 'workflow run mutation-check.yml' "$case_dir/dispatch.log"; then fail 'a passed workflow is not dispatched again'; fi
 grep -Fxq 'workflow run performance.yml --ref main' "$case_dir/dispatch.log" || fail 'a retry still measures the merge commit'
 rm "$case_dir/mutation-check.yml.json"
+# Main moved after the first check: refuse rather than dispatch a newer commit.
+(
+  cd "$pub"
+  : > "$case_dir/dispatch.log"
+  moved=$(git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p HEAD -m moved)
+  # The first fetch (the step's opening check) still sees the release; main
+  # moves before the dispatch.
+  : > "$case_dir/fetches"
+  printf '#!/bin/sh\nif [ "$1" = fetch ]; then echo x >> "$RELEASE_FIXTURE_DIR/fetches"; [ "$(wc -l < "$RELEASE_FIXTURE_DIR/fetches")" -lt 2 ] || "$REAL_GIT" update-ref refs/remotes/origin/main %s; exit 0; fi\nexec "$REAL_GIT" "$@"\n' "$moved" > "$case_dir/bin/git"
+  if MODE=publish SOURCE_SHA="$current" RELEASE_SHA="$current" RELEASE_BRANCH=main bash "$case_dir/dispatch-step.sh" > /dev/null 2>&1; then
+    exit 1
+  fi
+) || fail 'a moved main is refused before dispatch'
+printf '#!/bin/sh\nif [ "$1" = fetch ]; then exit 0; fi\nexec "$REAL_GIT" "$@"\n' > "$case_dir/bin/git"
+if grep -Fq 'workflow run mutation-check.yml' "$case_dir/dispatch.log"; then fail 'nothing is dispatched once main moved'; fi
+[ "$(wc -l < "$case_dir/fetches")" -ge 2 ] || fail 'main is checked again right before the dispatch'
 printf 'ok - the merge-commit fallback dispatches required workflows that a push does not start\n'

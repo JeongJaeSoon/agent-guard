@@ -505,13 +505,14 @@ trap - 0
 mutation_listed=$(mktemp)
 jq -r '[.[].tests[]] | unique | .[]' "$ROOT/tests/mutations.json" > "$mutation_listed"
 # The rule mutation check runs on a pull request that changes the rules, the
-# list, the checker or test code. A fixtures-only change skips it there, so
+# list, the checker or test code, including the scanner stub the tests run. A
+# change to fixture data only skips it there, so
 # release verification dispatches every group at the release SHA.
 mutation_workflow="$ROOT/.github/workflows/mutation-check.yml"
 mutation_paths=$(awk '/^  pull_request:$/ { on = 1; next } on && /^  [a-z_]+:/ { exit } on && /^      - / { sub(/^      - /, ""); gsub(/\047/, ""); print }' "$mutation_workflow" \
   | grep -Fxv -f "$mutation_listed" | LC_ALL=C sort)
 expected_mutation_paths=$(printf '%s\n' plugins/agent-guard/bin/agent-guard tests/mutations.json tests/mutation-check.sh \
-  .github/workflows/mutation-check.yml 'tests/*.sh' 'tests/*.py' 'tests/helpers/**' | LC_ALL=C sort)
+  .github/workflows/mutation-check.yml 'tests/*.sh' 'tests/*.py' 'tests/helpers/**' tests/fixtures/mock-gitleaks | LC_ALL=C sort)
 [ "$mutation_paths" = "$expected_mutation_paths" ] \
   || fail "mutation check pull request paths are exactly the code paths: $mutation_paths"
 groups=$(sed -n 's/^        group: \[\(.*\)\]$/\1/p' "$mutation_workflow" | tr -d ' ' | tr ',' '\n')
