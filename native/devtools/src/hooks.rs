@@ -833,6 +833,7 @@ pub fn latency(args: &Args) -> Result<()> {
             });
             row["scanner"] = json!(ran);
             let label = format!("{}/{} sample {sample}", arm.name, case.0);
+            let problems_before = problems.len();
             if row["status"] != 0 || row["outcome"] != "pass" {
                 problems.push(format!(
                     "{label}: exit status {}, audit outcome {}",
@@ -842,10 +843,9 @@ pub fn latency(args: &Args) -> Result<()> {
             let hit = row["cache"] == "hit";
             // A sample that also ran the readiness probe is another path:
             // kept, and left out of its cell's summary.
-            let aggregated = row["probe"] != "ran";
-            row["aggregated"] = json!(aggregated);
+            let probed = row["probe"] == "ran";
             let expected =
-                !aggregated || evidence(arm.name, arm.helper, case.3, hit, &words, ran, unverified);
+                probed || evidence(arm.name, arm.helper, case.3, hit, &words, ran, unverified);
             if !expected {
                 problems.push(format!(
                     "{label}: scanner {ran} and scan client words {words:?} are not what this arm measures"
@@ -861,6 +861,8 @@ pub fn latency(args: &Args) -> Result<()> {
                     ));
                 }
             }
+            // Only a sample that ran its arm's path and passed is summarized.
+            row["aggregated"] = json!(!probed && problems.len() == problems_before);
             row["case"] = json!(case.0);
             row["event"] = json!(case.1);
             row["arm"] = json!(arm.name);
@@ -875,6 +877,45 @@ pub fn latency(args: &Args) -> Result<()> {
         }
     }
     let load_end = load();
+    // A repeated input that started no scanner is a cache hit only if the
+    // cache is why: with the cache off the same input must be scanned. A hook
+    // that passed it without looking would otherwise be reported as faster.
+    let mut cache_controls = Vec::new();
+    for (arm, case) in &cells {
+        if !samples
+            .iter()
+            .any(|s| s["arm"] == arm.name && s["case"] == case.0 && s["cache"] == "hit")
+        {
+            continue;
+        }
+        let state = state_of(arm, case.0);
+        let row = hook(
+            arm,
+            &state,
+            case,
+            &input(arm, case, "fixed"),
+            &[("AGENT_GUARD_SCAN_CACHE", "off")],
+        )?;
+        let words: Vec<String> = row["client"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w.as_str().unwrap().to_owned())
+            .collect();
+        let ran = scanner(
+            &words,
+            number(&row["max_child_peak_rss_kib"]),
+            threshold.filter(|_| row["probe"] == "cached"),
+        );
+        if !["gitleaks", "helper"].contains(&ran) {
+            problems.push(format!(
+                "{}/{}: with the clean-scan cache off this input is still not scanned ({ran}), so its hits are not cache hits",
+                arm.name, case.0
+            ));
+        }
+        cache_controls
+            .push(json!({"arm": arm.name, "case": case.0, "scanner_with_cache_off": ran}));
+    }
     // Helpers end by themselves; the warm one as soon as its socket is gone.
     if let Ok(dir) = std::fs::read_dir(helper_dir(&warm_state)) {
         for entry in dir.flatten() {
@@ -929,7 +970,7 @@ pub fn latency(args: &Args) -> Result<()> {
             "scanner": count("scanner"), "cache": count("cache"), "probe_runs_left_out": all.len() - rows.len()}),
         );
     }
-    let mut report = json!({
+    let report = json!({
         "tool": "hook-latency",
         "platform": version(&["uname", "-a"])?,
         "logical_cpu_count": unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) },
@@ -937,7 +978,7 @@ pub fn latency(args: &Args) -> Result<()> {
         "entry": entry,
         "binary_sha256": hash(&binary)?,
         "scanner_version": sandbox.version(&[&staged_scanner, "version"])?,
-        "scanner_sha256": hash(&scanner_path)?,
+        "scanner_sha256": hash(&staged_scanner)?,
         "helper_sha256": helper_sums,
         "jq_version": sandbox.version(&["jq", "--version"])?,
         "runs": runs,
@@ -948,12 +989,21 @@ pub fn latency(args: &Args) -> Result<()> {
             None => json!({"source": "scan client trace only: this scanner's peak memory is too close to a hook without a scan", "scan_kib": scan_rss, "no_scan_kib": idle_rss}),
         },
         "controls": controls,
+        "cache_controls": cache_controls,
         "problems": problems,
         "cells": summary,
     });
-    emit(&report)?;
-    report["samples"] = json!(samples);
-    write_json(&out_path, &report)?;
+    // The samples are stored first: a closed standard output must not lose them.
+    let mut full = report.clone();
+    full["samples"] = json!(samples);
+    write_json(&out_path, &full)?;
+    {
+        use std::io::Write;
+        let mut text = serde_json::to_string_pretty(&report)?;
+        text.push('\n');
+        // A reader that left early is not a failed measurement.
+        let _ = std::io::stdout().write_all(text.as_bytes());
+    }
     ensure(
         report["problems"].as_array().unwrap().is_empty(),
         "a sample did not measure what its arm names; see problems",
