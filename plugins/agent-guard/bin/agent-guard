@@ -3370,7 +3370,7 @@ setup_doctor_install_arg() {
   [ "$SETUP_VIA_DOCTOR" = 1 ] || return 0
   SETUP_VIA_DOCTOR=2
   cli_ref_init
-  info "$PROGRAM: install arguments to doctor are deprecated: this run still installs as setup would, but a later release refuses them in doctor. To install, run $AG_CLI_REF setup with the same arguments."
+  info "$PROGRAM: install arguments to doctor are deprecated: doctor still passes them to setup now, but a later release refuses them in doctor. To install, run $AG_CLI_REF setup with --install or --install-gitleaks-helper."
 }
 
 do_setup() {
