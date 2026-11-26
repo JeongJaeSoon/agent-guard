@@ -386,10 +386,11 @@ CODEX_TRUST_WATCHDOG_PID=
 # a server that ignores end of input.
 CODEX_TRUST_CLIENT='codex=$1 out=$2 cwd=$3 limit=$4 version=$5
 deadline=$(( $(date +%s) + limit ))
+# The timer ignores TERM from its first instant, by inheritance. TERM reaches
+# this group from the guard as well; only the leader below cancels the timer,
+# with a signal of its own.
+trap "" TERM
 (
-  # TERM reaches this group from the guard as well; only the leader below
-  # cancels the timer, so it has a signal of its own.
-  trap "" TERM
   nap=
   stop() {
     [ -z "$nap" ] || { kill -KILL "$nap"; wait "$nap"; }
@@ -408,6 +409,7 @@ deadline=$(( $(date +%s) + limit ))
   kill -KILL -"$$"
 ) &
 watch=$!
+trap - TERM
 replied() {
   jq -R -e --argjson id "$1" "fromjson? | select(type == \"object\" and .id == \$id) | $2" "$out" >/dev/null 2>&1
 }
@@ -426,6 +428,8 @@ await() {
 } | "$codex" app-server >"$out" 2>/dev/null
 # The server is done. Stop and reap the timer, then end this group, so that
 # what the server left in it never depends on the guard still being there.
+# TERM from the guard must not end this shell between the two.
+trap "" TERM
 kill -USR1 "$watch"
 wait "$watch"
 kill -KILL -"$$"'
