@@ -1168,7 +1168,9 @@ for killed_case in hang linger hang_term spawn; do
     linger) export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=2 ;;
     spawn) export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=30 AG_PLUGIN_TEST_TRUST_GATE="$case_dir/gate" ;;
   esac
-  (cd "$case_dir" && PATH="$case_bin:/usr/bin:/bin" && export PATH \
+  # SIGKILL skips the guard's exit trap, so its run directory has to be where
+  # this suite removes it.
+  (cd "$case_dir" && PATH="$case_bin:/usr/bin:/bin" && TMPDIR=$case_dir && export PATH TMPDIR \
     && exec_as_group_leader "$GUARD" doctor >"$case_dir/out" 2>"$case_dir/err") &
   guard_pid=$!
   # linger blocks only after it has read hooks/list.
@@ -1191,12 +1193,14 @@ for killed_case in hang linger hang_term spawn; do
   else
     kill -KILL "$guard_pid" 2>/dev/null
   fi
-  wait "$guard_pid" 2>/dev/null
-  status=$?
+  # The server is released before the killed guard is reaped: the probe must
+  # not take a PID that still exists for a guard that will clean up.
   case "$staged:$killed_case" in
     1:hang_term) kill -TERM -"$probe_group" 2>/dev/null ;;
     1:spawn) : >"$case_dir/gate" ;;
   esac
+  wait "$guard_pid" 2>/dev/null
+  status=$?
   # A killed process stays visible to kill -0 until its new parent reaps it,
   # so the group can be empty a moment before its last PID is gone.
   left=1

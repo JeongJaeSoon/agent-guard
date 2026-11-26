@@ -421,13 +421,11 @@ await() {
   jq -nc --arg cwd "$cwd" "{jsonrpc: \"2.0\", id: 2, method: \"hooks/list\", params: {cwds: [\$cwd]}}"
   await 2 || :
 } | "$codex" app-server >"$out" 2>/dev/null
-# The server is done. Stop and reap the timer, so a finished probe leaves
-# nothing behind. The guard ends what the server left in this group; once the
-# guard is gone, end it here, where no shell is left to report that this one
-# died with it.
+# The server is done. Stop and reap the timer, then end this group, so that
+# what the server left in it never depends on the guard still being there.
 kill -USR1 "$watch"
 wait "$watch"
-kill -0 "$PPID" || kill -KILL -"$$"'
+kill -KILL -"$$"'
 
 clear_codex_trust_probe_processes() {
   if [ -n "$CODEX_TRUST_WATCHDOG_PID" ]; then
@@ -533,6 +531,9 @@ codex_trust_probe() {
       || kill -KILL "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
   ) &
   CODEX_TRUST_WATCHDOG_PID=$!
+  # The probe ends by SIGKILL of its own group. Run no command between its
+  # start and this wait: bash reports a job a signal ended on stderr when a
+  # foreground command finishes before the job has been waited for.
   wait "$CODEX_TRUST_PROBE_PID" 2>/dev/null
   CODEX_TRUST_PROBE_PID=
   # Always clear the probe-private group: app-server may leave helpers behind.
