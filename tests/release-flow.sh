@@ -24,7 +24,16 @@ case " $* " in
     fi ;;
   *actions/workflows/performance.yml/runs*) cat "$RELEASE_FIXTURE_DIR/performance.json" ;;
   *actions/runs/*/jobs*) cat "$RELEASE_FIXTURE_DIR/jobs.json" ;;
-  *actions/runs/*/artifacts*) cat "$RELEASE_FIXTURE_DIR/artifacts.json" ;;
+  *actions/runs/*/artifacts*)
+    for arg in "$@"; do
+      case "$arg" in
+        repos/*/actions/runs/*/artifacts*)
+          id=${arg##*/actions/runs/}
+          id=${id%%/*}
+          if [ -f "$RELEASE_FIXTURE_DIR/artifacts-$id.json" ]; then cat "$RELEASE_FIXTURE_DIR/artifacts-$id.json"; exit; fi ;;
+      esac
+    done
+    cat "$RELEASE_FIXTURE_DIR/artifacts.json" ;;
   *actions/workflows/*.yml/runs*)
     [ ! -f "$RELEASE_FIXTURE_DIR/workflow-api-error" ] || exit 1
     for arg in "$@"; do
@@ -379,6 +388,10 @@ expect_tested 'reuse=false ordinary=true ' 'a run that tested another tree runs 
 ordinary_pr
 edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 6 | .run_started_at = "2026-11-21T00:00:00Z" | .conclusion = "failure"]'
 expect_tested 'reuse=false ordinary=true ' 'a newer failed run on the head is not evidence'
+# A matching run without its branch or repository cannot be ruled out.
+ordinary_pr
+edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 6 | .run_started_at = "2026-11-21T00:00:00Z" | del(.head_repository) | .conclusion = "failure"]'
+expect_tested 'reuse=false ordinary=false ' 'a run without identity keeps the full matrix'
 # A run without a start time cannot be ordered: that is unreadable evidence.
 ordinary_pr
 edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 6 | .run_started_at = null | .conclusion = "failure"]'
@@ -455,39 +468,54 @@ ordinary_pr
 printf 'ok - main push reuses only a passed PR run that recorded the same tree\n'
 
 export GITHUB_EVENT_NAME=schedule
-nightly() { # $1 jq edit of the one schedule run
-  jq -n --arg sha "$merge" '{workflow_runs:[{id:8,head_sha:$sha,event:"schedule",path:".github/workflows/ci.yml",run_started_at:"2026-11-20T00:00:00Z",status:"completed",conclusion:"success"}]}' \
-    | jq ".workflow_runs[0] |= ($1)" > "$case_dir/ci.yml.json"
-  pages
+# A nightly reuses the newest earlier nightly that ran the matrix itself (it
+# holds a tested-tree record) when that one passed and nothing started later
+# failed; a nightly that reused evidence records nothing.
+nightly_run() { # $1 id, $2 start day, $3 conclusion, $4 recorded (true|false)
+  jq -nc --arg sha "$merge" --argjson id "$1" --arg day "$2" --arg c "$3" \
+    '{id:$id,head_sha:$sha,event:"schedule",path:".github/workflows/ci.yml",run_started_at:("2026-11-" + $day + "T00:00:00Z"),status:"completed",conclusion:$c}'
+  if [ "$4" = true ]; then
+    printf '{"artifacts":[{"name":"tested-tree","expired":false}]}\n' > "$case_dir/artifacts-$1.json"
+  else
+    printf '{"artifacts":[]}\n' > "$case_dir/artifacts-$1.json"
+  fi
 }
-nightly .
+nightlies() { # rows from nightly_run, one page
+  jq -s '[{workflow_runs:.}]' > "$case_dir/ci.yml.json"
+}
+{ nightly_run 8 20 success true; } | nightlies
 expect_tested 'reuse=true ordinary=false ' 'an unchanged main skips the nightly run'
+grep -Fxq 'source_run=8' "$case_dir/tested" || fail 'the nightly names the run that ran the matrix'
 (GITHUB_RUN_ATTEMPT=2; export GITHUB_RUN_ATTEMPT; expect_tested 'reuse=false ordinary=false ' 'a re-run nightly runs everything') || exit 1
-printf '{"workflow_runs":[42]}\n' > "$case_dir/ci.yml.json"
-expect_tested 'reuse=false ordinary=false ' 'a malformed nightly entry runs'
-nightly '.'
-edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 10 | del(.run_started_at) | .status = "queued"]'
-expect_tested 'reuse=false ordinary=false ' 'a nightly without a start time runs'
-nightly '.'
-edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 10 | .run_started_at = "2026-11-21T00:00:00Z" | .conclusion = "failure"]'
+{ nightly_run 8 20 success true; nightly_run 7 21 success false; } | nightlies
+expect_tested 'reuse=true ordinary=false ' 'a later reusing nightly passes on the same evidence'
+# A passed, B reused it, then A was re-run and failed: A started last.
+{ nightly_run 7 21 failure true; nightly_run 8 20 success false; } | nightlies
+expect_tested 'reuse=false ordinary=false ' 'a re-run full nightly that failed runs again'
+# B re-ran only a cheap job and passed; A, the newest full run, failed before.
+{ nightly_run 7 21 failure true; nightly_run 8 22 success false; } | nightlies
+expect_tested 'reuse=false ordinary=false ' 'a reusing nightly never stands in for a failed full run'
+{ nightly_run 8 20 success true; nightly_run 10 21 failure false; } | nightlies
 expect_tested 'reuse=false ordinary=false ' 'a later failed nightly at the same commit runs again'
-nightly '.'
-edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 4 | .run_started_at = "2026-11-19T00:00:00Z" | .conclusion = "failure"]'
-expect_tested 'reuse=true ordinary=false ' 'an older failure before the green nightly does not count'
-# Nightly A passed, B reused it, then A was re-run and failed.
-nightly '.'
-edit_fixture ci.yml.json '.workflow_runs = [(.workflow_runs[0] | .id = 7 | .run_started_at = "2026-11-22T00:00:00Z" | .conclusion = "failure"), (.workflow_runs[0] | .id = 8 | .run_started_at = "2026-11-21T00:00:00Z")]'
-expect_tested 'reuse=false ordinary=false ' 'a re-run nightly that failed after a reusing nightly runs again'
-for change in '.id = 9' '.conclusion = "failure"' '.status = "in_progress"' '.event = "push"' \
+{ nightly_run 4 19 failure true; nightly_run 8 20 success true; } | nightlies
+expect_tested 'reuse=true ordinary=false ' 'an older failure before the green full nightly does not count'
+{ nightly_run 8 20 success false; } | nightlies
+expect_tested 'reuse=false ordinary=false ' 'a nightly without any full-matrix record runs'
+{ nightly_run 9 20 success true; } | nightlies
+expect_tested 'reuse=false ordinary=false ' 'its own run is never evidence'
+for change in '.status = "in_progress"' '.event = "push"' \
   '.head_sha = "0000000000000000000000000000000000000000"' '.path = ".github/workflows/other.yml"'; do
-  nightly "$change"
+  nightly_run 8 20 success true | jq -c "$change" | nightlies
   expect_tested 'reuse=false ordinary=false ' "nightly with $change runs"
 done
+{ nightly_run 8 20 success true; nightly_run 10 21 success true | jq -c 'del(.run_started_at) | .status = "queued"'; } | nightlies
+expect_tested 'reuse=false ordinary=false ' 'a nightly without a start time runs'
+{ nightly_run 8 20 success true; } | nightlies
+printf '{"message":"error"}\n' > "$case_dir/artifacts-8.json"
+expect_tested 'reuse=false ordinary=false ' 'an unreadable nightly record runs'
+printf '{"workflow_runs":[42]}\n' > "$case_dir/ci.yml.json"
+expect_tested 'reuse=false ordinary=false ' 'a malformed nightly entry runs'
 : > "$case_dir/workflow-api-error"
 expect_tested 'reuse=false ordinary=false ' 'a failed nightly lookup runs'
-rm "$case_dir/workflow-api-error"
-printf '{"message":"error"}\n' > "$case_dir/ci.yml.json"
-expect_tested 'reuse=false ordinary=false ' 'a malformed nightly lookup runs'
-: > "$case_dir/workflow-api-error"
 rm "$case_dir/workflow-api-error"
 printf 'ok - a nightly run is skipped only after a green nightly at the same commit\n'

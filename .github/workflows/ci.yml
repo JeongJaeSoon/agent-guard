@@ -110,16 +110,17 @@ jobs:
           gitleaks-checksum: ${{ env.GITLEAKS_CHECKSUM_LINUX_X64 }}
 
       # The tree this run tests (a PR run checks out its merge commit); the main
-      # push of the same tree reuses this run only through this record. Without
+      # push of the same tree, or the next nightly, reuses this run only
+      # through this record. A nightly that reused evidence records nothing. Without
       # it the main push runs again, so a failed upload never fails the job.
       - name: Record the tested tree
-        if: github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true'
+        if: (github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true') || (github.event_name == 'schedule' && needs.release-evidence.outputs.reuse != 'true')
         continue-on-error: true
         run: |
           mkdir -p "$RUNNER_TEMP/tested-tree"
           git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/tested-tree/tree"
       - name: Upload the tested tree
-        if: github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true'
+        if: (github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true') || (github.event_name == 'schedule' && needs.release-evidence.outputs.reuse != 'true')
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

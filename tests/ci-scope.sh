@@ -531,7 +531,7 @@ guard=$(awk '/^  secret-guard:$/ { on = 1; next } on && /^  [a-z-]+:$/ { exit } 
 printf '%s\n' "$guard" | grep -Fq 'ORDINARY: ${{ needs.release-evidence.outputs.ordinary }}' || fail 'scope reads the ordinary merge'
 printf '%s\n' "$guard" | grep -Fq 'sh .github/scripts/ci-scope.sh "$EVENT_NAME" "$HEAD_REF" "$ORDINARY"' || fail 'scope receives the ordinary merge'
 # Only a PR run whose suites ran records the tree its main push may reuse.
-printf '%s\n' "$guard" | grep -Fq "if: github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true'" || fail 'only a tested PR run records its tree'
+printf '%s\n' "$guard" | grep -Fq "if: (github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true') || (github.event_name == 'schedule' && needs.release-evidence.outputs.reuse != 'true')" || fail 'only a PR run whose suites ran or a nightly that ran the matrix records its tree'
 printf '%s\n' "$guard" | grep -Fq 'name: tested-tree' || fail 'the PR run uploads the tested tree'
 # The record follows the scan and never fails the required job.
 printf '%s\n' "$guard" | awk '/name: Scan for secrets/ { scan = NR } /name: Record the tested tree/ { rec = NR } END { exit !(scan && rec > scan) }' \

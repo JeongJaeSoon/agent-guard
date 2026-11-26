@@ -10,8 +10,9 @@
 # the run succeeded and its tested-tree artifact (the tree of the merge commit
 # it checked out, recorded only when its suites ran) equals this commit's
 # tree. ordinary=true marks a merge of a non-release PR; release merges keep
-# reuse-release-tree.sh and the full matrix. A schedule run reuses an earlier
-# successful schedule run at the same commit. A failed lookup prints
+# reuse-release-tree.sh and the full matrix. A schedule run reuses the newest
+# earlier schedule run at the same commit that ran the matrix itself, when it
+# passed and no schedule run started after it failed. A failed lookup prints
 # reuse=false ordinary=false, which runs everything.
 set -eu
 workflow=${1:?workflow file required}
@@ -45,8 +46,10 @@ pr_tree_passed() {
   jq -e 'type == "array" and all(.[]; .workflow_runs | type == "array")' "$work/runs" > /dev/null || return 2
   # jq prints a run id or "none"; a jq error is unreadable evidence.
   run=$(jq -r --arg sha "$head" --arg ref "$ref" --arg repo "$repo" --arg path ".github/workflows/$workflow" '
-    [.[].workflow_runs[] | select(.head_sha == $sha and .event == "pull_request" and .path == $path
-      and .head_branch == $ref and .head_repository.full_name == $repo)]
+    [.[].workflow_runs[] | select(.head_sha == $sha and .event == "pull_request" and .path == $path)]
+    | if any(.[]; (.head_branch | type) != "string" or (.head_repository.full_name | type) != "string")
+      then error("run without identity") else . end
+    | map(select(.head_branch == $ref and .head_repository.full_name == $repo))
     | if any(.[]; (.run_started_at | type) != "string") then error("unordered runs") else . end
     | max_by([.run_started_at, .id]) | if . != null and .status == "completed" and .conclusion == "success" then .id else "none" end' "$work/runs") || return 2
   [ "$run" != none ] || return 1
@@ -67,14 +70,26 @@ schedule_passed() {
   [ "${GITHUB_RUN_ATTEMPT:-1}" = 1 ] || return 1
   gh api --paginate --slurp "repos/$repo/actions/workflows/$workflow/runs?head_sha=$sha&event=schedule&per_page=100" > "$work/runs" || return 2
   jq -e 'type == "array" and all(.[]; .workflow_runs | type == "array")' "$work/runs" > /dev/null || return 2
-  # The most recently started earlier nightly decides (a re-run keeps its id
-  # but starts again): a later failure is never hidden by an older success.
-  passed=$(jq -r --arg sha "$sha" --arg path ".github/workflows/$workflow" --argjson self "${GITHUB_RUN_ID:?}" '
+  jq -c --arg sha "$sha" --arg path ".github/workflows/$workflow" --argjson self "${GITHUB_RUN_ID:?}" '
     [.[].workflow_runs[] | select(.head_sha == $sha and .event == "schedule" and .path == $path and .id != $self)]
     | if any(.[]; (.run_started_at | type) != "string") then error("unordered runs") else . end
-    | max_by([.run_started_at, .id]) | . != null and .status == "completed" and .conclusion == "success"' "$work/runs") || return 2
-  [ "$passed" = true ] || return 1
-  printf 'source_sha=%s\n' "$sha"
+    | sort_by([.run_started_at, .id]) | reverse | .[]
+    | {id, done: (.status == "completed"), passed: (.status == "completed" and .conclusion == "success")}' "$work/runs" > "$work/nightly" || return 2
+  # Newest first: the newest nightly that ran the matrix itself (it holds a
+  # tested-tree record) must have passed, and no nightly started after it may
+  # have failed or still run. A nightly that reused evidence records nothing.
+  while IFS= read -r row; do
+    id=$(printf '%s\n' "$row" | jq -r '.id | tostring') || return 2
+    case "$id" in *[!0-9]*|'') return 2 ;; esac
+    printf '%s\n' "$row" | jq -e '.passed' > /dev/null || return 1
+    gh api "repos/$repo/actions/runs/$id/artifacts?name=tested-tree" > "$work/artifacts" || return 2
+    found=$(jq -r '[.artifacts[] | select(.name == "tested-tree" and .expired == false)] | length == 1' "$work/artifacts") || return 2
+    if [ "$found" = true ]; then
+      printf 'source_sha=%s\nsource_run=%s\n' "$sha" "$id"
+      return 0
+    fi
+  done < "$work/nightly"
+  return 1
 }
 reuse=false
 status=0
