@@ -407,6 +407,19 @@ edge() {
   echo $?
 }
 
+# A version manager's shim: it runs SHIM_TARGET where a version is set (a
+# .tool-versions file in its directory, or SHIM_GLOBAL), and elsewhere fails
+# with SHIM_FAIL. SHIM_QUIET drops what the target prints for a scan, as the
+# official gitleaks prints nothing for a finding.
+mkdir "$CASE/shim"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' '[ -n "${SHIM_GLOBAL:-}" ] || [ -f ./.tool-versions ] || { echo "shim: no version is set here" >&2; exit "${SHIM_FAIL:-126}"; }'
+  printf '%s\n' '[ -z "${SHIM_QUIET:-}" ] || [ "${1:-}" != stdin ] || exec "$SHIM_TARGET" "$@" >/dev/null 2>&1'
+  printf '%s\n' 'exec "$SHIM_TARGET" "$@"'
+} >"$CASE/shim/gitleaks"
+chmod +x "$CASE/shim/gitleaks"
+
 # --- a native stand-in that reports nothing beside an ignore file --------------
 # It runs wherever a C compiler is, so every kind of hook input is covered
 # without the official gitleaks: the stand-in drops each finding when an
@@ -471,14 +484,30 @@ if command -v cc >/dev/null 2>&1 \
   # A version manager's shim that takes its version from the project
   # directory finds none in the private one: the scan fails, and the message
   # names the setting that fixes it.
-  mkdir "$CASE/shim"
-  printf '#!/bin/sh\n[ -f ./.tool-versions ] || { echo "shim: no version is set here" >&2; exit 126; }\nexec "%s" "$@"\n' \
-    "$AGENT_GUARD_GITLEAKS_BIN" >"$CASE/shim/gitleaks"
-  chmod +x "$CASE/shim/gitleaks"
   : >"$EDGE/.tool-versions"
+  SHIM_TARGET=$AGENT_GUARD_GITLEAKS_BIN
+  export SHIM_TARGET
   r=$(edge 'ls -la src' AGENT_GUARD_GITLEAKS_BIN="$CASE/shim/gitleaks")
   expect 'a gitleaks shim that takes its version from the project directory fails the scan of hook input, and the hook names AGENT_GUARD_GITLEAKS_BIN' \
     '[ "$r" = 2 ] && grep -Fq "shim: no version is set here" "$CASE/e.err" && grep -Fq "AGENT_GUARD_GITLEAKS_BIN" "$CASE/e.err"'
+  # Some shims fail with 1, which is also how gitleaks reports a finding: the
+  # call stays refused whatever the infrastructure policy, and the message
+  # still names the setting.
+  r=$(edge 'ls -la src' AGENT_GUARD_GITLEAKS_BIN="$CASE/shim/gitleaks" SHIM_FAIL=1)
+  expect 'a shim that fails with the status of a finding is refused too, and the hook names AGENT_GUARD_GITLEAKS_BIN' \
+    '[ "$r" = 2 ] && grep -Fq "shim: no version is set here" "$CASE/e.err" && grep -Fq "AGENT_GUARD_GITLEAKS_BIN" "$CASE/e.err"'
+  r=$(edge 'ls -la src' AGENT_GUARD_GITLEAKS_BIN="$CASE/shim/gitleaks" SHIM_FAIL=1 AGENT_GUARD_INFRA_FAILURE_MODE=open)
+  expect 'that status is never read as a scan that could not run: an open infrastructure policy does not pass the call' \
+    '[ "$r" = 2 ] && grep -Fq "AGENT_GUARD_GITLEAKS_BIN" "$CASE/e.err"'
+  expect 'a shim that finds its version scans hook input as the executable does' \
+    '[ "$(edge "ls -la src" AGENT_GUARD_GITLEAKS_BIN="$CASE/shim/gitleaks" SHIM_GLOBAL=1)" = 0 ]'
+  r=$(edge "echo $pat" AGENT_GUARD_GITLEAKS_BIN="$CASE/shim/gitleaks" SHIM_GLOBAL=1)
+  expect 'a finding through such a shim comes without that line' \
+    '[ "$r" = 2 ] && grep -Fq "secret-like value detected" "$CASE/e.err" && ! grep -Fq "AGENT_GUARD_GITLEAKS_BIN" "$CASE/e.err"'
+  r=$(edge "echo $pat" AGENT_GUARD_GITLEAKS_BIN="$CASE/shim/gitleaks" SHIM_GLOBAL=1 SHIM_QUIET=1)
+  expect 'a finding reported with no output, as the official gitleaks reports one, comes without that line' \
+    '[ "$r" = 2 ] && grep -Fq "secret-like value detected" "$CASE/e.err" && ! grep -Fq "Finding:" "$CASE/e.err" \
+       && ! grep -Fq "AGENT_GUARD_GITLEAKS_BIN" "$CASE/e.err"'
   r=$(edge "echo $pat")
   expect 'a finding of the executable itself comes without that line' \
     '[ "$r" = 2 ] && ! grep -Fq "AGENT_GUARD_GITLEAKS_BIN" "$CASE/e.err"'
@@ -640,6 +669,16 @@ EOF
   r=$(edge 'ls -la src' AGENT_GUARD_GITLEAKS_CONFIG="$EDGE/extend-relative.toml")
   expect 'official: a config that extends a relative path is a scan that did not run, not a finding' \
     '[ "$r" = 2 ] && grep -Fq "relative [extend] path" "$CASE/e.err" && ! grep -Fq "secret-like value detected" "$CASE/e.err"'
+  # The official gitleaks reports a finding with status 1 and no output; a
+  # shim's own failure with that status has output.
+  r=$(edge "echo $pat" AGENT_GUARD_GITLEAKS_BIN="$CASE/shim/gitleaks" SHIM_TARGET="$GL" SHIM_GLOBAL=1)
+  expect 'official: a finding through a shim that finds its version comes without the line about a shim' \
+    '[ "$r" = 2 ] && grep -Fq "secret-like value detected" "$CASE/e.err" && ! grep -Fq "AGENT_GUARD_GITLEAKS_BIN" "$CASE/e.err"'
+  : >"$EDGE/.tool-versions"
+  r=$(edge 'ls -la src' AGENT_GUARD_GITLEAKS_BIN="$CASE/shim/gitleaks" SHIM_TARGET="$GL" SHIM_FAIL=1)
+  expect 'official: a shim that fails with status 1 where no version is set is refused, and the hook names AGENT_GUARD_GITLEAKS_BIN' \
+    '[ "$r" = 2 ] && grep -Fq "shim: no version is set here" "$CASE/e.err" && grep -Fq "AGENT_GUARD_GITLEAKS_BIN" "$CASE/e.err"'
+  rm -f "$EDGE/.tool-versions"
   PATH=$ORIGINAL_PATH
   export PATH
 else

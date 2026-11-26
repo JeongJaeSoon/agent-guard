@@ -4515,18 +4515,32 @@ gitleaks_scan() {
   if [ "$status" -eq 1 ]; then
     info "$PROGRAM: secret-like value detected in $label"
     sed 's/^/  /' "$out" >&2
+    gitleaks_hook_scan_shim_hint "$ag_gs_dir" "$out" finding
     rm -f "$out"
     return 1
   fi
   info "$PROGRAM: gitleaks failed while scanning $label"
   sed 's/^/  /' "$out" >&2
+  gitleaks_hook_scan_shim_hint "$ag_gs_dir" "$out"
   rm -f "$out"
-  # A version manager's shim takes its version from the directory it runs in,
-  # and hook input is scanned from the private one. The probe cache gives no
-  # key to the shapes of a shim it can see.
-  [ -z "$ag_gs_dir" ] || [ -n "$GITLEAKS_PROBE_CACHE_KEY" ] \
-    || info "$PROGRAM: hook input is scanned from a private directory, where a gitleaks that takes its version from the project directory (a version manager's shim) finds none; set AGENT_GUARD_GITLEAKS_BIN to the gitleaks executable"
   return 2
+}
+
+# A version manager's shim takes its version from the directory it runs in,
+# and hook input is scanned from the private one ($1, empty for a scan of the
+# repository). The probe cache gives no key to the shapes of a shim it can
+# see. A shim may fail with 1, the status of a finding: the verdict stays a
+# finding, and only this line is told apart, by output ($2) that is neither
+# empty, as gitleaks leaves it, nor a finding's.
+gitleaks_hook_scan_shim_hint() {
+  [ -n "$1" ] && [ -z "$GITLEAKS_PROBE_CACHE_KEY" ] || return 0
+  if [ "${3:-}" = finding ]; then
+    [ -s "$2" ] || return 0
+    while IFS= read -r ag_gh_line; do
+      case "$ag_gh_line" in Finding:*) return 0 ;; esac
+    done <"$2"
+  fi
+  info "$PROGRAM: hook input is scanned from a private directory, where a gitleaks that takes its version from the project directory (a version manager's shim) finds none; set AGENT_GUARD_GITLEAKS_BIN to the gitleaks executable"
 }
 
 # Filter records encoded as one lockfile-kind byte, a tab, then the original

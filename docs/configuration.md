@@ -844,9 +844,12 @@ not scanned and the [infrastructure policy](#infrastructure-policy) applies.
 
 gitleaks itself starts in that private directory. A version-manager shim that
 picks the gitleaks version from the project directory (a `.tool-versions`
-file, for example) finds no version there, so hook input is not scanned and
-the [infrastructure policy](#infrastructure-policy) applies. Set the version
-globally, or name the executable in `AGENT_GUARD_GITLEAKS_BIN`.
+file, for example) finds no version there, so hook input is not scanned. The
+call is refused when the shim fails with status 1, which is also how gitleaks
+reports a finding; with another status the
+[infrastructure policy](#infrastructure-policy) applies. Either way the
+message names the fix: set the version globally, or name the executable in
+`AGENT_GUARD_GITLEAKS_BIN`.
 
 ### Committed files
 

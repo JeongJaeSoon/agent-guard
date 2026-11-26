@@ -3061,8 +3061,35 @@
   {
     "id": "scan-hook-input-shim-hint",
     "rule": "hook input scan: when a gitleaks that may be a version manager's shim fails, the message names AGENT_GUARD_GITLEAKS_BIN",
-    "old": "  [ -z \"$ag_gs_dir\" ] || [ -n \"$GITLEAKS_PROBE_CACHE_KEY\" ] \\\n    || info \"$PROGRAM: hook input is scanned from a private directory, where a gitleaks that takes its version",
-    "new": "  : \"$PROGRAM: hook input is scanned from a private directory, where a gitleaks that takes its version",
+    "old": "  gitleaks_hook_scan_shim_hint \"$ag_gs_dir\" \"$out\"\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-shim-hint-finding-status",
+    "rule": "hook input scan: a shim that fails with the status of a finding still gets the line that names AGENT_GUARD_GITLEAKS_BIN",
+    "old": "    gitleaks_hook_scan_shim_hint \"$ag_gs_dir\" \"$out\" finding\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-shim-hint-finding-output",
+    "rule": "hook input scan: a finding's own output does not get the line about a shim",
+    "old": "      case \"$ag_gh_line\" in Finding:*) return 0 ;; esac\n",
+    "new": "      :\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-shim-hint-empty-output",
+    "rule": "hook input scan: a finding reported with no output does not get the line about a shim",
+    "old": "    [ -s \"$2\" ] || return 0\n    while IFS= read -r ag_gh_line; do\n",
+    "new": "    while IFS= read -r ag_gh_line; do\n",
     "tests": [
       "tests/gitleaksignore-scope.sh"
     ]
