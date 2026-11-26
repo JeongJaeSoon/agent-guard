@@ -37,7 +37,7 @@ the current user with mode `0700`.
 
 | Variable | Use |
 | --- | --- |
-| `AGENT_GUARD_SESSION_ID` | Replaces the payload's `session_id` as the key that deduplicates notices. The CLI accepts only ASCII letters, digits, `.`, `_` and `-`; with any other character it keys on the host and parent process ID instead (the launcher hashes any value) |
+| `AGENT_GUARD_SESSION_ID` | A non-empty value replaces the payload's `session_id` as the key that deduplicates notices; an empty one counts as unset. The CLI accepts only ASCII letters, digits, `.`, `_` and `-`; with any other character it keys on the host and parent process ID instead (the launcher hashes any value) |
 | `AGENT_GUARD_WARNING_DIR` | Directory of the notice markers and queued recovery notices (default `${TMPDIR:-/tmp}/agent-guard-warnings-<uid>`) |
 
 ## Direct contract inventory

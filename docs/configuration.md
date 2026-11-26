@@ -783,7 +783,7 @@ do not recognize, and an empty value is not always the same as unset.
 | `AGENT_GUARD_EXPERIMENTAL_REDACTOR` | `rust` or unset (native), `shell` | Shell redaction, also for an empty value |
 | `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` | `1` to `86400` | The default, `600` |
 | `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` | `96` to `4096` | The default, `160` |
-| GitHub Action input `require-checksum` | `true` (empty is `true`), `false` | A checksum is **not** required, also for `True` or `yes`. When the Action installs gitleaks, a `gitleaks-checksum` that is given is still verified |
+| GitHub Action input `require-checksum` | `true` (empty is `true`), `false` | A checksum is **not** required, also for `True` or `yes`. A `gitleaks-checksum` that is given is still verified. Both inputs apply only when the Action installs gitleaks: one already on `PATH` is used unchecked |
 
 ## Policy files and shell integration
 

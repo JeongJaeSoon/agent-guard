@@ -249,9 +249,11 @@ it answers.
 - `AGENT_GUARD_GITLEAKS_HELPER_TRACE`, if it is an absolute path, makes the
   client append fixed words to that file, one per line: usually one per scan
   (`helper` or `real:<reason>`). A scan that starts a helper writes two,
-  `spawned` and then `real:cold`; `no-spawn` takes the place of `spawned` when
-  the client cannot safely start one. It is for tests and diagnosis and never
-  records content, paths or arguments.
+  `spawned` and then `real:cold`. `no-spawn` comes before `real:cold` when the
+  client cannot keep its open descriptors out of a new helper, so starts none;
+  a start that is skipped (a recent or running one) or that fails leaves only
+  `real:cold`. The file is for tests and diagnosis and never records content,
+  paths or arguments.
 - `AGENT_GUARD_GITLEAKS_HELPER` is a trusted executable path, like
   `AGENT_GUARD_RUST_CORE_BIN`. Point it only at a build you made or verified.
 
