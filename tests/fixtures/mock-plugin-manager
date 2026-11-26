@@ -75,7 +75,7 @@ if [ "$host" = codex ] && [ "$#" -eq 1 ] && [ "$1" = app-server ]; then
           linger) trap '' TERM; while :; do sleep 1; done ;;
           spawn)
             # Recorded by the parent so the PID exists even if cleanup wins the race.
-            sh -c 'trap "" HUP; exec sleep 30' spawn &
+            sh -c 'trap "" HUP TERM; exec sleep 30' spawn &
             printf '%s\n' "$!" >"$AG_PLUGIN_TEST_TRUST_CHILD"
             ;;
         esac

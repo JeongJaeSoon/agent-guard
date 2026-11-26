@@ -421,14 +421,13 @@ await() {
   jq -nc --arg cwd "$cwd" "{jsonrpc: \"2.0\", id: 2, method: \"hooks/list\", params: {cwds: [\$cwd]}}"
   await 2 || :
 } | "$codex" app-server >"$out" 2>/dev/null
-# The server is done. TERM what it left in this group, which no one else would
-# do once the guard is gone (KILL would end this shell as well, so a helper
-# that ignores TERM is left to the guard), then stop and reap the timer so a
-# finished probe leaves nothing behind.
-trap "" TERM
-kill -TERM -"$$"
+# The server is done. Stop and reap the timer, so a finished probe leaves
+# nothing behind. The guard ends what the server left in this group; once the
+# guard is gone, end it here, where no shell is left to report that this one
+# died with it.
 kill -USR1 "$watch"
-wait "$watch"'
+wait "$watch"
+kill -0 "$PPID" || kill -KILL -"$$"'
 
 clear_codex_trust_probe_processes() {
   if [ -n "$CODEX_TRUST_WATCHDOG_PID" ]; then
