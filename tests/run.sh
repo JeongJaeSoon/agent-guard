@@ -286,6 +286,8 @@ run_expect 0 "CLI guidance names a command that runs for plugin-only installs" \
   env AGENT_GUARD_SHELL_INIT_VERSION=0.0.1 sh "$ROOT/tests/cli-guidance.sh"
 run_expect 0 "doctor install arguments are deprecated: still passed to setup, with a warning" \
   sh "$ROOT/tests/doctor-install-args.sh"
+run_expect 0 "doctor reports the settings it reads, values only when safe" \
+  sh "$ROOT/tests/doctor-settings.sh"
 
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
