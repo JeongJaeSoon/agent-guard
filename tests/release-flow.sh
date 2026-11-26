@@ -343,7 +343,10 @@ awk '/^      - name: Dispatch candidate verification/ { on = 1; next } on && /^ 
 [ -s "$case_dir/dispatch-step.sh" ] || fail 'the dispatch step has a run block'
 (
   cd "$pub"
-  git init -q && git add . && git -c user.name=f -c user.email=f@example.invalid commit -qm pub
+  git init -q
+  git config user.name Fixture
+  git config user.email fixture@example.invalid
+  git add . && git commit -qm pub
   git update-ref refs/remotes/origin/main HEAD
   current=$(git rev-parse HEAD)
   : > "$case_dir/dispatch.log"
