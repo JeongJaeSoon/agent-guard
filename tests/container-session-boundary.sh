@@ -89,7 +89,7 @@ reach() { # $1 command, $2 directory, $3 session compose project: stack, db or n
       sh -c "$1" </dev/null >/dev/null 2>&1)
   if grep -Fq -e "$STACK" "$CASE/log"; then
     echo stack
-  elif grep -Eq -e "^(arg|stdin) (.*[^[:alnum:]_-])?($CLIENTS)([^[:alnum:]_-]|\$)" "$CASE/log"; then
+  elif grep -Eq -e "^(arg|stdin) (.*[^[:alnum:]_.-])?($CLIENTS)([^[:alnum:]_.-]|\$)" "$CASE/log"; then
     echo db
   else
     echo none
@@ -203,6 +203,23 @@ held codex bash_container_db_client db "docker \\${NL}  exec other-db-1 psql -l"
 held codex bash_container_db_client db "d\"o\"cker exec other-db-1 psql -l"
 held codex bash_container_db_client db "docker exec other-db-1 p\"sq\"l -l"
 held codex bash_container_db_client db "sh -c 'docker exec other-db-1 psql -l'"
+# A runtime option value is one shell word, however it is quoted.
+held codex bash_container_db_client db 'docker --config "/tmp/docker config" exec other-db-1 psql -l'
+held codex bash_container_db_client db "docker --config '/tmp/docker config' exec other-db-1 psql -l"
+held codex bash_container_db_client db 'docker --config /tmp/docker\ config exec other-db-1 psql -l'
+# A quote around the whole runtime or subcommand word hides nothing.
+held codex bash_container_db_client db "docker 'exec' other-db-1 psql -l"
+held codex bash_container_db_client db 'docker "exec" other-db-1 psql -l'
+held codex bash_container_db_client db "env 'docker' exec other-db-1 psql -l"
+held codex bash_container_db_client db "docker 'container' exec other-db-1 psql -l"
+held codex bash_container_db_client db 'docker "compose" exec db psql -l'
+# A message value that runs the exec, and a search operand run through \$_.
+held codex bash_container_db_client db 'git commit -m "$(docker exec other-db-1 psql -l)"'
+held codex bash_container_db_client db "grep -c x 'docker exec other-db-1 psql -l'; \$_"
+# A search beside a container command: the second look reads the command as
+# written, quotes around its words included.
+held codex bash_container_db_client db "grep -c 'x' README.md; docker 'exec' other-db-1 psql -l"
+held codex bash_container_db_client db "grep -c 'x' README.md; d\"o\"cker 'exec' other-db-1 psql -l"
 # The list does not have to exist for this.
 POLICY_HOME=$UNLISTED
 held codex bash_container_db_client db "docker exec other-db-1 psql -l"
@@ -220,8 +237,17 @@ held codex bash_container_unresolved_target stack 'docker exec `docker ps -q` ls
 held codex bash_container_unresolved_target stack 'docker compose -p "$PROJECT" exec db ls'
 held codex bash_container_unresolved_target stack 'COMPOSE_PROJECT_NAME=$PROJECT docker compose exec db ls'
 held codex bash_container_unresolved_target stack 'podman exec $TARGET ls'
+held codex bash_container_unresolved_target stack 'docker --config "/tmp/docker config" exec $TARGET ls'
 # A container ID names no stack; which one it is cannot be read from the text.
+# The runtime takes any unique start of an ID, so a target made only of
+# hexadecimal digits is held whatever its length.
 held codex bash_container_unresolved_target none 'docker exec 0123456789ab ls'
+held codex bash_container_unresolved_target none 'docker exec 012345 ls'
+held codex bash_container_unresolved_target none "docker 'exec' 0123ab ls"
+held codex bash_container_unresolved_target stack "docker 'exec' \$TARGET ls"
+held codex bash_container_unresolved_target none 'docker exec deadbeef ls'
+held codex bash_container_unresolved_target none 'podman container exec 0a1b ls'
+held codex bash_container_unresolved_target none 'docker exec -w "/srv/my app" 0123456789ab ls'
 held codex bash_container_unresolved_target none 'docker exec -it 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef sh'
 
 # A list that cannot be read holds every runtime command of a restricted
@@ -242,7 +268,13 @@ free codex none 'docker logs --tail 20 other-app-1'
 free codex none "docker exec -it other-app-1 sh -c 'ls /app'"
 free codex none 'docker compose -p other exec app pytest -q'
 free codex none 'docker compose exec -T app npm test'
+# A compose service is a name, never a container ID.
+free codex none 'docker compose -p other exec db ls'
+# A quoted word that a search command only reads runs nothing.
+free codex none 'grep -c "docker exec other-db-1 psql" README.md'
+free codex none "rg -n 'docker exec .* psql' docs"
 # A client name inside a longer word is not a client.
+free codex none 'docker exec other-app-1 ls /tmp/psql.log'
 free codex none 'docker exec other-app-1 ls /srv/app-mysql/'
 free codex none 'docker exec other-app-1 pytest mysql_client_test.py'
 # An expansion on another line, or a hex word that is not the container.

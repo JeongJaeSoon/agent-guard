@@ -631,9 +631,13 @@ forms included, is refused when:
   `mysql`, `mysqldump`, `mongosh`, `mongo`, `redis-cli`, `sqlite3`,
   `clickhouse-client` and their siblings), for any container
   (`reason=bash_container_db_client`).
-- a container `exec` line holds a variable, a command substitution or a
+- a container `exec` line holds a variable or a command substitution, or its
+  target outside compose is made only of hexadecimal digits and so can be a
   container ID, so the stack it reaches cannot be read from the command
   (`reason=bash_container_unresolved_target`).
+
+A quoted word that `grep`, `rg` or `git grep` only reads is not a command, so
+searching for such text stays possible.
 
 ```text
 # $HOME/.config/agent-guard/protected-containers.txt
