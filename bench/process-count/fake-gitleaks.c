@@ -16,7 +16,10 @@
  * FAKE_GITLEAKS_STDIN_APPEND names a file that each stdin scan appends a line
  * to (a config edited while the scan runs); FAKE_GITLEAKS_STDIN_RELINK_TARGET
  * and FAKE_GITLEAKS_STDIN_RELINK_LINK point that link at that target during
- * each stdin scan (a symlinked config retargeted while the scan runs).
+ * each stdin scan (a symlinked config retargeted while the scan runs);
+ * FAKE_GITLEAKS_STDIN_IGNORE makes a stdin scan report nothing when a
+ * .gitleaksignore sits in its working directory (the real gitleaks drops
+ * every finding such a file lists).
  * It is not a scanner and must never be installed as one.
  */
 #define _XOPEN_SOURCE 700
@@ -103,6 +106,10 @@ int main(int argc, char **argv) {
     }
     buf = slurp(stdin, &len);
     found = has_secret(buf, len);
+    if (getenv("FAKE_GITLEAKS_STDIN_IGNORE")) {
+      struct stat ignore;
+      if (lstat(".gitleaksignore", &ignore) == 0) found = 0;
+    }
     {
       const char *forced = getenv("FAKE_GITLEAKS_STDIN_EXIT");
       const char *append = getenv("FAKE_GITLEAKS_STDIN_APPEND");

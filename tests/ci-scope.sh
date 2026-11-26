@@ -475,7 +475,7 @@ sites_case() { # $1 description, $2 expected output, $3 awk program applied to t
 }
 sites_case 'work before the helper case' scope=full '{ print } /^gitleaks_helper_selected\(\) \{/ { print "  jq -n null >/dev/null" }'
 sites_case 'plain branch through the wrapper' scope=cost '/^          "\$gl" stdin --report-format json/ && !done { sub(/"\$gl"/, "gitleaks_exec \"$gl\""); done = 1 } { print }'
-sites_case 'wrapper call dropped' scope=cost '/gitleaks_exec "\$GITLEAKS_BIN" "\$@"/ && !done { sub(/gitleaks_exec /, ""); done = 1 } { print }'
+sites_case 'wrapper call dropped' scope=cost '/gitleaks_exec "\$ag_gs_dir" "\$GITLEAKS_BIN" "\$@"/ && !done { sub(/gitleaks_exec /, ""); done = 1 } { print }'
 sites_case 'work in a function that calls the wrapper' scope=cost '{ print } /^gitleaks_scan\(\) \{/ { print "  jq -n null >/dev/null" }'
 sites_case 'output change in a function that calls the wrapper' scope=cost '{ sub(/secret-like value detected in/, "secret-like value found in") } { print }'
 sites_case 'file sourced from an unrelated function' scope=full '{ print } /^block_on_scan_status\(\) \{/ { print "  . ./extra.sh" }'

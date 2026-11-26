@@ -19,7 +19,8 @@ cp "$ROOT/plugins/agent-guard/config/gitleaks.toml" "$CASE/gitleaks.toml"
 export AGENT_GUARD_GITLEAKS_CONFIG="$CASE/gitleaks.toml"
 export AGENT_GUARD_GITLEAKS_BIN="$CASE/bin/gitleaks"
 export FAKE_GITLEAKS_CALLS="$CASE/calls"
-unset AI_AGENT AGENT_GUARD_SCAN_CACHE GITLEAKS_CONFIG_TOML FAKE_GITLEAKS_STDIN_EXIT FAKE_GITLEAKS_STDIN_NOISE
+unset AI_AGENT AGENT_GUARD_SCAN_CACHE GITLEAKS_CONFIG_TOML FAKE_GITLEAKS_STDIN_EXIT FAKE_GITLEAKS_STDIN_NOISE \
+  FAKE_GITLEAKS_STDIN_IGNORE
 STORE="$XDG_STATE_HOME/agent-guard/gitleaks-clean"
 pass=0 fail=0
 ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$*"; }
@@ -153,19 +154,31 @@ rm -f "$CASE/bin/gitleaks"
 cp "$CASE/gitleaks.native" "$CASE/bin/gitleaks"
 check 'a replaced gitleaks binary is scanned again' test "$(scans_for 'ls -la')" = 1
 
-# An ignore file in the scan directory can hide a finding: no reuse, no store.
+# The command text is not the repository's content: its scan runs from a
+# private directory, so an ignore file in the hook's directory is neither read
+# nor a reason to scan again. The stand-in drops every finding when one sits
+# in its own working directory, as the real gitleaks does for a listed one.
 mkdir -p "$CASE/ign"
 : >"$CASE/ign/.gitleaksignore"
-n=$(entries)
+export FAKE_GITLEAKS_STDIN_IGNORE=1
+check 'control: the stand-in run beside .gitleaksignore reports nothing, and elsewhere a finding' \
+  sh -c 'cd "$1/ign" && printf "%s\n" "$2" | "$1/bin/gitleaks" stdin >/dev/null && cd "$1/w" \
+    && ! printf "%s\n" "$2" | "$1/bin/gitleaks" stdin >/dev/null' _ "$CASE" "$marker"
 CWD="$CASE/ign"
-check 'a scan beside .gitleaksignore is not served from the cache' test "$(scans_for 'ls -la')" = 1
-check 'a new text beside .gitleaksignore is scanned' test "$(scans_for 'ls -lh')" = 1
-check 'a repeated text beside .gitleaksignore is scanned again' test "$(scans_for 'ls -lh')" = 1
+check 'a clean verdict is reused beside .gitleaksignore' test "$(scans_for 'ls -la')" = 0
+check 'a new text beside .gitleaksignore is scanned once and then reused' \
+  test "$(scans_for 'ls -lh'):$(scans_for 'ls -lh')" = 1:0
+n=$(entries)
+check 'a secret beside .gitleaksignore is scanned and blocked' test "$(scan_and_status "echo $marker")" = 1:2
+check 'the same secret beside .gitleaksignore is scanned and blocked again' \
+  test "$(scan_and_status "echo $marker")" = 1:2
 rm -f "$CASE/ign/.gitleaksignore"
 ln -s "$CASE/outside/missing" "$CASE/ign/.gitleaksignore"
-check 'a dangling .gitleaksignore link also disables the cache' test "$(scans_for 'ls -lh')" = 1
+check 'a secret beside a dangling .gitleaksignore link is scanned and blocked' \
+  test "$(scan_and_status "echo $marker")" = 1:2
+check 'a finding beside .gitleaksignore is never cached' test "$(entries)" = "$n"
 CWD=
-check 'nothing is stored beside .gitleaksignore' test "$(entries)" = "$n"
+unset FAKE_GITLEAKS_STDIN_IGNORE
 
 # A scan that did not complete clean is never stored.
 for how in 2 126 kill; do
@@ -226,31 +239,40 @@ rm -rf "$STORE"
 
 # An [extend] path loads a file the key does not hash, and TOML and viper
 # offer many spellings of it. Each one, and anything unrecognized near it,
-# is never cached; the plain useDefault forms still are.
+# is never cached; the plain useDefault forms still are. The command text is
+# scanned from a private directory, where a relative path would name another
+# file, so only a plain [extend] table with an absolute path is scanned at all
+# (each time); the spellings marked ! are another spelling of an extend key,
+# which is not followed, so they are not scanned, and the hook says so (this
+# suite's infrastructure policy is open).
 o="$CASE/other.toml"
 n=0
 while IFS= read -r spelling; do
   n=$((n + 1))
+  expected=1:1:0
+  case "$spelling" in '!'*) expected=0:0:0; spelling=${spelling#!} ;; esac
   printf '%b\n' "$spelling" | sed "s#OTHER#$o#g" >"$CASE/extend-$n.toml"
   rm -rf "$STORE"
   check "never cached: $(printf '%b' "$spelling" | tr '\n' ' ')" \
-    test "$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/extend-$n.toml" scans_for 'ls -la'):$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/extend-$n.toml" scans_for 'ls -la'):$(entries)" = 1:1:0
+    test "$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/extend-$n.toml" scans_for 'ls -la'):$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/extend-$n.toml" scans_for 'ls -la'):$(entries)" = "$expected"
+  [ "$expected" = 1:1:0 ] || check "not scanned, with the reason: $(printf '%b' "$spelling" | tr '\n' ' ')" \
+    grep -Fq 'relative [extend] path' "$CASE/err"
 done <<'EOF'
 [extend]\npath = "OTHER"
 [extend]\nuseDefault = true\npath = "OTHER"
-[extend]\n"path" = "OTHER"
-[extend]\n'path' = "OTHER"
+![extend]\n"path" = "OTHER"
+![extend]\n'path' = "OTHER"
 [extend]\nPATH = "OTHER"
-[ "extend" ]\npath = "OTHER"
-['extend']\npath = "OTHER"
+![ "extend" ]\npath = "OTHER"
+!['extend']\npath = "OTHER"
 [EXTEND]\npath = "OTHER"
-extend = { path = "OTHER" }
-extend.path = "OTHER"
-"extend".path = "OTHER"
-'extend'.path = "OTHER"
-extend . path = "OTHER"
-"\\u0065xtend".path = "OTHER"
-["\\u0065xtend"]\npath = "OTHER"
+!extend = { path = "OTHER" }
+!extend.path = "OTHER"
+!"extend".path = "OTHER"
+!'extend'.path = "OTHER"
+!extend . path = "OTHER"
+!"\\u0065xtend".path = "OTHER"
+!["\\u0065xtend"]\npath = "OTHER"
 [extend] # extend\nuseDefault = true
 [extend]\nuseDefault = true\ndisabledRules = [\n"generic-api-key" ]
 [extend]\ndisabledRules = [''' ]\n[not_a_real_table]\n''']\npath = 'OTHER'
@@ -258,7 +280,7 @@ extend . path = "OTHER"
 [extend]\nuseDefault = true # '''\n[x]\n'''\npath = 'OTHER'
 title = '''\n'''\n[extend]\nuseDefault = true
 title = '''\n[extend]\n'''\n[extend]\npath = "OTHER"
-[extend]\nuseDefault = true\n[[rules]]\nid = "r"\nregex = 'x'\n[extend]\npath = "OTHER"
+![extend]\nuseDefault = true\n[[rules]]\nid = "r"\nregex = 'x'\n[extend]\npath = "OTHER"
 EOF
 for spelling in '[extend]\nuseDefault = true' '[extend]\nuseDefault = true\ndisabledRules = ["generic-api-key"]' \
     'title = "x"\n[[rules]]\nid = "r"\nregex = '"'''x'''" \

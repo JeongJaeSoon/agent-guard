@@ -2805,5 +2805,266 @@
     "tests": [
       "tests/container-session-boundary.sh"
     ]
+  },
+  {
+    "id": "scan-hook-input-private-directory",
+    "rule": "hook input scan: gitleaks stdin runs from the private directory, not beside the repository's ignore file",
+    "old": "      ag_gs_dir=$GITLEAKS_HOOK_CWD\n",
+    "new": "      ag_gs_dir=\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-tool-output-private-directory",
+    "rule": "hook input scan: the output detector's gitleaks runs from the private directory",
+    "old": "          CDPATH= cd -P -- \"$GITLEAKS_HOOK_CWD\" || exit 2\n          [ -O . ] && [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || exit 2\n          \"$gl\" stdin --report-format json",
+    "new": "          \"$gl\" stdin --report-format json",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-directory-ignore-file",
+    "rule": "private scan directory: one that holds an ignore file is refused",
+    "old": "    && [ ! -e \"$GITLEAKS_HOOK_CWD/.gitleaksignore\" ] \\\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-directory-ignore-link",
+    "rule": "private scan directory: one that holds an ignore file link, even a dangling one, is refused",
+    "old": "    && [ ! -L \"$GITLEAKS_HOOK_CWD/.gitleaksignore\" ] || return 1\n",
+    "new": "    || return 1\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-directory-absolute",
+    "rule": "private scan directory: a relative path is refused",
+    "old": "  case \"$GITLEAKS_HOOK_CWD\" in /*) ;; *) return 1 ;; esac\n",
+    "new": "  case \"$GITLEAKS_HOOK_CWD\" in '') return 1 ;; esac\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-directory-symlink",
+    "rule": "private scan directory: a symlink is refused",
+    "old": "  [ -d \"$GITLEAKS_HOOK_CWD\" ] && [ ! -L \"$GITLEAKS_HOOK_CWD\" ] \\\n",
+    "new": "  [ -d \"$GITLEAKS_HOOK_CWD\" ] \\\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-staged-repository-ignore",
+    "rule": "repository scan: scan-staged applies the repository's ignore file",
+    "old": "  scan_text_direct \"staged added lines\" \"$added\" repo\n",
+    "new": "  scan_text_direct \"staged added lines\" \"$added\"\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-working-tree-repository-ignore",
+    "rule": "repository scan: scan-working-tree applies the repository's ignore file to tracked changes",
+    "old": "    scan_text_direct \"working tree added lines\" \"$tracked\" repo\n",
+    "new": "    scan_text_direct \"working tree added lines\" \"$tracked\"\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-untracked-repository-ignore",
+    "rule": "repository scan: the untracked-files pass applies the repository's ignore file",
+    "old": "  run_gitleaks_stdin \"untracked files\" repo <\"$blob\"\n",
+    "new": "  run_gitleaks_stdin \"untracked files\" <\"$blob\"\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-commit-candidate-repository-ignore",
+    "rule": "repository scan: the commit check applies the repository's ignore file",
+    "old": "    scan_text_direct \"commit candidate added lines\" \"$added\" repo\n",
+    "new": "    scan_text_direct \"commit candidate added lines\" \"$added\"\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-client-relative-path",
+    "rule": "hook input scan: a scan client named by a relative path is named as it resolves from the hook directory before the scan changes directory",
+    "old": "    */*) ag_gx_program=$PWD/$ag_gx_program ;;\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaks-helper-install.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-extend-check",
+    "rule": "hook input scan: a custom config that may extend a relative path is not used from the private directory",
+    "old": "  gitleaks_config_extends_no_relative_path || return 2\n",
+    "new": "  return 0\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-relative-path-value",
+    "rule": "config extend check: a relative path value is refused",
+    "old": "!(match(value, /^\"\\/[^\"\\\\]*\"/) || match(value, (\"^\" sq \"/[^\" sq \"]*\" sq)))",
+    "new": "!(match(value, /^\"[^\"\\\\]*\"/) || match(value, (\"^\" sq \"[^\" sq \"]*\" sq)))",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-dotted-extend-key",
+    "rule": "config extend check: a key that holds extend in any spelling (dotted, inline table, a dot inside a quoted key) is refused",
+    "old": "        if (index(key, \"extend\")) { bad = 1; exit }\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-quoted-table-name",
+    "rule": "config extend check: a table name that holds extend but is not the plain [extend] header is refused",
+    "old": "          if (l !~ /^[ \\t]*\\[[ \\t]*extend[ \\t]*\\][ \\t]*(#.*)?$/ || headers++) { bad = 1; exit }\n",
+    "new": "          if (headers++) { bad = 1; exit }\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-multiline-string",
+    "rule": "config extend check: a multiline string is followed to its closing delimiter, so its lines are not read as keys or table headers",
+    "old": "            if (substr(line, i, 3) == c c c) { instr = c; i += 3; continue }\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-escaped-key",
+    "rule": "config extend check: a key with a backslash, whose escape may spell extend, is refused",
+    "old": "        if (index(key, \"\\\\\")) { bad = 1; exit }\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-extend-chain",
+    "rule": "config extend check: each file a config extends is checked in turn",
+    "old": "        if (path != \"\") print path\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-physical-directory",
+    "rule": "hook input scan: the scan enters the run directory physically, as the checks saw it",
+    "old": "    CDPATH= cd -P -- \"$ag_gx_dir\" || exit 2\n",
+    "new": "    CDPATH= cd -- \"$ag_gx_dir\" || exit 2\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-tool-output-physical-directory",
+    "rule": "hook input scan: the output detector enters the run directory physically",
+    "old": "          CDPATH= cd -P -- \"$GITLEAKS_HOOK_CWD\" || exit 2\n          [ -O . ]",
+    "new": "          CDPATH= cd -- \"$GITLEAKS_HOOK_CWD\" || exit 2\n          [ -O . ]",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-read-by-redirection",
+    "rule": "config extend check: the config is opened by redirection, so a name of the form name=value is not read as an awk assignment",
+    "old": "    ' 2>/dev/null <\"$ag_gc_file\") || return 1\n",
+    "new": "    ' \"$ag_gc_file\" 2>/dev/null) || return 1\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-array-continuation",
+    "rule": "config extend check: a line that continues a value (a multi-line array, a multiline string) is not read as a key or a table header",
+    "old": "      instr != \"\" || depth > 0 {\n",
+    "new": "      0 {\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-comment",
+    "rule": "config extend check: a comment ends the line, so a quote in it opens no string",
+    "old": "          if (c == \"#\") return 1\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-entered-directory",
+    "rule": "hook input scan: no scan starts in a directory that holds an ignore file, checked in the directory entered",
+    "old": "    # that counts.\n    [ -O . ] && [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || exit 2\n",
+    "new": "    # that counts.\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-entered-directory-owner",
+    "rule": "hook input scan: no scan starts in a directory that another user owns",
+    "old": "    # that counts.\n    [ -O . ] && ",
+    "new": "    # that counts.\n    ",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-closing-quotes",
+    "rule": "config extend check: a multiline string that ends in a quote closes with four or five quotes",
+    "old": "              if (substr(line, i, 1) == instr) i++\n              if (substr(line, i, 1) == instr) i++\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-extend-depth",
+    "rule": "config extend check: the path in the file a config extends is checked too, since gitleaks opens it",
+    "old": "    [ \"$ag_gc_depth\" -le 2 ] || return 0\n",
+    "new": "    [ \"$ag_gc_depth\" -le 1 ] || return 0\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-exec-output-refusal-reason",
+    "rule": "exec: output masked because the gitleaks config cannot be used for hook input comes with the reason on stderr",
+    "old": "    [ -z \"$exec_bundle_response\" ] || gitleaks_hook_scan_dir || gitleaks_hook_scan_refusal \"$?\" \"command output\"\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-shim-hint",
+    "rule": "hook input scan: when a gitleaks that may be a version manager's shim fails, the message names AGENT_GUARD_GITLEAKS_BIN",
+    "old": "  [ -z \"$ag_gs_dir\" ] || [ -n \"$GITLEAKS_PROBE_CACHE_KEY\" ] \\\n    || info \"$PROGRAM: hook input is scanned from a private directory, where a gitleaks that takes its version",
+    "new": "  : \"$PROGRAM: hook input is scanned from a private directory, where a gitleaks that takes its version",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
   }
 ]
