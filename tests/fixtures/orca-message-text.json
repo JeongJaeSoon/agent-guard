@@ -57,6 +57,7 @@
   },
   {
     "id": "git-add-then-commit",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a commit message after git add",
@@ -64,6 +65,7 @@
   },
   {
     "id": "git-add-protected",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "git add of a dotenv file before the commit",
