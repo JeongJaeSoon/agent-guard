@@ -251,11 +251,47 @@ fn outcome(state: &Path, before: &BTreeSet<String>) -> Value {
         .map_or(Value::Null, |event| event["outcome"].clone())
 }
 
-/// The readiness-probe cache file: replaced whenever a hook ran `gitleaks version`.
-fn probe_entry(state: &Path) -> Option<(u64, i64, i64)> {
-    std::fs::metadata(state.join("agent-guard/gitleaks-probe"))
-        .ok()
-        .map(|meta| (meta.ino(), meta.ctime(), meta.ctime_nsec()))
+/// The readiness-probe cache record: the file's identity, replaced whenever
+/// a hook ran `gitleaks version`, and the time the record was written.
+type Probe = ((u64, i64, i64), u64);
+fn probe_entry(state: &Path) -> Option<Probe> {
+    let path = state.join("agent-guard/gitleaks-probe");
+    let meta = std::fs::metadata(&path).ok()?;
+    let text = std::fs::read_to_string(&path).ok()?;
+    let written = text.lines().nth(1)?.parse().ok()?;
+    Some(((meta.ino(), meta.ctime(), meta.ctime_nsec()), written))
+}
+/// cached: the record was fresh when the hook started and the hook left it
+/// alone. ran: the hook replaced it, or it had expired, so the hook had to
+/// ask again (a probe that fails leaves the old record in place). unknown:
+/// there is no record; the CLI never caches a script scanner.
+fn probe_label(before: Option<Probe>, after: Option<Probe>, start: u64, ttl: u64) -> &'static str {
+    match (before, after) {
+        (_, None) => "unknown",
+        (Some(before), Some(after))
+            if before == after && start.saturating_sub(before.1) + 1 < ttl =>
+        {
+            "cached"
+        }
+        _ => "ran",
+    }
+}
+/// How long the CLI trusts a probe record, read from the CLI being measured.
+fn cache_ttl(binary: &str) -> Result<u64> {
+    std::fs::read_to_string(binary)?
+        .lines()
+        .find_map(|line| line.strip_prefix("STATE_CACHE_TTL_SECONDS="))
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| "the CLI does not say how long it caches the readiness probe".into())
+}
+/// A hit the cache-off control did not confirm is not a measured cache hit.
+fn unconfirm_hits(samples: &mut [Value], arm: &str, case: &str) {
+    for sample in samples {
+        if sample["arm"] == arm && sample["case"] == case && sample["cache"] == "hit" {
+            sample["cache"] = json!("unconfirmed");
+            sample["aggregated"] = json!(false);
+        }
+    }
 }
 
 /// The clean-scan cache entries of a state directory, by inode and change time.
@@ -287,6 +323,7 @@ struct Run<'a> {
     binary: &'a str,
     manifest: bool,
     timeout: f64,
+    ttl: u64,
     trace: PathBuf,
     metrics: PathBuf,
     exe: String,
@@ -338,6 +375,9 @@ impl Run<'_> {
         let _ = std::fs::remove_file(&self.trace);
         let before = cache_entries(state);
         let probe = probe_entry(state);
+        let start = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
         let events = event_files(state);
         let (_, out) = invoke_isolated(
             &command,
@@ -360,14 +400,7 @@ impl Run<'_> {
         row["client"] = json!(words);
         row["cache_changed"] = json!(before != cache_entries(state));
         row["outcome"] = outcome(state, &events);
-        // A scanner the CLI does not cache a probe for (a script) leaves no
-        // record either way.
-        let probed = probe_entry(state);
-        row["probe"] = json!(match (&probed, probed == probe) {
-            (None, _) => "unknown",
-            (_, true) => "cached",
-            _ => "ran",
-        });
+        row["probe"] = json!(probe_label(probe, probe_entry(state), start, self.ttl));
         Ok(row)
     }
 }
@@ -545,6 +578,7 @@ pub fn latency(args: &Args) -> Result<()> {
         binary: &binary,
         manifest: entry == "manifest",
         timeout,
+        ttl: cache_ttl(&binary)?,
         trace: base.join("trace"),
         metrics: base.join("metrics.json"),
         exe: std::env::current_exe()?.display().to_string(),
@@ -743,7 +777,10 @@ pub fn latency(args: &Args) -> Result<()> {
         .flat_map(|arm| cases.iter().map(move |case| (arm, *case)))
         .collect();
     let mut samples = Vec::new();
-    for sample in 0..runs {
+    // A hook that fails to run (a timeout) ends the measurement; what was
+    // collected until then is still stored.
+    let mut complete = true;
+    'measure: for sample in 0..runs {
         let order: Vec<_> = if sample % 2 == 0 {
             cells.iter().collect()
         } else {
@@ -769,7 +806,21 @@ pub fn latency(args: &Args) -> Result<()> {
                     }
                 }
             }
-            let mut row = hook(arm, &state, case, &input(arm, case, &n), &[])?;
+            let mut row = match hook(arm, &state, case, &input(arm, case, &n), &[]) {
+                Ok(row) => row,
+                Err(error) => {
+                    problems.push(format!(
+                        "{}/{} sample {sample}: {error}; the measurement stopped here",
+                        arm.name, case.0
+                    ));
+                    samples.push(
+                        json!({"case": case.0, "event": case.1, "arm": arm.name, "sample": sample,
+                        "error": error.to_string(), "aggregated": false}),
+                    );
+                    complete = false;
+                    break 'measure;
+                }
+            };
             let words: Vec<String> = row["client"]
                 .as_array()
                 .unwrap()
@@ -848,9 +899,10 @@ pub fn latency(args: &Args) -> Result<()> {
     // that passed it without looking would otherwise be reported as faster.
     let mut cache_controls = Vec::new();
     for (arm, case) in &cells {
-        if !samples
-            .iter()
-            .any(|s| s["arm"] == arm.name && s["case"] == case.0 && s["cache"] == "hit")
+        if !complete
+            || !samples
+                .iter()
+                .any(|s| s["arm"] == arm.name && s["case"] == case.0 && s["cache"] == "hit")
         {
             continue;
         }
@@ -878,6 +930,7 @@ pub fn latency(args: &Args) -> Result<()> {
                 "{}/{}: with the clean-scan cache off this input is still not scanned ({ran}), so its hits are not cache hits",
                 arm.name, case.0
             ));
+            unconfirm_hits(&mut samples, arm.name, case.0);
         }
         cache_controls
             .push(json!({"arm": arm.name, "case": case.0, "scanner_with_cache_off": ran}));
@@ -908,7 +961,7 @@ pub fn latency(args: &Args) -> Result<()> {
         let rows: Vec<_> = all.iter().filter(|s| s["aggregated"] == true).collect();
         if rows.is_empty() {
             problems.push(format!(
-                "{}/{}: every sample ran the readiness probe",
+                "{}/{}: no sample ran this arm's path and passed",
                 arm.name, case.0
             ));
             continue;
@@ -948,6 +1001,7 @@ pub fn latency(args: &Args) -> Result<()> {
         "helper_sha256": helper_sums,
         "jq_version": sandbox.version(&["jq", "--version"])?,
         "runs": runs,
+        "complete": complete,
         "arms": arm_names,
         "verified": !unverified,
         "scanner_evidence": match threshold {
@@ -1098,6 +1152,7 @@ mod tests {
             );
         }
         // A test double: unknown stands for the scanner, a wrong client word does not.
+        // (The rows above are the verified case.)
         assert!(evidence(
             "helper-off",
             false,
@@ -1125,5 +1180,40 @@ mod tests {
             "unknown",
             true
         ));
+    }
+    #[test]
+    fn a_probe_record_is_cached_only_while_fresh_and_untouched() {
+        let record = |inode: u64, written: u64| Some(((inode, 5, 0), written));
+        // (before, after, hook start, accepted label)
+        for (before, after, start, label) in [
+            (record(1, 1000), record(1, 1000), 1100, "cached"),
+            (record(1, 1000), record(2, 1100), 1100, "ran"),
+            (None, record(2, 1100), 1100, "ran"),
+            // Expired and left alone: the hook asked again and got no answer.
+            (record(1, 1000), record(1, 1000), 1600, "ran"),
+            (record(1, 1000), record(1, 1000), 1599, "ran"),
+            (record(1, 1000), record(1, 1000), 1598, "cached"),
+            (None, None, 1100, "unknown"),
+            (record(1, 1000), None, 1100, "unknown"),
+        ] {
+            assert_eq!(
+                probe_label(before, after, start, 600),
+                label,
+                "{before:?} {after:?} {start}"
+            );
+        }
+    }
+    #[test]
+    fn an_unconfirmed_hit_leaves_the_summary() {
+        let mut samples = vec![
+            json!({"arm": "repeat-input", "case": "pre-bash", "cache": "hit", "aggregated": true}),
+            json!({"arm": "repeat-input", "case": "pre-bash", "cache": "stored", "aggregated": true}),
+            json!({"arm": "repeat-input", "case": "pre-read", "cache": "hit", "aggregated": true}),
+        ];
+        unconfirm_hits(&mut samples, "repeat-input", "pre-bash");
+        assert_eq!(samples[0]["cache"], "unconfirmed");
+        assert_eq!(samples[0]["aggregated"], false);
+        assert_eq!(samples[1]["aggregated"], true);
+        assert_eq!(samples[2]["cache"], "hit");
     }
 }

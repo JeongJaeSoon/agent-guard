@@ -62,7 +62,7 @@ grep -q 'passed: 1' "$CASE/failed-partitions/native-4.log"
 # Hook latency: every arm that needs no helper runs with the mock scanner, each
 # run is stored as a sample, and the summary on standard output holds none.
 "$TOOLS" hook-latency --unverified --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 2 --out "$CASE/latency.json" >"$CASE/latency-summary.json"
-jq -e '.arms == ["helper-off", "repeat-input"] and (.samples | length) == 20 and (.problems | length) == 0 and (.verified | not)
+jq -e '.arms == ["helper-off", "repeat-input"] and (.samples | length) == 20 and (.problems | length) == 0 and (.verified | not) and .complete
   and ([.samples[] | select(.status != 0 or .seconds <= 0 or .max_child_peak_rss_kib <= 0)] | length) == 0
   and ([.samples[] | [.case, .arm]] | unique | length) == 10
   and ([.samples[] | select((.scanner | type) != "string" or (.cache | type) != "string" or (.probe | type) != "string" or (.client | type) != "array")] | length) == 0
@@ -107,6 +107,16 @@ if "$TOOLS" hook-latency --unverified --scanner "$CASE/failing/gitleaks" --runs 
 fi
 jq -e '(.samples | length) == 2 and ([.samples[] | select(.aggregated)] | length) == 0 and (.cells | length) == 0
   and ([.samples[].outcome] | unique) == ["degraded"] and (.problems | length) > 0' "$CASE/latency-degraded.json" >/dev/null
+# A hook that outlives the timeout ends the run; the samples before it are
+# stored with the one that failed.
+printf '%s\n' '#!/bin/sh' 'case "${1:-}" in version) echo 8.30.1; exit 0 ;; esac' \
+  'case "$(cat)" in *"summary helper-off-1"*) sleep 30 ;; esac' 'exit 0' >"$CASE/failing/gitleaks"
+if "$TOOLS" hook-latency --unverified --scanner "$CASE/failing/gitleaks" --runs 3 --timeout 5 --case pre-write --arm helper-off --out "$CASE/latency-timeout.json" >/dev/null 2>&1; then
+  echo 'hook-latency passed a run that timed out' >&2; exit 1
+fi
+jq -e '(.complete | not) and (.samples | length) == 2 and .samples[0].aggregated and .samples[0].status == 0
+  and (.samples[1].aggregated | not) and (.samples[1].error | type) == "string"
+  and (.cells | length) == 1 and .cells[0].n == 1' "$CASE/latency-timeout.json" >/dev/null
 # Helper binaries the CLI does not pin are never run: the helper arms would
 # time gitleaks itself, so the run fails instead of naming it warm.
 for name in agent-guard-scan agent-guard-gitleaks-helper; do
