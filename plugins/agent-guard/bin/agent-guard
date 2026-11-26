@@ -412,10 +412,11 @@ trap "" TERM
   : >"$out.done"
 } &
 work=$!
-# The server gets as long after the writer stops as the guard gives it.
-until [ -e "$out.done" ]; do
-  [ "$(date +%s)" -lt "$((deadline + 3))" ] || break
-  sleep 0.1 2>/dev/null || sleep 1
+# Counted in naps, not read from the clock, which can be set back: the group
+# gets the limit + 2 seconds that the guard gives it.
+naps=0
+until [ -e "$out.done" ] || [ "$naps" -ge "$(( (limit + 2) * 10 ))" ]; do
+  if sleep 0.1 2>/dev/null; then naps=$((naps + 1)); else sleep 1; naps=$((naps + 10)); fi
 done
 if [ -e "$out.done" ]; then
   wait "$work"
