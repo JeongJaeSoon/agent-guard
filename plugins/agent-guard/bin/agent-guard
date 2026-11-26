@@ -402,24 +402,26 @@ request() {
   jq -nc --arg cwd "$cwd" "{jsonrpc: \"2.0\", id: 2, method: \"hooks/list\", params: {cwds: [\$cwd]}}"
   await 2 || :
 }
-# This shell and its timer ignore TERM, which the guard sends to this group
-# as well: they have to last until the group is ended. The server starts with
-# the disposition this shell was given.
+# This shell ignores TERM, which the guard sends to this group as well: it
+# has to last until the group is ended. The server starts with the
+# disposition this shell was given.
 trap "" TERM
-sleep "$((limit + 2))" &
-nap=$!
 {
   trap - TERM
   request | "$codex" app-server >"$out" 2>/dev/null
-  # Ending the timer is how this shell learns that the server is done.
-  kill -KILL "$nap"
+  : >"$out.done"
 } &
 work=$!
-if wait "$nap"; then
+# The server gets as long after the writer stops as the guard gives it.
+until [ -e "$out.done" ]; do
+  [ "$(date +%s)" -lt "$((deadline + 3))" ] || break
+  sleep 0.1 2>/dev/null || sleep 1
+done
+if [ -e "$out.done" ]; then
+  wait "$work"
+else
   kill -TERM -"$$"
   sleep 1
-else
-  wait "$work"
 fi
 # Past the deadline or with the server done, nothing may stay in this group,
 # whether the guard is still there or not.
