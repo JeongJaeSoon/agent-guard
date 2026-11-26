@@ -146,6 +146,12 @@ run "$H" AGENT_GUARD_BIN_DIR="$LINKS" "$GUARD" scan-path "$CASE/clean"
 expect "control: scan-path with an installer link directory has no notice" '! notice "$CASE/err"'
 run "$H" AGENT_GUARD_BIN_DIR="$LINKS" "$GUARD" setup
 expect "control: setup that installs nothing has no notice for an installer link directory" '! notice "$CASE/err"'
+env -u HOME PATH="$TOOLS" XDG_STATE_HOME="$CASE/state" AGENT_GUARD_LOG_MODE=off AG_TEST_GITLEAKS_LOG="$CASE/log" \
+  AGENT_GUARD_BIN_DIR="$LINKS" AGENT_GUARD_GITLEAKS_BIN="$NEW/gitleaks" \
+  "$GUARD" scan-path "$CASE/clean" >"$CASE/out" 2>"$CASE/err"
+no_home_status=$?
+expect "without HOME an installer link directory does not stop a scan with a selected gitleaks" \
+  '[ "$no_home_status" = 0 ] && grep -qxF "$NEW/gitleaks dir" "$CASE/log"'
 
 # --- setup --install: where gitleaks goes ------------------------------------
 ARCH="$CASE/archive"

@@ -261,9 +261,13 @@ elif [ -n "${AGENT_GUARD_BIN_DIR:-}" ]; then
       || [ -e "$AGENT_GUARD_BIN_DIR/gitleaks-helper" ]; then
     GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_BIN_DIR
     GITLEAKS_BIN_DIR_LEGACY=1
-  else
+  elif [ -n "${HOME:-}" ]; then
     GITLEAKS_PRIVATE_BIN_DIR=$HOME/.agent-guard/bin
     GITLEAKS_BIN_DIR_LEGACY=2
+  else
+    # No home directory to default to: keep the old reading, which finds no
+    # gitleaks here, so resolution goes on to PATH as before.
+    GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_BIN_DIR
   fi
 else
   GITLEAKS_PRIVATE_BIN_DIR=$HOME/.agent-guard/bin
