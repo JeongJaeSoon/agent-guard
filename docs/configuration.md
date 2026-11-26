@@ -311,8 +311,9 @@ and blocks until the value is fixed. An unrecognized `AGENT_GUARD_PII_PROVIDER`
 is an error only where the provider is called: `pii-filter` and
 `AGENT_GUARD_PII_HOOK_MODE=block`. `mask` mode does not call the provider, so
 it ignores the value.
-`AGENT_GUARD_INFRA_FAILURE_MODE` is the exception: an unrecognized value falls
-back to `open`.
+`AGENT_GUARD_INFRA_FAILURE_MODE` is the exception: an unrecognized value is read
+as unset ([Infrastructure policy](#infrastructure-policy)). [Unrecognized
+values](#unrecognized-values) compares the settings side by side.
 
 ## Masked file views
 
@@ -659,41 +660,130 @@ call that has a container `exec`.
 
 ## Environment reference
 
+The settings are grouped by purpose. Most users need only the hook modes. What
+happens to a mistyped value differs per setting; see
+[Unrecognized values](#unrecognized-values).
+
+### Policy settings
+
+Hook modes:
+
+| Variable | Default / use |
+| --- | --- |
+| `AGENT_GUARD_INFRA_FAILURE_MODE` | Claude Code and Codex hook behavior (the native Git hook and the GitHub Action fail on an unavailable scan whatever the value) when a dependency, policy or scanner fails: unset (default), `open` or `closed`. Unset is `closed` for a secret scan that did not run and `open` for every other infrastructure failure. Not every event can or does block, and the plugin hook launcher has its own startup rules: see [Infrastructure policy](#infrastructure-policy) and [Integrations](integrations.md). The shell integration (wrapped commands and `agx`) reads it only when it cannot locate the CLI or `agent-guard check` fails: `closed` then refuses the command, and otherwise it runs unmasked. |
+| `AGENT_GUARD_PROMPT_GUARD_MODE` | `block` (default), `warn`, `off`, or the currently blocking `mask` fallback. |
+| `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
+| `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
+| `AGENT_GUARD_PII_HOOK_MODE` | `off` (default), `block`, or `mask`. |
+| `AGENT_GUARD_LOG_MODE` | The metadata log is on by default; set `off` to opt out. `off` also turns off the local caches in the private state directory (the gitleaks readiness cache, the clean-scan cache below, and the shared protected-path regex cache, which is then rebuilt in every invocation) unless `AGENT_GUARD_SCAN_CACHE=on` is set explicitly. Without them every hook runs the gitleaks readiness check and scans a repeated Bash command again, usually one or two more gitleaks runs per hook. With `AGENT_GUARD_LOG_MODE=off` and `AGENT_GUARD_SCAN_CACHE=on`, the caches are written and no event record is. See [PRIVACY.md](../PRIVACY.md) for what each cache file holds. |
+
+Replacement policy files ([Policy files](#policy-files-and-shell-integration)):
+
 | Variable | Default / use |
 | --- | --- |
 | `AGENT_GUARD_DENY_READ_PATHS` | Override the deny-read policy file. |
-| `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
-| `AGENT_GUARD_TRACKED_FILE_EXCEPTION` | `on` (default) or `off`. `on` lets a file committed to the current repository be read even when its name is on the deny-read list ([Committed files](#committed-files)). Any other value, an empty one included, counts as `off`. |
-| `AGENT_GUARD_MASK_DENY_VALUES` | A file of extra deny-value rules for `mask` mode, used together with `$HOME/.config/agent-guard/mask-deny-values.txt`. |
 | `AGENT_GUARD_DENY_BASH_PATTERNS` | Override the risky-shell-command policy file. |
 | `AGENT_GUARD_GITLEAKS_CONFIG` | Override the gitleaks configuration file. |
-| `AGENT_GUARD_GITLEAKS_BIN` | Select a gitleaks executable. |
-| `AGENT_GUARD_GITLEAKS_BIN_DIR` or `AGENT_GUARD_BIN_DIR` | Select the private gitleaks install directory. |
-| `AGENT_GUARD_GITLEAKS_HELPER` | Unset (default): use the [warm gitleaks helper](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) when `agent-guard setup --install` or `agent-guard setup --install-gitleaks-helper` installed it. `off` (any value that is not an absolute path) never uses it, and `setup --install` run with the variable set does not install it. An absolute path selects your own built `agent-guard-scan`. Ignored when `AGENT_GUARD_GITLEAKS_BIN` is set or `AGENT_GUARD_LOG_MODE=off`. A helper failure runs the real gitleaks. |
-| `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` / `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` | Read when a warm helper starts: idle exit time (default `600`) and peak resident-memory cap (default `160` MiB, at least `96`). |
-| `AGENT_GUARD_INFRA_FAILURE_MODE` | `open` (default) or `closed` for hook infrastructure failures. |
+
+Other settings:
+
+| Variable | Default / use |
+| --- | --- |
+| `AGENT_GUARD_MASK_DENY_VALUES` | A file of extra deny-value rules for `mask` mode, used together with `$HOME/.config/agent-guard/mask-deny-values.txt`. |
+| `AGENT_GUARD_SESSION_ROLE` | Set to `review` in the environment of a review session to hold it to the container boundary ([Containers other sessions own](#containers-other-sessions-own)). Unset or any other value: no effect. |
+| `AGENT_GUARD_COMMAND_WRAPPING` | `on` (default). The automatic wrappers of the shell integration act only inside Claude Code; `agx` works anywhere. `off`, `OFF`, `0`, `false`, `FALSE`, `no` or `NO` disables that wrapping for the current process. For `agent-guard update` and the bootstrap installer, a non-empty value overrides the choice recorded in the shell rc: one of those spellings installs with wrapping off, anything else with wrapping on. |
 | `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` | Positive integer `>= 10485760`; default `10485760` (10 MiB, split into thirds per producer, so `scan-staged` and each `scan-working-tree` component get 3495253 bytes by default). It can only raise the budget: smaller, non-numeric, or overlong (19+ digit) values keep the default. A larger budget scans more input; it never excludes anything from scanning. |
-| `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
-| `AGENT_GUARD_KEY_NAME_REDACT` | `off` (default) or `on`. `on` also masks, and blocks in a prompt, an identifier that repeats a credential-like field name (`credential: CredentialSchema,`); see [Output and prompt handling](#output-and-prompt-handling). Any value other than unset, empty or `off` counts as `on`. |
-| `AGENT_GUARD_KNOWN_VALUE_REDACT` | `on` (default) or `off`. Only with `AGENT_GUARD_DENY_READ_MODE=mask`: output masking also masks the values of the project's root dotenv files ([Known dotenv values in output](#known-dotenv-values-in-output)). `off` skips it. |
-| `AGENT_GUARD_PROMPT_GUARD_MODE` | `block` (default), `warn`, `off`, or the currently blocking `mask` fallback. |
-| `AGENT_GUARD_PII_HOOK_MODE` | `off` (default), `block`, or `mask`. |
+| `AGENT_GUARD_RELEASE_CHECK` | `on` (default) or `off`; `doctor`, `plugin status`, and the `plugin update` no-op skip the latest-release lookup when off. |
+
+PII settings, used with [PII handling](#pii-handling):
+
+| Variable | Default / use |
+| --- | --- |
 | `AGENT_GUARD_PII_PROVIDER` | `regex` (default), `http`, or `pleno`. |
 | `AGENT_GUARD_PII_REDACT_URL` | Required user-controlled endpoint for the remote PII providers. |
 | `AGENT_GUARD_PII_SKIP` | Local-regex opt-out for `EMAIL`, `PHONE`, and `IP_ADDRESS` only. |
-| `AGENT_GUARD_PII_LANGUAGE` / `AGENT_GUARD_PII_TIMEOUT_SECONDS` | Provider language and positive timeout control. |
-| `AGENT_GUARD_COMMAND_WRAPPING` | `off` disables shell command wrapping for the current process. For `agent-guard update` and the bootstrap installer, `on` or `off` overrides the choice recorded in the shell rc. |
-| `AGENT_GUARD_LOG_MODE` | The metadata log is on by default; set `off` to opt out. `off` also turns off the local caches in the private state directory (the gitleaks readiness cache, the clean-scan cache below, and the shared protected-path regex cache, which is then rebuilt in every invocation) unless `AGENT_GUARD_SCAN_CACHE=on` is set explicitly. Without them every hook runs the gitleaks readiness check and scans a repeated Bash command again, usually one or two more gitleaks runs per hook. With `AGENT_GUARD_LOG_MODE=off` and `AGENT_GUARD_SCAN_CACHE=on`, the caches are written and no event record is. See [PRIVACY.md](../PRIVACY.md) for what each cache file holds. |
-| `AGENT_GUARD_SCAN_CACHE` | `on` (default) or `off`; with `AGENT_GUARD_LOG_MODE=off` the default is off and only an explicit `on` enables it. When on, the PreToolUse Bash command-text scan (the one that repeats, such as `ls -la` or `git status`) skips gitleaks only for a command that was already scanned clean within the last 10 minutes under the same gitleaks executable (a native binary, not a script shim), configuration file contents, `GITLEAKS_CONFIG`/`GITLEAKS_CONFIG_TOML`, scan flags, and agent-guard version. Prompts, file edits, patches, MCP and network input, and `scan-staged`/`scan-working-tree` are always scanned directly. Entries are SHA-256 hashes in the private state directory, at most 256 of them; the scanned text is never stored. Findings, scanner errors, and scans that could not run are never cached. A `.gitleaksignore` in the scan directory, a configuration that names `extend` anywhere except a plain `[extend]` table holding only `useDefault` and a one-line `disabledRules` with no multiline string before or inside it, a configuration with a double-quoted key or table name, `AGENT_GUARD_LOG_MODE=off` without an explicit `AGENT_GUARD_SCAN_CACHE=on`, no root-owned, non-writable `/usr/bin/sha256sum`, `/bin/sha256sum`, or `/usr/bin/shasum` (the hash tool is never taken from `PATH`) or one that fails a known-answer check, and any value other than `on` disable it. With logging on, `off` disables only this cache. With `AGENT_GUARD_LOG_MODE=off`, only an explicit `on` prepares the private state directory, under the same ownership, mode, and symlink checks, and enables this cache together with the readiness and protected-path regex caches; no event record is written. An `AGENT_GUARD_LOG_MODE` value other than `on` or `off` leaves all three caches off whatever this variable says. |
-| `AGENT_GUARD_RELEASE_CHECK` | `on` (default) or `off`; `doctor`, `plugin status`, and the `plugin update` no-op skip the latest-release lookup when off. |
-| `AGENT_GUARD_CODEX_TRUST_CHECK` | `on` (default) or `off`; when off, `doctor` and the Codex `plugin status`/`install`/`update` output skip the `codex app-server` hook-trust query and report it as unverified. |
-| `AGENT_GUARD_SESSION_ROLE` | Set to `review` in the environment of a review session to hold it to the container boundary ([Containers other sessions own](#containers-other-sessions-own)). Unset or any other value: no effect. |
+| `AGENT_GUARD_PII_LANGUAGE` / `AGENT_GUARD_PII_TIMEOUT_SECONDS` | Provider language and positive timeout control (default `30` seconds). A hook request to the provider caps this transfer timeout at 5 seconds, whatever the value; `pii-filter` run directly uses the value. |
 
-`AGENT_GUARD_HOME`, `AGENT_GUARD_BIN`, `AGENT_GUARD_HOOK_HOST`,
-`AGENT_GUARD_RUNDIR`, `AGENT_GUARD_SESSION_ID`, `AGENT_GUARD_SHELL_INIT_VERSION`,
-and `AGENT_GUARD_WARNING_DIR` are runtime/integration controls. Do not set them
-in ordinary policy configuration unless a documented host integration requires
-them.
+### Compatibility and hardening switches
+
+Leave these unset unless you want stricter or earlier behavior, or need to turn
+off one cache, check or masking rule.
+
+| Variable | Default / use |
+| --- | --- |
+| `AGENT_GUARD_KEY_NAME_REDACT` | `off` (default) or `on`. `on` also masks, and blocks in a prompt, an identifier that repeats a credential-like field name (`credential: CredentialSchema,`); see [Output and prompt handling](#output-and-prompt-handling). Any value other than unset, empty or `off` counts as `on`. |
+| `AGENT_GUARD_TRACKED_FILE_EXCEPTION` | `on` (default) or `off`. `on` lets a file committed to the current repository be read even when its name is on the deny-read list ([Committed files](#committed-files)). Any other value, an empty one included, counts as `off`. |
+| `AGENT_GUARD_KNOWN_VALUE_REDACT` | `on` (default) or `off`. Only with `AGENT_GUARD_DENY_READ_MODE=mask`: output masking also masks the values of the project's root dotenv files ([Known dotenv values in output](#known-dotenv-values-in-output)). `off` skips it. |
+| `AGENT_GUARD_SCAN_CACHE` | `on` (default) or `off`; with `AGENT_GUARD_LOG_MODE=off` the default is off and only an explicit `on` enables it. When on, the PreToolUse Bash command-text scan (the one that repeats, such as `ls -la` or `git status`) skips gitleaks only for a command that was already scanned clean within the last 10 minutes under the same gitleaks executable (a native binary, not a script shim), configuration file contents, `GITLEAKS_CONFIG`/`GITLEAKS_CONFIG_TOML`, scan flags, and agent-guard version. Prompts, file edits, patches, MCP and network input, and `scan-staged`/`scan-working-tree` are always scanned directly. Entries are SHA-256 hashes in the private state directory, at most 256 of them; the scanned text is never stored. Findings, scanner errors, and scans that could not run are never cached. A `.gitleaksignore` in the scan directory, a configuration that names `extend` anywhere except a plain `[extend]` table holding only `useDefault` and a one-line `disabledRules` with no multiline string before or inside it, a configuration with a double-quoted key or table name, `AGENT_GUARD_LOG_MODE=off` without an explicit `AGENT_GUARD_SCAN_CACHE=on`, no root-owned, non-writable `/usr/bin/sha256sum`, `/bin/sha256sum`, or `/usr/bin/shasum` (the hash tool is never taken from `PATH`) or one that fails a known-answer check, and any value other than `on` disable it. With logging on, `off` disables only this cache. With `AGENT_GUARD_LOG_MODE=off`, only an explicit `on` prepares the private state directory, under the same ownership, mode, and symlink checks, and enables this cache together with the readiness and protected-path regex caches; no event record is written. An `AGENT_GUARD_LOG_MODE` value other than `on` or `off` leaves all three caches off whatever this variable says. |
+| `AGENT_GUARD_CODEX_TRUST_CHECK` | `on` (default) or `off`; when off, `doctor` and the Codex `plugin status`/`install`/`update` output skip the `codex app-server` hook-trust query and report it as unverified. |
+
+### Scanner and native parts
+
+These select or tune executables. An executable named here is trusted and run,
+so point it only at one you built or verified.
+
+| Variable | Default / use |
+| --- | --- |
+| `AGENT_GUARD_GITLEAKS_BIN` | Select a gitleaks executable. |
+| `AGENT_GUARD_GITLEAKS_BIN_DIR` | Select the private gitleaks directory (default `$HOME/.agent-guard/bin`), where the CLI looks for gitleaks and `setup --install` puts it. When it is unset, the CLI uses `AGENT_GUARD_BIN_DIR` if that is set; the installer reads that name with [another meaning](#installer-options). |
+| `AGENT_GUARD_GITLEAKS_HELPER` | Unset (default): use the [warm gitleaks helper](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) when `agent-guard setup --install` or `agent-guard setup --install-gitleaks-helper` installed it. `off` (any value that is not an absolute path) never uses it, and `setup --install` run with the variable set does not install it. An absolute path selects your own built `agent-guard-scan`. Ignored when `AGENT_GUARD_GITLEAKS_BIN` is set or `AGENT_GUARD_LOG_MODE=off`. A helper failure runs the real gitleaks. |
+| `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` / `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` | Read when a warm helper starts: idle exit time (default `600`) and peak resident-memory cap (default `160` MiB, at least `96`). |
+| `AGENT_GUARD_GITLEAKS_HELPER_TRACE` | Diagnosis: an absolute path to which the helper client appends fixed words, one per line; a scan that starts a helper writes two ([Warm gitleaks helper](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md)). |
+| `AGENT_GUARD_EXPERIMENTAL_REDACTOR` | `rust` (default) uses a native redaction helper when one is available and falls back to shell/jq; `shell` turns native execution off ([Installation](installation.md)). |
+| `AGENT_GUARD_RUST_CORE_BIN` | Absolute path of your own redaction helper, used only while the native redactor is on. It receives tool output and the secret values to mask. |
+
+### Installer options
+
+The bootstrap installer reads these. `AGENT_GUARD_COMMAND_WRAPPING` above also
+applies to it.
+
+| Variable | Default / use |
+| --- | --- |
+| `AGENT_GUARD_VERSION` | Release to install (default: the latest). |
+| `AGENT_GUARD_HOME` | Install directory (default `$HOME/.agent-guard`). The CLI does not read it; `agent-guard update` passes its own install directory. |
+| `AGENT_GUARD_BIN_DIR` | Directory of the `agent-guard` symlink (default `$HOME/.local/bin`). When unset, `agent-guard update` keeps the directory it was run from. The CLI also reads it as a [gitleaks directory](#scanner-and-native-parts). |
+
+### Internal names
+
+Agent Guard's own parts pass these to each other. They are not policy settings;
+set one only where a documented integration says so.
+
+| Variable | Use |
+| --- | --- |
+| `AGENT_GUARD_HOOK_HOST` | Internal: the hook adapter names the host, `claude` (default) or `codex`. A manual hook registration sets it itself, as `examples/codex/hooks.json` does. |
+| `AGENT_GUARD_SHELL_INIT_VERSION` | Internal: exported by the shell integration and read by `SessionStart`. |
+| `AGENT_GUARD_BIN` | Internal: the `agent-guard` executable the shell integration tries first. |
+
+### Unrecognized values
+
+Values are case-sensitive. The settings do not share one rule for a value they
+do not recognize, and an empty value is not always the same as unset.
+
+| Setting | Recognized values | Any other value |
+| --- | --- | --- |
+| `AGENT_GUARD_INFRA_FAILURE_MODE` | `open`, `closed` | Read as unset, as an empty value is ([Infrastructure policy](#infrastructure-policy)) |
+| `AGENT_GUARD_PROMPT_GUARD_MODE` | `block`, `warn`, `off`, `mask`; empty is `block` | Error: the prompt is blocked with exit status 2 |
+| `AGENT_GUARD_PII_HOOK_MODE` | `off`, `block`, `mask`; empty is `off` | Error: the affected hook exits with status 2 |
+| `AGENT_GUARD_PII_PROVIDER` | `regex`, `http`, `pleno`; empty is `regex` | Error where the provider is called ([PII handling](#pii-handling)) |
+| `AGENT_GUARD_PII_SKIP` | Empty, or a comma- or space-separated list of `EMAIL`, `PHONE` and `IP_ADDRESS`, with the `regex` provider | Error, also for such a list with `http` or `pleno` |
+| `AGENT_GUARD_PII_LANGUAGE` (`pleno`) | `en`, `ja`; empty is `en` | Error |
+| `AGENT_GUARD_PII_TIMEOUT_SECONDS` (`http`, `pleno`) | A positive integer; empty is `30` | Error |
+| `AGENT_GUARD_OUTPUT_REDACT` | `off` turns masking off | Masking stays on, also for `OFF`, `0` and `false` |
+| `AGENT_GUARD_DENY_READ_MODE` | `block`, `mask`; empty is `block` | The read is blocked without a masked view |
+| `AGENT_GUARD_LOG_MODE` | `on`, `off`; empty is `on` | No event record and no local caches; stderr reports an invalid log mode |
+| `AGENT_GUARD_SESSION_ROLE` | `review` | No effect, also for `Review` or `reviewer`: the environment does not restrict the session. A Claude agent type containing `review` still does |
+| `AGENT_GUARD_COMMAND_WRAPPING` | `off`, `OFF`, `0`, `false`, `FALSE`, `no`, `NO` turn wrapping off | Installed wrappers stay active; no value restores wrappers that `setup-shell --no-command-wrapping` left out. The installer installs them for any other non-empty value and keeps the recorded choice for an empty one |
+| `AGENT_GUARD_KEY_NAME_REDACT` | `off` or empty keeps the default | Counts as `on` (stricter), also `0` and `false` |
+| `AGENT_GUARD_TRACKED_FILE_EXCEPTION` | `on`, or unset | Counts as `off` (stricter), also an empty value |
+| `AGENT_GUARD_KNOWN_VALUE_REDACT` | `off` turns it off | Stays on |
+| `AGENT_GUARD_SCAN_CACHE` | `on`; empty is the default | The cache is off |
+| `AGENT_GUARD_RELEASE_CHECK` | `off` skips the lookup | The lookup runs |
+| `AGENT_GUARD_CODEX_TRUST_CHECK` | `off` skips the query | The query runs |
+| `AGENT_GUARD_GITLEAKS_HELPER` | An absolute path; empty is unset | The helper is off |
+| `AGENT_GUARD_EXPERIMENTAL_REDACTOR` | `rust` or unset (native), `shell` | Shell redaction, also for an empty value |
+| `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` | `1` to `86400` | The default, `600` |
+| `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` | `96` to `4096` | The default, `160` |
+| GitHub Action input `require-checksum` | `true` (empty is `true`), `false` | A checksum is **not** required, also for `True` or `yes`. A `gitleaks-checksum` that is given is still verified. Both inputs cover only the archive the Action downloads when no gitleaks is on `PATH`; they do not verify the executable that scans, which can be one already installed or selected by `AGENT_GUARD_GITLEAKS_BIN` |
 
 ## Policy files and shell integration
 
@@ -701,6 +791,19 @@ The bundled deny-read-paths, deny-Bash-patterns, and gitleaks files define the
 default policy. Do not loosen them only to silence a false positive; first
 confirm whether the operation is actually benign and use a structurally clear
 alternative where possible.
+
+Hooks need each of the three policy files, bundled or replaced, to exist and to
+hold at least one line that is neither blank nor a comment. Otherwise `check`
+fails, the hooks report degraded protection and the
+[infrastructure policy](#infrastructure-policy) applies. The content is not
+compared with the bundled file: a replacement with fewer rules is used as it
+is, with no notice. The plugin hook launcher also needs the three bundled files in
+the plugin directory to be readable, even when they are replaced; `check` with
+replacement files does not test that.
+
+The user files `mask-deny-values.txt`, `mask-allow-keys.txt` and
+`protected-containers.txt` are read from `$HOME/.config/agent-guard/`.
+`XDG_CONFIG_HOME` does not move that directory.
 
 ### Committed files
 
