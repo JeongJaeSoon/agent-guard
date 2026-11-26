@@ -23838,8 +23838,12 @@ do_update() {
     update_bin_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) \
       || die "update: cannot resolve the invocation directory"
   fi
+  # The link directory is not the gitleaks directory: pass the one in use so the
+  # setup that the new bootstrap runs does not read the link directory as it.
+  gitleaks_bin_dir_notice >&2 || :
   AGENT_GUARD_HOME="$ROOT_DIR" \
     AGENT_GUARD_BIN_DIR="$update_bin_dir" \
+    AGENT_GUARD_GITLEAKS_BIN_DIR="$GITLEAKS_PRIVATE_BIN_DIR" \
     sh "$update_script"
 }
 

@@ -206,10 +206,7 @@ main() {
   info ""
   # 'setup' may exit 1 if deps are missing; that's expected and not a bootstrap
   # failure -- the user just gets the install hints.
-  # AGENT_GUARD_BIN_DIR is this installer's link directory. The CLI's reading
-  # of it as the private gitleaks directory is deprecated, so setup does not
-  # get it: a gitleaks that happens to sit beside the link is not selected.
-  (unset AGENT_GUARD_BIN_DIR; "$bin_path" setup) || true
+  "$bin_path" setup || true
   info ""
 
   # An explicit value wins. Otherwise ask the installed CLI for the choice an
