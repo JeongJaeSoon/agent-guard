@@ -32,15 +32,20 @@ doctor() {
 }
 status() { cat "$CASE/status"; }
 warned() { grep -F 'doctor' "$CASE/err" | grep -F 'deprecated' | grep -qF 'setup'; }
+warnings() { grep -F 'doctor' "$CASE/err" | grep -cF 'deprecated'; }
 
 doctor --install --gitleaks-checksum "$SUM"
 expect "deprecated: doctor --install still runs setup's install path, with a warning that points to setup" \
   '[ "$(status)" = 0 ] && grep -qF "skipping --install" "$CASE/err" && warned'
+expect "the warning says this run still installs, once" '[ "$(warnings)" = 1 ] && grep -F deprecated "$CASE/err" | grep -qF "still installs"'
 expect "and the warning does not repeat the checksum" '! grep -F deprecated "$CASE/err" | grep -qF "$SUM"'
 for arg in --install-gitleaks-helper "--gitleaks-version=8.30.1" "--gitleaks-checksum=$SUM"; do
   doctor "$arg" --help
   expect "doctor $(printf '%s' "$arg" | cut -c1-24) warns too" 'warned'
 done
+env -u AGENT_GUARD_GITLEAKS_BIN_DIR -u AGENT_GUARD_BIN_DIR HOME="$CASE/home" AGENT_GUARD_GITLEAKS_BIN="$CASE/gl/gitleaks" \
+  AGENT_GUARD_GITLEAKS_HELPER=off AGENT_GUARD_LOG_MODE=off "$GUARD" setup --install --gitleaks-checksum "$SUM" >"$CASE/out" 2>"$CASE/err" </dev/null
+expect "control: setup itself is not warned about" '! warned'
 doctor
 expect "control: a bare doctor has no warning" '[ "$(status)" = 0 ] && ! warned && grep -qF "setup ok" "$CASE/err"'
 doctor --help
@@ -49,6 +54,9 @@ expect "control: doctor --help still prints usage, without a warning" \
 doctor --help --install
 expect "control: an install argument after --help, which setup never reads, is not warned about" \
   '[ "$(status)" = 0 ] && grep -qF "Usage:" "$CASE/err" && ! warned'
+doctor --bogus --install
+expect "control: an install argument after an unknown one, which setup never reads, is not warned about" \
+  '[ "$(status)" = 2 ] && ! warned'
 doctor --bogus
 expect "control: an unknown argument is still refused with status 2" '[ "$(status)" = 2 ] && grep -qF "unknown argument" "$CASE/err"'
 

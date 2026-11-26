@@ -3363,6 +3363,17 @@ setup_gitleaks_helper_status_line() {
   return 0
 }
 
+# Install arguments reach setup through doctor only during their deprecation.
+# Warned once, as setup's parser reads the first one, so an argument it never
+# reads (after --help or an unknown one) is not; the warning names no value.
+SETUP_VIA_DOCTOR=0
+setup_doctor_install_arg() {
+  [ "$SETUP_VIA_DOCTOR" = 1 ] || return 0
+  SETUP_VIA_DOCTOR=2
+  cli_ref_init
+  info "$PROGRAM: install arguments to doctor are deprecated: this run still installs as setup would, but a later release refuses them in doctor. To install, run $AG_CLI_REF setup with the same arguments."
+}
+
 do_setup() {
   install=0
   helper_install=0
@@ -3370,20 +3381,22 @@ do_setup() {
   checksum=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --install) install=1 ;;
+      --install) install=1; setup_doctor_install_arg ;;
       --gitleaks-version)
+        setup_doctor_install_arg
         shift
         [ $# -gt 0 ] || die "setup: --gitleaks-version requires a value"
         version=$1
         ;;
-      --gitleaks-version=*) version=${1#--gitleaks-version=} ;;
+      --gitleaks-version=*) setup_doctor_install_arg; version=${1#--gitleaks-version=} ;;
       --gitleaks-checksum)
+        setup_doctor_install_arg
         shift
         [ $# -gt 0 ] || die "setup: --gitleaks-checksum requires a value"
         checksum=$1
         ;;
-      --gitleaks-checksum=*) checksum=${1#--gitleaks-checksum=} ;;
-      --install-gitleaks-helper) helper_install=1 ;;
+      --gitleaks-checksum=*) setup_doctor_install_arg; checksum=${1#--gitleaks-checksum=} ;;
+      --install-gitleaks-helper) helper_install=1; setup_doctor_install_arg ;;
       -h|--help)
         cat >&2 <<'EOF'
 Usage:
@@ -23876,18 +23889,7 @@ doctor_settings_report() {
 # doctor is setup plus a release-staleness line; the setup status is returned
 # unchanged so a failed lookup never turns a healthy doctor red.
 do_doctor() {
-  # Install arguments reach setup through doctor only during their deprecation;
-  # the warning names no value (a checksum or version given with them).
-  for doctor_arg do
-    case $doctor_arg in
-      -h|--help) break ;;
-      --install|--install-gitleaks-helper|--gitleaks-version|--gitleaks-version=*|--gitleaks-checksum|--gitleaks-checksum=*)
-        cli_ref_init
-        info "$PROGRAM: install arguments to doctor are deprecated: doctor still passes them to setup now, but a later release refuses them. doctor only diagnoses; to install, run $AG_CLI_REF setup with the same arguments."
-        break
-        ;;
-    esac
-  done
+  SETUP_VIA_DOCTOR=1
   do_setup "$@"
   doctor_status=$?
   doctor_shell_integration_report
