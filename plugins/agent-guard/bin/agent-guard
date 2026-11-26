@@ -1500,9 +1500,13 @@ audit_prune() (
 # lasts longer keeps its directory while its PID, in the name, is alive.
 RUNDIR_REAP_INTERVAL_SECONDS=3600
 RUNDIR_REAP_AGE_MINUTES=61
+# A name without a PID comes from a version before the PID was added, so no
+# live owner can be ruled out: it has to be a week old (the support log's
+# retention) instead.
+RUNDIR_REAP_LEGACY_AGE_MINUTES=10080
 
 rundir_reap() {
-  [ -n "$AG_STATE_DIR" ] || return 0
+  [ -n "$AG_STATE_DIR" ] && [ -n "$AGENT_GUARD_RUNDIR" ] || return 0
   case "$AG_UID" in ''|*[!0123456789]*) return 0 ;; esac
   case "$AG_AUDIT_START" in ''|0|*[!0123456789]*) return 0 ;; esac
   ag_rr_marker="$AG_STATE_DIR/rundir-reap"
@@ -1510,7 +1514,8 @@ rundir_reap() {
   if [ -f "$ag_rr_marker" ] && [ ! -L "$ag_rr_marker" ]; then
     IFS= read -r ag_rr_last <"$ag_rr_marker" 2>/dev/null || :
   fi
-  case "$ag_rr_last" in ''|*[!0123456789]*) ag_rr_last= ;; esac
+  # A leading zero would be octal to shell arithmetic, and dash aborts on 8 or 9.
+  case "$ag_rr_last" in ''|0*|*[!0123456789]*) ag_rr_last= ;; esac
   [ "${#ag_rr_last}" -le 12 ] || ag_rr_last=
   # A marker from the future (a clock set back) is due.
   if [ -n "$ag_rr_last" ] && [ "$ag_rr_last" -le "$AG_AUDIT_START" ] \
@@ -1520,23 +1525,33 @@ rundir_reap() {
   # Restarted before the pass, so concurrent runs mostly skip it.
   { printf '%s\n' "$AG_AUDIT_START" >"$ag_rr_marker"; } 2>/dev/null || return 0
   [ -n "$ag_rr_last" ] || return 0
-  rundir_reap_pass "${TMPDIR:-/tmp}" </dev/null >/dev/null 2>&1 || :
+  # Where this run's directory went: TMPDIR, or /tmp when TMPDIR could not
+  # hold it, so a setting that keeps falling back is reaped where it leaves.
+  rundir_reap_pass "${AGENT_GUARD_RUNDIR%/*}" </dev/null >/dev/null 2>&1 || :
 }
 
-# Lists TMPDIR itself and nothing below it ("/." also lists a TMPDIR that is a
-# symlink). find selects directories that are no symlink, owned by this user,
-# mode 0700 and old enough; the loop keeps only this CLI's mktemp names, with
-# or without an owner PID, and skips a live owner (kill -0 fails for another
-# user's process, which owns no directory of this user). rm -rf does not
-# follow symlinks inside. The listing is bounded like audit_prune's.
+# Lists one directory and nothing below it, from inside it (cd -P), so a
+# TMPDIR symlink that changes between listing and removal cannot move rm
+# elsewhere. find selects names of this CLI's characters only (a newline
+# cannot split a record), directories that are no symlink, owned by this
+# user, mode 0700 and old enough; the loop keeps only this CLI's mktemp
+# names and skips a live owner (kill -0 fails for another user's process,
+# which owns no directory of this user). rm -rf does not follow symlinks
+# inside. The listing is bounded like audit_prune's.
 rundir_reap_pass() (
-  ag_rr_prefix="$1/./agent-guard-run."
-  find "$1/." -mindepth 1 -maxdepth 1 -name 'agent-guard-run.*' -type d \
-      -user "$AG_UID" -perm 700 -mmin "+$RUNDIR_REAP_AGE_MINUTES" -print 2>/dev/null \
+  cd -P -- "$1" 2>/dev/null || exit 0
+  {
+    find . -mindepth 1 -maxdepth 1 -name 'agent-guard-run.*.*' \
+      ! -name '*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-]*' -type d \
+      -user "$AG_UID" -perm 700 -mmin "+$RUNDIR_REAP_AGE_MINUTES" -print 2>/dev/null
+    find . -mindepth 1 -maxdepth 1 -name 'agent-guard-run.??????' \
+      ! -name '*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-]*' -type d \
+      -user "$AG_UID" -perm 700 -mmin "+$RUNDIR_REAP_LEGACY_AGE_MINUTES" -print 2>/dev/null
+  } \
     | head -n 2000 \
     | while IFS= read -r ag_rr_path; do
-        case "$ag_rr_path" in "$ag_rr_prefix"*) ;; *) continue ;; esac
-        ag_rr_rest=${ag_rr_path#"$ag_rr_prefix"}
+        ag_rr_rest=${ag_rr_path#./agent-guard-run.}
+        [ "$ag_rr_rest" != "$ag_rr_path" ] || continue
         ag_rr_pid=
         case "$ag_rr_rest" in
           *.*)
@@ -1613,7 +1628,7 @@ audit_finish() {
   ag_outcome=pass
   case "$ag_exit" in
     0) ;;
-    130|143) ag_outcome=interrupted ;;
+    129|130|143) ag_outcome=interrupted ;;
     *)
       case "$AG_AUDIT_COMMAND:$ag_exit" in
         hook-*:2|scan-*:1|pii-filter:1) ag_outcome=blocked ;;
@@ -1629,7 +1644,7 @@ audit_finish() {
     done
     IFS=$ag_finish_ifs
   fi
-  case "$ag_exit" in 130|143) ag_outcome=interrupted ;; esac
+  case "$ag_exit" in 129|130|143) ag_outcome=interrupted ;; esac
   ag_reason=null
   # Recorded only beside a nonzero exit: a closed infrastructure block keeps
   # its degraded outcome but still names why it stopped the call.

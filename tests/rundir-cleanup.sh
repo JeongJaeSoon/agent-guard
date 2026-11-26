@@ -55,15 +55,19 @@ esac
 STUB
 chmod +x "$CASE/bin/gitleaks"
 
-SHELLS=
+# sh always; bash and dash (the launcher's choice where present) and busybox
+# sh when installed. Both CI runners have bash and dash.
+SHELLS=sh
 for s in bash dash; do
-  p=$(command -v "$s" 2>/dev/null) && SHELLS="$SHELLS $p"
+  if p=$(command -v "$s" 2>/dev/null); then
+    SHELLS="$SHELLS $p"
+  else
+    printf '# skip %s: not installed\n' "$s"
+  fi
 done
 if command -v busybox >/dev/null 2>&1 && busybox sh -c : 2>/dev/null; then
   SHELLS="$SHELLS busybox-sh"
 fi
-case "$SHELLS" in *dash*) ;; *) not_ok "dash is installed (the Debian/Ubuntu sh, and the launcher's choice where present)" ;; esac
-case "$SHELLS" in *bash*) ;; *) not_ok "bash is installed" ;; esac
 
 n=0
 # start_guard SHELL TMP STATE: runs hook-pre-tool as the leader of its own
@@ -76,7 +80,7 @@ start_guard() {
   rm -f "$CASE/scan-started"
   # $1 is unquoted so "busybox sh" splits into its two words.
   # shellcheck disable=SC2086
-  env HOME="$CASE/home" XDG_STATE_HOME="$3" TMPDIR="$2" \
+  env HOME="$CASE/home" XDG_STATE_HOME="$3" TMPDIR="$2" AGENT_GUARD_LOG_MODE=on \
     AGENT_GUARD_GITLEAKS_BIN="$CASE/bin/gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
     perl -e 'setpgrp(0, 0); $SIG{INT} = $SIG{QUIT} = $SIG{HUP} = $SIG{TERM} = "DEFAULT"; exec @ARGV or exit 127' \
       $1 "$GUARD" hook-pre-tool <"$CASE/payload" >"$CASE/out" 2>"$CASE/err" &
@@ -97,7 +101,8 @@ for sh_ in $SHELLS; do
     case $sig in HUP) want=129 ;; INT) want=130 ;; TERM) want=143 ;; esac
     tmp="$CASE/sig-$n-tmp"
     rm -rf "$tmp"; mkdir "$tmp"
-    if ! start_guard "$sh_" "$tmp" "$CASE/sig-state"; then
+    state="$tmp-state"
+    if ! start_guard "$sh_" "$tmp" "$state"; then
       group_kill KILL "$GUARD_PID" 2>/dev/null || :
       wait "$GUARD_PID" 2>/dev/null
       not_ok "$sh_: the scan starts before $sig is sent"
@@ -114,6 +119,11 @@ for sh_ in $SHELLS; do
       ok "$sh_: $sig to the hook's process group removes the run directory and exits $want"
     else
       not_ok "$sh_: $sig to the hook's process group removes the run directory and exits $want (status $status, left: ${left:+${left##*/}})"
+    fi
+    if grep -q '"interrupted"' "$state"/agent-guard/event-* 2>/dev/null; then
+      ok "$sh_: the support log records $sig as interrupted"
+    else
+      not_ok "$sh_: the support log records $sig as interrupted"
     fi
   done
 done
@@ -150,7 +160,7 @@ reap_run() {
   case "$sh_" in busybox-sh) sh_="busybox sh" ;; esac
   printf '{"session_id":"rundir-reap-%s-%s","tool_name":"Read","tool_input":{"file_path":"%s/plain.txt"}}' "$$" "$n" "$CASE" \
     | { # shellcheck disable=SC2086
-        env HOME="$CASE/home" XDG_STATE_HOME="$3" TMPDIR="$2" \
+        env HOME="$CASE/home" XDG_STATE_HOME="$3" TMPDIR="$2" AGENT_GUARD_LOG_MODE=on \
           AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
           $sh_ "$GUARD" hook-pre-tool >"$CASE/reap-out" 2>"$CASE/reap-err"; }
 }
@@ -179,6 +189,18 @@ fixture() {
   ln -s "$out/agent-guard-run.Uv12Wx" "$t/agent-guard-run.Yz34Ab"
   : >"$t/agent-guard-run.Cd56Ef"
   chmod 700 "$t/agent-guard-run.Cd56Ef"
+  # Ages around the two limits: 61 minutes for a name with an owner PID,
+  # a week for an older name without one.
+  mkdir -m 700 "$t/agent-guard-run.999999998.Hh22Jj" "$t/agent-guard-run.999999997.Nw30Mn" "$t/agent-guard-run.Lg12Cy"
+  age "$t/agent-guard-run.999999998.Hh22Jj" 7200
+  age "$t/agent-guard-run.999999997.Nw30Mn" 1800
+  age "$t/agent-guard-run.Lg12Cy" 172800
+  # A newline in a stale name must not split off a record that names a
+  # directory find never checked (here the new Fr12Sh).
+  mkdir -m 700 "$t/agent-guard-run.Fr12Sh" "$t/agent-guard-run.Fr12Sh
+1.Xy12Zw"
+  touch -t "$OLD" "$t/agent-guard-run.Fr12Sh
+1.Xy12Zw"
   mkdir -m 700 "$t/agent-guard-runner.Gh78Ij" "$t/agent-guard-run.Kl90" "$t/agent-guard.Mn12Op" "$t/agent-guard-run.12x.Qr34St"
   for e in agent-guard-run.Ab12Cd agent-guard-run.999999999.Ef34Gh "agent-guard-run.$live.Ij56Kl" \
       agent-guard-run.Qr90St agent-guard-runner.Gh78Ij agent-guard-run.Kl90 agent-guard.Mn12Op \
@@ -188,6 +210,9 @@ fixture() {
   touch -t "$OLD" "$out/agent-guard-run.Uv12Wx"
   touch -h -t "$OLD" "$t/agent-guard-run.Yz34Ab" 2>/dev/null || :
 }
+
+# age PATH SECONDS: sets the modification time SECONDS ago.
+age() { perl -e 'utime(time, time - $ARGV[1], $ARGV[0]) or exit 1' "$1" "$2"; }
 
 expect_gone() { [ ! -e "$1/$2" ] && [ ! -L "$1/$2" ]; }
 expect_kept() { [ -e "$1/$2" ] || [ -L "$1/$2" ]; }
@@ -219,7 +244,7 @@ for sh_ in $SHELLS; do
   printf '%s\n' "$((NOW - 3601))" >"$marker"
   reap_run "$sh_" "$tmp" "$state"
   bad=
-  for e in agent-guard-run.Ab12Cd agent-guard-run.999999999.Ef34Gh ${KILLED:+"${KILLED##*/}"}; do
+  for e in agent-guard-run.Ab12Cd agent-guard-run.999999999.Ef34Gh agent-guard-run.999999998.Hh22Jj ${KILLED:+"${KILLED##*/}"}; do
     expect_gone "$tmp" "$e" || bad="$bad $e"
   done
   if [ -z "$bad" ]; then
@@ -229,11 +254,13 @@ for sh_ in $SHELLS; do
   fi
   bad=
   for e in "agent-guard-run.$live.Ij56Kl" agent-guard-run.Mn78Op agent-guard-run.Qr90St agent-guard-run.Yz34Ab \
-      agent-guard-run.Cd56Ef agent-guard-runner.Gh78Ij agent-guard-run.Kl90 agent-guard.Mn12Op agent-guard-run.12x.Qr34St; do
+      agent-guard-run.Cd56Ef agent-guard-runner.Gh78Ij agent-guard-run.Kl90 agent-guard.Mn12Op agent-guard-run.12x.Qr34St \
+      agent-guard-run.999999997.Nw30Mn agent-guard-run.Lg12Cy agent-guard-run.Fr12Sh "agent-guard-run.Fr12Sh
+1.Xy12Zw"; do
     expect_kept "$tmp" "$e" || bad="$bad $e"
   done
   [ -f "$tmp-outside/keep" ] && [ -d "$tmp-outside/agent-guard-run.Uv12Wx" ] || bad="$bad <symlink target>"
-  [ -z "$(run_dirs "$tmp" | grep -v -e Ij56Kl -e Mn78Op -e Qr90St -e Yz34Ab -e Cd56Ef -e Kl90 -e 12x)" ] || bad="$bad <a run directory that should be gone>"
+  [ -z "$(run_dirs "$tmp" | grep -v -e Ij56Kl -e Mn78Op -e Qr90St -e Yz34Ab -e Cd56Ef -e Kl90 -e 12x -e Nw30Mn -e Lg12Cy -e Fr12Sh -e '^1.Xy12Zw$')" ] || bad="$bad <a run directory that should be gone>"
   if [ -z "$bad" ]; then
     ok "$sh_: it keeps live, new, non-private, symlinked, non-directory and other-named entries and symlink targets"
   else
@@ -245,6 +272,21 @@ for sh_ in $SHELLS; do
   else
     not_ok "$sh_: the due run restarts the interval (marker: $stamp)"
   fi
+
+  # A marker with a leading zero is octal to shell arithmetic (dash aborts
+  # on 08): it is read as no marker, and the hook still runs.
+  mkdir -m 700 "$tmp/agent-guard-run.Oc08Zz"
+  touch -t "$OLD" "$tmp/agent-guard-run.Oc08Zz"
+  printf '08\n' >"$marker"
+  reap_run "$sh_" "$tmp" "$state"
+  status=$?
+  IFS= read -r stamp <"$marker" || stamp=
+  if [ "$status" -eq 0 ] && [ "${stamp:-0}" -ge "$NOW" ] 2>/dev/null && expect_kept "$tmp" agent-guard-run.Oc08Zz; then
+    ok "$sh_: a marker with a leading zero restarts the clock and the hook passes"
+  else
+    not_ok "$sh_: a marker with a leading zero restarts the clock and the hook passes (status $status, marker $stamp)"
+  fi
+  rm -rf "$tmp/agent-guard-run.Oc08Zz"
 
   # A clock set back (marker in the future) is due once, then waits again.
   mkdir -m 700 "$tmp/agent-guard-run.Zz99Yy"
