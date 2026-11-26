@@ -400,6 +400,9 @@ deadline=$(( $(date +%s) + limit ))
   nap=$!
   wait "$nap" || stop
   nap=
+  # Past the deadline nothing cancels this: the TERM below can end a leader
+  # that had just asked to, and the KILL would then be left to no one.
+  trap "" USR1
   kill -TERM -"$$"
   sleep 1
   kill -KILL -"$$"

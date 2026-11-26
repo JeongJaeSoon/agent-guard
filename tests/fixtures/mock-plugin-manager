@@ -17,6 +17,8 @@ esac
 # process-group cleanup in the guard.
 if [ "$host" = codex ] && [ "$#" -eq 1 ] && [ "$1" = app-server ]; then
   trust_mode=${AG_PLUGIN_TEST_TRUST:-trusted}
+  # Before the PID is recorded, so a test that has read it can send TERM.
+  [ "$trust_mode" != hang ] || trap '' TERM
   # The parent is the probe shell, which leads the probe's process group.
   [ -z "${AG_PLUGIN_TEST_TRUST_PIDFILE:-}" ] || printf '%s\n' "$$" "$PPID" >>"$AG_PLUGIN_TEST_TRUST_PIDFILE"
   # A test that ends the guard first holds the server here until it has.
@@ -25,7 +27,7 @@ if [ "$host" = codex ] && [ "$#" -eq 1 ] && [ "$1" = app-server ]; then
   done
   case "$trust_mode" in
     silent) exit 0 ;;
-    hang) trap '' TERM; while :; do sleep 1; done ;;
+    hang) while :; do sleep 1; done ;;
   esac
   while IFS= read -r line; do
     [ -z "${AG_PLUGIN_TEST_TRUST_REQUESTS:-}" ] || printf '%s\n' "$line" >>"$AG_PLUGIN_TEST_TRUST_REQUESTS"
