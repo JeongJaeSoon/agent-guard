@@ -116,7 +116,7 @@ if "$TOOLS" hook-latency --unverified --scanner "$CASE/failing/gitleaks" --runs 
 fi
 jq -e '(.complete | not) and (.samples | length) == 2 and .samples[0].aggregated and .samples[0].status == 0
   and (.samples[1].aggregated | not) and (.samples[1].error | type) == "string"
-  and (.cells | length) == 1 and .cells[0].n == 1' "$CASE/latency-timeout.json" >/dev/null
+  and (.cells | length) == 1 and .cells[0].n == 1 and .cells[0].left_out == 1 and .cells[0].probe_runs_left_out == 0' "$CASE/latency-timeout.json" >/dev/null
 # Helper binaries the CLI does not pin are never run: the helper arms would
 # time gitleaks itself, so the run fails instead of naming it warm.
 for name in agent-guard-scan agent-guard-gitleaks-helper; do
