@@ -97,6 +97,15 @@ value such as `password=hunter2` is still masked. Set
 `AGENT_GUARD_KEY_NAME_REDACT=on` to mask those identifiers as well (see
 [Configuration](docs/configuration.md#output-and-prompt-handling)).
 
+A session marked as a review (`AGENT_GUARD_SESSION_ROLE=review` in its
+environment, or a Claude Code agent whose type names a review) is kept out of
+containers that other sessions own. There, a `docker`, `podman` or `nerdctl`
+command that names a stack listed in
+`$HOME/.config/agent-guard/protected-containers.txt`, or that runs a database
+client through a container `exec`, is refused. Any other session is not
+affected (see
+[Configuration](docs/configuration.md#containers-other-sessions-own)).
+
 ## Choose your path
 
 | I need to… | Start here |

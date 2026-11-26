@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: 26f4037db2ca44fa6fded7460205372f13c89f12 -->
+<!-- translated-from: README.md; source-blob: e223e5a90adbb6d98a95559972141a85c8027377 -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -48,6 +48,8 @@ Agent Guardは、Claude Code、Codex、Git hook、GitHub Actions、直接実行�
 検査を実行できなかった状態を正常とは扱いません。Claude CodeとCodexプラグインは、秘密スキャンを実行できなかった場合、既定でブロックします。ツール呼び出しやプロンプトを拒否し、何が失敗したかと直し方を示します。Claude Codeの `PostToolUse` hookは、検査できなかった出力も渡しません。検査していない文字列がエージェントに届くと取り消せないためです。`AGENT_GUARD_INFRA_FAILURE_MODE=open` を設定すると、ブロックせずに警告して続行します。警告は何が欠けているかを示し、問題が続く間は10分ごとに再表示されます（[設定](docs/configuration.md)を参照）。`open` でgitleaksまたはその設定ファイルだけが使えない場合は、PreToolUseの保護パス検査とdenyパターン検査を続けて実行し、そこでの秘密スキャンだけを省きます。ほかのhookは検査なしで通過します。ディレクトリを特定できない `git commit` のように、秘密スキャンの欠落ではないインフラ障害は、既定では引き続き警告して続行します。ネイティブhookとActionはこの設定にかかわらず、検査不能なら失敗します。Claude Code 2.1.295以降では、判断前のタイムアウトや異常終了も、どちらのモードでもツール呼び出しをブロックします。
 
 出力マスキングは、認証情報らしいキー名だけではマスクしません。diffの`credential: CredentialSchema,`行のように、値がフィールド名を繰り返す識別子であればそのまま表示します。引用符付き文字列や`password=hunter2`のような裸の値は引き続きマスクします。こうした識別子もマスクするには`AGENT_GUARD_KEY_NAME_REDACT=on`を設定してください（[設定](docs/configuration.md#output-and-prompt-handling)、英語）。
+
+レビューとして示されたセッション（環境に`AGENT_GUARD_SESSION_ROLE=review`があるか、タイプ名にreviewを含むClaude Codeエージェント）は、他のセッションが所有するコンテナに入れません。これらのセッションでは、`$HOME/.config/agent-guard/protected-containers.txt`に書かれたスタックを指す`docker`、`podman`、`nerdctl`コマンドと、コンテナの`exec`でデータベースクライアントを実行するコマンドは拒否されます。それ以外のセッションには影響しません（[設定](docs/configuration.md#containers-other-sessions-own)、英語）。
 
 <a id="choose-your-path"></a>
 

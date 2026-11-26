@@ -2346,5 +2346,455 @@
     "tests": [
       "tests/message-value-prose.sh"
     ]
+  },
+  {
+    "id": "bash-container-review-role",
+    "rule": "container boundary: a session started with AGENT_GUARD_SESSION_ROLE=review is held",
+    "old": "if [ \"${AGENT_GUARD_SESSION_ROLE-}\" != review ]; then",
+    "new": "if [ \"${AGENT_GUARD_SESSION_ROLE-}\" != \"no such role\" ]; then",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-other-role-passes",
+    "rule": "container boundary: another session role is not held",
+    "old": "if [ \"${AGENT_GUARD_SESSION_ROLE-}\" != review ]; then",
+    "new": "if [ -z \"${AGENT_GUARD_SESSION_ROLE-}\" ]; then",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-review-agent-type",
+    "rule": "container boundary: a Claude agent whose type names a review is held",
+    "old": "ascii_downcase | contains(\"review\")",
+    "new": "ascii_downcase | contains(\"no such agent type\")",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-runtime-podman",
+    "rule": "container boundary: podman is a container runtime",
+    "old": "(docker|podman|nerdctl)'\n  # A piece of one shell word",
+    "new": "(docker|nerdctl)'\n  # A piece of one shell word",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-runtime-nerdctl",
+    "rule": "container boundary: nerdctl is a container runtime",
+    "old": "cb_runtime='(^|[^[:alnum:]_.-])(docker|podman|nerdctl)'",
+    "new": "cb_runtime='(^|[^[:alnum:]_.-])(docker|podman)'",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-runtime-compose-binary",
+    "rule": "container boundary: the hyphenated compose binary is a container runtime",
+    "old": "-e \"$cb_runtime(-compose)?([^[:alnum:]_.-]|\\$)\"",
+    "new": "-e \"$cb_runtime([^[:alnum:]_.-]|\\$)\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-runtime-gate",
+    "rule": "container boundary: the check runs for every runtime name",
+    "old": "      *docker*|*podman*|*nerdctl*)\n        if ! container_session_boundary",
+    "new": "      *docker*)\n        if ! container_session_boundary",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-exec-after-option-value",
+    "rule": "container boundary: a runtime option may take a value",
+    "old": "cb_option=\"-$cb_piece*([[:space:]]+$cb_piece+)?\"",
+    "new": "cb_option=\"-$cb_piece*\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-exec-subcommand-position",
+    "rule": "container boundary: an exec word after another subcommand is not a container exec",
+    "old": "cb_option=\"-$cb_piece*(",
+    "new": "cb_option=\"$cb_piece*(",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-word-double-quoted",
+    "rule": "container boundary: a double-quoted option value is one word",
+    "old": "cb_piece=\"([^[:space:];|&\\\"'\\\\\\\\]|\\\"([^\\\"\\\\\\\\]|\\\\\\\\.)*\\\"|'[^']*'|\\\\\\\\.)\"",
+    "new": "cb_piece=\"([^[:space:];|&\\\"'\\\\\\\\]|'[^']*'|\\\\\\\\.)\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-word-single-quoted",
+    "rule": "container boundary: a single-quoted option value is one word",
+    "old": "cb_piece=\"([^[:space:];|&\\\"'\\\\\\\\]|\\\"([^\\\"\\\\\\\\]|\\\\\\\\.)*\\\"|'[^']*'|\\\\\\\\.)\"",
+    "new": "cb_piece=\"([^[:space:];|&\\\"'\\\\\\\\]|\\\"([^\\\"\\\\\\\\]|\\\\\\\\.)*\\\"|\\\\\\\\.)\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-word-escaped-blank",
+    "rule": "container boundary: an escaped blank stays inside one word",
+    "old": "cb_piece=\"([^[:space:];|&\\\"'\\\\\\\\]|\\\"([^\\\"\\\\\\\\]|\\\\\\\\.)*\\\"|'[^']*'|\\\\\\\\.)\"",
+    "new": "cb_piece=\"([^[:space:];|&\\\"'\\\\\\\\]|\\\"([^\\\"\\\\\\\\]|\\\\\\\\.)*\\\"|'[^']*')\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-line-continuation",
+    "rule": "container boundary: a backslash at a line end joins the next line",
+    "old": "while (sub(/\\\\$/, \" \") && (getline cb_next) > 0)",
+    "new": "while (0 && (getline cb_next) > 0)",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-list-crlf",
+    "rule": "container boundary: a CRLF line end is not part of a listed name",
+    "old": "{ sub(/\\r$/, \"\"); gsub(/^[ \\t]+|[ \\t]+$/, \"\") }",
+    "new": "{ gsub(/^[ \\t]+|[ \\t]+$/, \"\") }",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-list-padding",
+    "rule": "container boundary: blanks around a listed name are not part of it",
+    "old": "{ sub(/\\r$/, \"\"); gsub(/^[ \\t]+|[ \\t]+$/, \"\") }\n      /^(#|$)/",
+    "new": "{ sub(/\\r$/, \"\") }\n      /^(#|$)/",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-list-comment",
+    "rule": "container boundary: a commented-out line lists nothing",
+    "old": "      /^(#|$)/ { next }\n      { print }' \"$cb_list\"",
+    "new": "      /^$/ { next }\n      { print }' \"$cb_list\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-list-blank-line",
+    "rule": "container boundary: a blank line lists nothing",
+    "old": "      /^(#|$)/ { next }\n      { print }' \"$cb_list\" 2>/dev/null",
+    "new": "      /^#/ { next }\n      { print }' \"$cb_list\" 2>/dev/null",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-stack-in-command",
+    "rule": "container boundary: a listed stack named in the command is held",
+    "old": "\"$cb_text\" \"$2\" \"${COMPOSE_PROJECT_NAME-}\" | grep -F",
+    "new": "\"\" \"$2\" \"${COMPOSE_PROJECT_NAME-}\" | grep -F",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-stack-in-directory",
+    "rule": "container boundary: a listed stack named by the directory is held",
+    "old": "\"$cb_text\" \"$2\" \"${COMPOSE_PROJECT_NAME-}\" | grep -F -q",
+    "new": "\"$cb_text\" \"\" \"${COMPOSE_PROJECT_NAME-}\" | grep -F -q",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-stack-in-session-project",
+    "rule": "container boundary: a listed stack in COMPOSE_PROJECT_NAME is held",
+    "old": "\"$2\" \"${COMPOSE_PROJECT_NAME-}\" | grep -F -q -e \"$cb_names\"",
+    "new": "\"$2\" \"\" | grep -F -q -e \"$cb_names\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-list-unreadable",
+    "rule": "container boundary: a list that is not a readable file holds the command",
+    "old": "{ [ -e \"$cb_list\" ] || [ -L \"$cb_list\" ]; }; then",
+    "new": "[ -f \"$cb_list\" ]; then",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-db-client-list",
+    "rule": "container boundary: every listed database client is held",
+    "old": "|cqlsh|sqlcmd)([^[:alnum:]_.-]|$)'",
+    "new": "|cqlsh)([^[:alnum:]_.-]|$)'",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-db-client-left-boundary",
+    "rule": "container boundary: a client name ending a longer word is not a client",
+    "old": "-e '(^|[^[:alnum:]_.-])(psql|pg_dump|",
+    "new": "-e '(psql|pg_dump|",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-db-client-right-boundary",
+    "rule": "container boundary: a client name starting a longer word is not a client",
+    "old": "|clickhouse|cqlsh|sqlcmd)([^[:alnum:]_.-]|$)'",
+    "new": "|clickhouse|cqlsh|sqlcmd)'",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-db-client-file-name",
+    "rule": "container boundary: a client name before a file extension is not a client",
+    "old": "|valkey-cli|sqlite3|clickhouse-client|clickhouse|cqlsh|sqlcmd)([^[:alnum:]_.-]|$)'",
+    "new": "|valkey-cli|sqlite3|clickhouse-client|clickhouse|cqlsh|sqlcmd)([^[:alnum:]_-]|$)'",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-db-client-any-line",
+    "rule": "container boundary: a database client on another line of an exec command is held",
+    "old": "  printf '%s\\n' \"$cb_text\" | grep -E -q \\\n    -e '(^|[^[:alnum:]_.-])(psql",
+    "new": "  printf '%s\\n' \"$cb_lines\" | grep -E -q \\\n    -e '(^|[^[:alnum:]_.-])(psql",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-unresolved-variable",
+    "rule": "container boundary: a variable on an exec line is held",
+    "old": "    *'$'*|*'`'*) ;;\n    *)\n      # Outside compose",
+    "new": "    *'`'*) ;;\n    *)\n      # Outside compose",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-unresolved-backquote",
+    "rule": "container boundary: a backquote substitution on an exec line is held",
+    "old": "  case \"$cb_lines\" in\n    *'$'*|*'`'*) ;;",
+    "new": "  case \"$cb_lines\" in\n    *'$'*) ;;",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-unresolved-exec-line-only",
+    "rule": "container boundary: an expansion on another line is not held",
+    "old": "  case \"$cb_lines\" in\n    *'$'*",
+    "new": "  case \"$cb_text\" in\n    *'$'*",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-search-word-second-look",
+    "rule": "container boundary: a quoted word a search command only reads is not held",
+    "old": "|| ! cb_view=$(bash_neutralize_search_words \"$dp_base\"); then\n            cb_view=",
+    "new": "|| ! cb_view=$(false); then\n            cb_view=",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-search-word-last-argument",
+    "rule": "container boundary: a search operand run through the last argument is held",
+    "old": "          if bash_uses_last_argument \"$dp_base\" \\\n            || ! cb_view=",
+    "new": "          if ! cb_view=",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-second-look-reads-view",
+    "rule": "container boundary: the second look reads the commands beside a search command",
+    "old": "if [ -z \"$cb_view\" ] || ! container_session_boundary \"$cb_view\" \"$workdir\"; then",
+    "new": "if [ -z \"$cb_view\" ]; then",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-second-look-quoted-name",
+    "rule": "container boundary: the second look reads a runtime name hidden by quotes",
+    "old": "            cb_view=\"$cb_view\n$joined_cmd\"",
+    "new": "            cb_view=\"$cb_view\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-exec-compose-binary",
+    "rule": "container boundary: an exec of the hyphenated compose binary is an exec",
+    "old": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_words|$cb_q(container|compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "new": "cb_exec=\"$cb_runtime$cb_q([[:space:]]+($cb_words|$cb_q(container|compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-exec-after-options",
+    "rule": "container boundary: exec follows the runtime options",
+    "old": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_words|$cb_q(container|compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "new": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_q(container|compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-exec-after-container-word",
+    "rule": "container boundary: docker container exec is an exec",
+    "old": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_words|$cb_q(container|compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "new": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_words|$cb_q(compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-exec-after-compose-word",
+    "rule": "container boundary: docker compose exec is an exec",
+    "old": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_words|$cb_q(container|compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "new": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_words|$cb_q(container)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-quoted-exec-word",
+    "rule": "container boundary: a quoted exec word is an exec",
+    "old": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_words|$cb_q(container|compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "new": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_words|$cb_q(container|compose)$cb_q))*[[:space:]]+exec\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-quoted-subcommand-word",
+    "rule": "container boundary: a quoted container or compose word is read through",
+    "old": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_words|$cb_q(container|compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "new": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_words|(container|compose)))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-quoted-runtime-word",
+    "rule": "container boundary: a quoted runtime word after another command is read through",
+    "old": "cb_exec=\"$cb_runtime(-compose)?$cb_q([[:space:]]+($cb_words|$cb_q(container|compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "new": "cb_exec=\"$cb_runtime(-compose)?([[:space:]]+($cb_words|$cb_q(container|compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-redirect-before-exec",
+    "rule": "container boundary: a redirection between the runtime and exec is read through",
+    "old": "cb_words=\"$cb_option|$cb_redirect|[^[:space:];|&]*[\\$\\`][^[:space:];|&]*\"",
+    "new": "cb_words=\"$cb_option|[^[:space:];|&]*[\\$\\`][^[:space:];|&]*\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-redirect-target-after-blank",
+    "rule": "container boundary: a redirection target after a blank is read through",
+    "old": "cb_redirect=\"&?[0-9]*[<>]+&?[^[:space:];|&]*([[:space:]]+$cb_piece+)?\"",
+    "new": "cb_redirect=\"&?[0-9]*[<>]+&?[^[:space:];|&]*\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-expansion-before-exec",
+    "rule": "container boundary: an expansion between the runtime and exec is read through",
+    "old": "cb_words=\"$cb_option|$cb_redirect|[^[:space:];|&]*[\\$\\`][^[:space:];|&]*\"",
+    "new": "cb_words=\"$cb_option|$cb_redirect\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-container-id-any-length",
+    "rule": "container boundary: a short start of a container ID is held",
+    "old": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|${cb_q}container$cb_q))*[[:space:]]+${cb_q}exec$cb_q([[:space:]]+($cb_option|$cb_redirect))*[[:space:]]+${cb_q}[0-9a-f]+$cb_q([[:space:];|&]|\\$)\"",
+    "new": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|${cb_q}container$cb_q))*[[:space:]]+${cb_q}exec$cb_q([[:space:]]+($cb_option|$cb_redirect))*[[:space:]]+${cb_q}[0-9a-f]{12,}$cb_q([[:space:];|&]|\\$)\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-container-id-after-options",
+    "rule": "container boundary: a container ID after exec options is held",
+    "old": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|${cb_q}container$cb_q))*[[:space:]]+${cb_q}exec$cb_q([[:space:]]+($cb_option|$cb_redirect))*[[:space:]]+${cb_q}[0-9a-f]+$cb_q([[:space:];|&]|\\$)\"",
+    "new": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|${cb_q}container$cb_q))*[[:space:]]+${cb_q}exec$cb_q[[:space:]]+${cb_q}[0-9a-f]+$cb_q([[:space:];|&]|\\$)\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-container-id-after-redirect",
+    "rule": "container boundary: a container ID after a redirection is held",
+    "old": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|${cb_q}container$cb_q))*[[:space:]]+${cb_q}exec$cb_q([[:space:]]+($cb_option|$cb_redirect))*[[:space:]]+${cb_q}[0-9a-f]+$cb_q([[:space:];|&]|\\$)\"",
+    "new": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|${cb_q}container$cb_q))*[[:space:]]+${cb_q}exec$cb_q([[:space:]]+($cb_option))*[[:space:]]+${cb_q}[0-9a-f]+$cb_q([[:space:];|&]|\\$)\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-container-id-position",
+    "rule": "container boundary: a hex word that is not the target is not held",
+    "old": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|${cb_q}container$cb_q))*[[:space:]]+${cb_q}exec$cb_q([[:space:]]+($cb_option|$cb_redirect))*[[:space:]]+${cb_q}[0-9a-f]+$cb_q([[:space:];|&]|\\$)\"",
+    "new": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|${cb_q}container$cb_q))*[[:space:]]+${cb_q}exec$cb_q.*[[:space:]]+${cb_q}[0-9a-f]+$cb_q([[:space:];|&]|\\$)\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-container-id-not-compose",
+    "rule": "container boundary: a compose service made of hex digits is not held",
+    "old": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|${cb_q}container$cb_q))*[[:space:]]+${cb_q}exec$cb_q([[:space:]]+($cb_option|$cb_redirect))*[[:space:]]+${cb_q}[0-9a-f]+$cb_q([[:space:];|&]|\\$)\"",
+    "new": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|$cb_q(container|compose)$cb_q))*[[:space:]]+${cb_q}exec$cb_q([[:space:]]+($cb_option|$cb_redirect))*[[:space:]]+${cb_q}[0-9a-f]+$cb_q([[:space:];|&]|\\$)\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-container-id-quoted-exec",
+    "rule": "container boundary: a container ID after a quoted exec word is held",
+    "old": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|${cb_q}container$cb_q))*[[:space:]]+${cb_q}exec$cb_q([[:space:]]+($cb_option|$cb_redirect))*[[:space:]]+${cb_q}[0-9a-f]+$cb_q([[:space:];|&]|\\$)\"",
+    "new": "-e \"$cb_runtime$cb_q([[:space:]]+($cb_words|${cb_q}container$cb_q))*[[:space:]]+exec([[:space:]]+($cb_option|$cb_redirect))*[[:space:]]+${cb_q}[0-9a-f]+$cb_q([[:space:];|&]|\\$)\"",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "bash-container-other-agent-type-passes",
+    "rule": "container boundary: another agent type is not held",
+    "old": "      || return 0\n  fi\n  cb_runtime=",
+    "new": "      || :\n  fi\n  cb_runtime=",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
   }
 ]

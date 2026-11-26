@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: 26f4037db2ca44fa6fded7460205372f13c89f12 -->
+<!-- translated-from: README.md; source-blob: e223e5a90adbb6d98a95559972141a85c8027377 -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -48,6 +48,8 @@ Agent Guard는 Claude Code, Codex, Git hook, GitHub Actions와 직접 실행하�
 검사를 실행하지 못한 상태를 정상으로 취급하지 않습니다. Claude Code와 Codex 플러그인은 비밀 스캔을 실행하지 못하면 기본으로 차단합니다. 도구 호출이나 프롬프트를 거부하면서 무엇이 실패했고 어떻게 고치는지 알려 주며, Claude Code의 `PostToolUse` hook은 검사하지 못한 출력도 내보내지 않습니다. 검사하지 않은 글이 에이전트에 닿으면 되돌릴 수 없기 때문입니다. `AGENT_GUARD_INFRA_FAILURE_MODE=open`을 설정하면 차단하는 대신 경고하고 계속 실행합니다. 경고는 무엇이 없는지 알려 주고, 문제가 계속되는 동안 10분마다 다시 나옵니다([설정](docs/configuration.md) 참고). `open`에서 gitleaks나 그 설정 파일만 없을 때는 PreToolUse의 보호 경로 검사와 deny 패턴 검사를 계속 실행하고 그 비밀 스캔만 건너뜁니다. 다른 hook은 검사 없이 통과합니다. 디렉터리를 알아낼 수 없는 `git commit`처럼 비밀 스캔 누락이 아닌 인프라 장애는 기본으로 여전히 경고하고 계속 실행합니다. 네이티브 hook과 Action은 이 설정과 무관하게 검사를 실행할 수 없으면 실패합니다. Claude Code 2.1.295 이상에서는 검사 결정 전에 hook이 시간 초과되거나 비정상 종료되어도 두 모드 모두 도구 호출을 차단합니다.
 
 출력 마스킹은 자격 증명처럼 보이는 키 이름만으로는 가리지 않습니다. diff의 `credential: CredentialSchema,` 줄처럼 값이 필드 이름을 되풀이하는 식별자이면 그대로 보입니다. 따옴표 문자열이나 `password=hunter2` 같은 맨 값은 계속 가립니다. 이런 식별자도 가리려면 `AGENT_GUARD_KEY_NAME_REDACT=on`을 설정하세요([설정](docs/configuration.md#output-and-prompt-handling), 영어).
+
+리뷰로 표시된 세션(환경에 `AGENT_GUARD_SESSION_ROLE=review`가 있거나, 타입 이름에 review가 들어간 Claude Code 에이전트)은 다른 세션이 소유한 컨테이너에 들어가지 못합니다. 이런 세션에서는 `$HOME/.config/agent-guard/protected-containers.txt`에 적힌 스택을 가리키는 `docker`, `podman`, `nerdctl` 명령과, 컨테이너 `exec`로 데이터베이스 클라이언트를 실행하는 명령이 거부됩니다. 그 밖의 세션에는 영향이 없습니다([설정](docs/configuration.md#containers-other-sessions-own), 영어).
 
 <a id="choose-your-path"></a>
 
