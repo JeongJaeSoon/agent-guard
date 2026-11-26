@@ -246,8 +246,11 @@ else
 fi
 
 # The private directory follows the gitleaks one: AGENT_GUARD_GITLEAKS_BIN_DIR,
-# else AGENT_GUARD_BIN_DIR, else ~/.agent-guard/bin. With only the second set,
-# the helper is installed under it, and found there.
+# else ~/.agent-guard/bin. AGENT_GUARD_BIN_DIR is the installer's link
+# directory; the CLI reads it as the gitleaks directory only while that is
+# deprecated and only when a gitleaks is already in it (see
+# tests/gitleaks-bin-dir-deprecation.sh). With it set and no gitleaks there,
+# the helper goes to the home directory, with a notice, and is found there.
 if [ -z "$REAL_GITLEAKS" ]; then
   cp "$CASE/good.tar.gz" "$CASE/download/$asset"
   (
@@ -259,12 +262,14 @@ if [ -z "$REAL_GITLEAKS" ]; then
     (cd "$CASE/work" && pre "echo $marker" | "$GUARD" hook-pre-tool >/dev/null 2>&1)
     echo "$?" >"$CASE/o.hook"
   )
-  expect "with only AGENT_GUARD_BIN_DIR set the helper is installed under it, not under the home directory" \
-    '[ "$(cat "$CASE/o.status")" = 0 ] && [ -x "$CASE/other-bin/gitleaks-helper/agent-guard-scan" ] \
-     && (cd "$CASE/other-bin/gitleaks-helper" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1) \
-     && [ ! -e "$CASE/home/.agent-guard/bin/gitleaks-helper" ]'
+  expect "with only AGENT_GUARD_BIN_DIR set the helper is installed under the home directory, not under it, with a notice" \
+    '[ "$(cat "$CASE/o.status")" = 0 ] && [ -x "$CASE/home/.agent-guard/bin/gitleaks-helper/agent-guard-scan" ] \
+     && (cd "$CASE/home/.agent-guard/bin/gitleaks-helper" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1) \
+     && [ ! -e "$CASE/other-bin/gitleaks-helper" ] \
+     && grep -qF "AGENT_GUARD_BIN_DIR no longer selects the gitleaks directory" "$CASE/o.err"'
   expect "and scans use the helper installed there, with the same deny" \
     '[ "$(cat "$CASE/o.hook")" = "$missing_status" ] && grep -qF -- "--gitleaks|$CASE/bin/gitleaks|" "$CALLS"'
+  rm -rf "$CASE/home/.agent-guard/bin/gitleaks-helper"
 fi
 
 # A later download that fails the pins leaves the installed helper as it was.
