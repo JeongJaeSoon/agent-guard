@@ -403,6 +403,10 @@ CODEX_TRUST_WATCHDOG_PID=
 # Runs as the leader of its own process group. hooks/list is sent only after a
 # successful initialize reply. Closing stdin is what stops app-server, so the
 # writer holds it open until the reply arrives or the deadline passes.
+# The group also ends itself, after the deadline or once the server is done.
+# A SIGKILL of the guard's process group, or a hangup where sh runs no exit
+# trap, removes the guard together with its watchdog, and nothing outside this
+# session would then stop a server that ignores end of input.
 CODEX_TRUST_CLIENT='codex=$1 out=$2 cwd=$3 limit=$4 version=$5
 deadline=$(( $(date +%s) + limit ))
 replied() {
@@ -414,13 +418,38 @@ await() {
     sleep 0.1 2>/dev/null || sleep 1
   done
 }
-{
+request() {
   jq -nc --arg v "$version" "{jsonrpc: \"2.0\", id: 1, method: \"initialize\", params: {clientInfo: {name: \"agent-guard\", title: \"agent-guard\", version: \$v}, capabilities: {}}}"
   await 1 && replied 1 "(.result | type == \"object\")" || exit 0
   printf "%s\n" "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}"
   jq -nc --arg cwd "$cwd" "{jsonrpc: \"2.0\", id: 2, method: \"hooks/list\", params: {cwds: [\$cwd]}}"
   await 2 || :
-} | "$codex" app-server >"$out" 2>/dev/null'
+}
+# This shell ignores TERM, which the guard sends to this group as well: it
+# has to last until the group is ended. The server starts with the
+# disposition this shell was given.
+trap "" TERM
+{
+  trap - TERM
+  request | "$codex" app-server >"$out" 2>/dev/null
+  : >"$out.done"
+} &
+work=$!
+# Counted in naps, not read from the clock, which can be set back: the group
+# gets the limit + 2 seconds that the guard gives it.
+naps=0
+until [ -e "$out.done" ] || [ "$naps" -ge "$(( (limit + 2) * 10 ))" ]; do
+  if sleep 0.1 2>/dev/null; then naps=$((naps + 1)); else sleep 1; naps=$((naps + 10)); fi
+done
+if [ -e "$out.done" ]; then
+  wait "$work"
+else
+  kill -TERM -"$$"
+  sleep 1
+fi
+# Past the deadline or with the server done, nothing may stay in this group,
+# whether the guard is still there or not.
+kill -KILL -"$$"'
 
 clear_codex_trust_probe_processes() {
   if [ -n "$CODEX_TRUST_WATCHDOG_PID" ]; then
@@ -526,6 +555,9 @@ codex_trust_probe() {
       || kill -KILL "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
   ) &
   CODEX_TRUST_WATCHDOG_PID=$!
+  # The probe ends by SIGKILL of its own group. Run no command between its
+  # start and this wait: bash reports a job a signal ended on stderr when a
+  # foreground command finishes before the job has been waited for.
   wait "$CODEX_TRUST_PROBE_PID" 2>/dev/null
   CODEX_TRUST_PROBE_PID=
   # Always clear the probe-private group: app-server may leave helpers behind.

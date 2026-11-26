@@ -17,10 +17,16 @@ esac
 # process-group cleanup in the guard.
 if [ "$host" = codex ] && [ "$#" -eq 1 ] && [ "$1" = app-server ]; then
   trust_mode=${AG_PLUGIN_TEST_TRUST:-trusted}
+  # Before the PID is recorded, so a test that has read it can send TERM.
+  [ "$trust_mode" != hang ] || trap '' TERM
   [ -z "${AG_PLUGIN_TEST_TRUST_PIDFILE:-}" ] || printf '%s\n' "$$" >>"$AG_PLUGIN_TEST_TRUST_PIDFILE"
+  # A test that ends the guard first holds the server here until it has.
+  while [ -n "${AG_PLUGIN_TEST_TRUST_GATE:-}" ] && [ ! -e "$AG_PLUGIN_TEST_TRUST_GATE" ]; do
+    sleep 0.1
+  done
   case "$trust_mode" in
     silent) exit 0 ;;
-    hang) trap '' TERM; while :; do sleep 1; done ;;
+    hang) while :; do sleep 1; done ;;
   esac
   while IFS= read -r line; do
     [ -z "${AG_PLUGIN_TEST_TRUST_REQUESTS:-}" ] || printf '%s\n' "$line" >>"$AG_PLUGIN_TEST_TRUST_REQUESTS"
@@ -70,7 +76,7 @@ if [ "$host" = codex ] && [ "$#" -eq 1 ] && [ "$1" = app-server ]; then
           linger) trap '' TERM; while :; do sleep 1; done ;;
           spawn)
             # Recorded by the parent so the PID exists even if cleanup wins the race.
-            sh -c 'trap "" HUP; exec sleep 30' spawn &
+            sh -c 'trap "" HUP TERM; exec sleep 30' spawn &
             printf '%s\n' "$!" >"$AG_PLUGIN_TEST_TRUST_CHILD"
             ;;
         esac

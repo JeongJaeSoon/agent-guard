@@ -26,6 +26,20 @@ security tiers or test-pyramid layers.
 | Deployment and service integration | `make smoke-test`, archive/Homebrew validation, opt-in `make test-pleno-integration` | Real scanner/tool dependencies, installation and configured service boundaries |
 | Authenticated host E2E | Separate Claude/Codex host-dispatch verification | Host loads and invokes the installed adapter; direct CLI calls or selecting a host environment variable do not establish this |
 
+## Test-only environment variables
+
+The hook launcher and the CLI read these so that tests can isolate warning
+markers. They are not user settings. The CLI also keys the recovery notice it
+queues for a blocked injected prompt on both, so a test of that recovery keeps
+both the same across its hook calls. The notice is queued only in a directory
+that is private: let the CLI create it, or create it as a non-symlink owned by
+the current user with mode `0700`.
+
+| Variable | Use |
+| --- | --- |
+| `AGENT_GUARD_SESSION_ID` | A non-empty value replaces the payload's `session_id` as the key that deduplicates notices; an empty one counts as unset. The CLI accepts only ASCII letters, digits, `.`, `_` and `-`; with any other character it keys on the host and parent process ID instead (the launcher hashes any value) |
+| `AGENT_GUARD_WARNING_DIR` | Directory of the notice markers and queued recovery notices (default `${TMPDIR:-/tmp}/agent-guard-warnings-<uid>`) |
+
 ## Direct contract inventory
 
 This table is the single reference for the complete `make test-unit` suite
@@ -165,18 +179,28 @@ written, and the files left behind. `--baseline-shell` and
 `--entry manifest` runs the host's plugin manifest command.
 
 What two runs of one build may differ in is not compared and is listed in the
-report as `not_compared`: times, run identifiers, file identities and hashes
-in file names, and the content of the CLI's cache files. A new entry there
-needs a reason; a difference is otherwise a bug in the change.
+report as `not_compared`: the time, run identifier and duration of an audit
+event, the content of the CLI's cache files and the times and hashes in their
+names, the times Git keeps in its logs and beside its index entries (the
+index is compared as `git ls-files --stage -v` lists it), and the time a
+warning marker holds. Every other entry of the sandbox is compared by name,
+permission bits and content. A new entry there needs a reason; a difference is otherwise a bug in
+the change.
 
 The report holds case names, sizes, equality, the first differing offset and
 a count of what each step left by kind (audit event, cache, state file,
-temporary file, home file, repository file), never the text of an input or
+temporary file, home file, repository file, other sandbox file), never the
+text of an input or
 an output and never a file name, which can hold a session identifier. So the
 same command is safe on a corpus that is not synthetic. `--names` prints the
 names of the entries that differ to standard error, for a synthetic corpus.
-A comparison that cannot finish (a timeout, state it cannot read) replaces
-any earlier report with one that says `complete: false`. Corpus strings may use `{{REPO}}`, `{{TOKEN}}`,
+A comparison that cannot finish (a timeout, state it cannot read, a build
+that wrote to the scanner directory both sides share) replaces any earlier
+report with one that says `complete: false`; `--out` may not name a file
+the comparison reads. A corpus is trusted input: a
+step can be `exec`, which runs a command. Its `env` may set only
+`AGENT_GUARD_` variables, and no value may be a path other than one under
+`/nonexistent/`. Corpus strings may use `{{REPO}}`, `{{TOKEN}}`,
 `{{HEX}}` and `{{KEY_BLOCK}}`; the last three are values built at run time
 that a scanner must report, so the corpus itself holds none.
 
@@ -225,6 +249,14 @@ For a bug or behavior change:
 4. Record the red/green commits or logs and remaining untested boundaries in
    the PR. If no pre-fix failure was observed, call it added regression
    coverage, not completed TDD.
+
+## Revert and compatibility switches
+
+A setting that reverts a behavior change, or keeps earlier behavior available,
+states its removal condition in the pull request that adds it. List it under
+[Compatibility and hardening switches](docs/configuration.md#compatibility-and-hardening-switches),
+not among the policy settings, and add its row to
+[Unrecognized values](docs/configuration.md#unrecognized-values).
 
 ## CI checks
 

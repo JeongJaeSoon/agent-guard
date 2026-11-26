@@ -78,6 +78,13 @@ pub struct Sandbox {
     pub base: PathBuf,
     pub repo: String,
 }
+impl Drop for Sandbox {
+    fn drop(&mut self) {
+        if let Err(error) = remove_tree(&self.base) {
+            eprintln!("could not remove {}: {error}", self.base.display());
+        }
+    }
+}
 impl Sandbox {
     pub fn new() -> Result<Self> {
         let dir = tempfile::Builder::new()
@@ -99,12 +106,7 @@ impl Sandbox {
     pub fn reset(&self) -> Result<()> {
         let base = &self.base;
         for name in ["repo", "home", "t", "s"] {
-            match std::fs::remove_dir_all(base.join(name)) {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(error.into())
-                }
-                _ => {}
-            }
+            remove_tree(&base.join(name))?;
         }
         let repo = base.join("repo");
         std::fs::create_dir_all(repo.join("src"))?;
