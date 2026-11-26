@@ -2234,9 +2234,9 @@
     "new": "if (wv[g] ~ /^-[fsw]$/) g++",
     "tests": [
       "tests/search-operand-ground-truth.sh"
-      ]
-    },
-    {
+    ]
+  },
+  {
     "id": "bash-git-diff-rev-tilde-refused",
     "rule": "git diff before a search (#626): a revision with a tilde or caret keeps it a printing command",
     "old": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\\/@~^-]*$/) return 0",
@@ -2350,17 +2350,26 @@
   {
     "id": "bash-container-review-role",
     "rule": "container boundary: a session started with AGENT_GUARD_SESSION_ROLE=review is held",
-    "old": "if [ \"${AGENT_GUARD_SESSION_ROLE-}\" != review ]; then",
-    "new": "if [ \"${AGENT_GUARD_SESSION_ROLE-}\" != \"no such role\" ]; then",
+    "old": "if [ -z \"${AGENT_GUARD_SESSION_ROLE-}\" ]; then",
+    "new": "if [ -n \"${AGENT_GUARD_SESSION_ROLE-}\" ]; then",
     "tests": [
       "tests/container-session-boundary.sh"
     ]
   },
   {
-    "id": "bash-container-other-role-passes",
-    "rule": "container boundary: another session role is not held",
-    "old": "if [ \"${AGENT_GUARD_SESSION_ROLE-}\" != review ]; then",
-    "new": "if [ -z \"${AGENT_GUARD_SESSION_ROLE-}\" ]; then",
+    "id": "bash-container-invalid-role-refused",
+    "rule": "container boundary: a session role other than review refuses every container runtime command",
+    "old": "if [ \"${AGENT_GUARD_SESSION_ROLE-}\" != review ] && [ -n \"${AGENT_GUARD_SESSION_ROLE-}\" ]; then",
+    "new": "if false; then",
+    "tests": [
+      "tests/container-session-boundary.sh"
+    ]
+  },
+  {
+    "id": "doctor-invalid-session-role",
+    "rule": "doctor fails for a session role other than review",
+    "old": "    ''|review) ;;",
+    "new": "    ''|review|*) ;;",
     "tests": [
       "tests/container-session-boundary.sh"
     ]
