@@ -55,13 +55,16 @@ pub fn payload(case: &str, event: &str, repo: &str, session: &str, n: &str) -> V
     value
 }
 
-/// A Write whose content every scanner in use must refuse: built here, never
-/// stored in the source tree.
-fn control(repo: &str, session: &str) -> Value {
+/// Text every scanner in use must report: built here, never stored in the
+/// source tree.
+pub fn key_block() -> String {
     let label = ["PRIVATE", "KEY"].join(" ");
     let body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n".repeat(4);
+    format!("-----BEGIN {label}-----\n{body}-----END {label}-----\n")
+}
+fn control(repo: &str, session: &str) -> Value {
     json!({"hook_event_name": "PreToolUse", "session_id": session, "cwd": repo, "tool_name": "Write",
-        "tool_input": {"file_path": format!("{repo}/deploy.txt"), "content": format!("-----BEGIN {label}-----\n{body}-----END {label}-----\n")}})
+        "tool_input": {"file_path": format!("{repo}/deploy.txt"), "content": key_block()}})
 }
 
 /// A clean Git repository and the directories every arm keeps apart. The base
@@ -79,6 +82,27 @@ impl Sandbox {
             .tempdir_in(std::fs::canonicalize("/tmp")?)?;
         let base = dir.path().to_path_buf();
         remove_on_interrupt(base.clone())?;
+        let sandbox = Self {
+            _dir: dir,
+            repo: base.join("repo").display().to_string(),
+            base,
+        };
+        sandbox.reset()?;
+        Ok(sandbox)
+    }
+    /// The repository, home, temporary and state directories as they are
+    /// before any hook ran. The commit has a fixed date, so every reset
+    /// builds the same repository at the same path.
+    pub fn reset(&self) -> Result<()> {
+        let base = &self.base;
+        for name in ["repo", "home", "t", "s"] {
+            match std::fs::remove_dir_all(base.join(name)) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.into())
+                }
+                _ => {}
+            }
+        }
         let repo = base.join("repo");
         std::fs::create_dir_all(repo.join("src"))?;
         for name in ["home", "t"] {
@@ -89,22 +113,9 @@ impl Sandbox {
             .map(|i| format!("export function f{i}(x) {{ return x + {i}; }}\n"))
             .collect();
         std::fs::write(repo.join("src/lib.js"), lib.concat())?;
-        let repo = repo.display().to_string();
-        let git = |args: &[&str]| -> Result<()> {
-            let mut command = vec!["git".to_string(), "-C".into(), repo.clone()];
-            command.extend(args.iter().map(|s| s.to_string()));
-            invoke_isolated(&command, b"", &Self::plain_env(&base), None, 30.0).and_then(
-                |(_, out)| {
-                    ensure(
-                        out.status.success(),
-                        "could not build the synthetic repository",
-                    )
-                },
-            )
-        };
-        git(&["init", "-q"])?;
-        git(&["add", "."])?;
-        git(&[
+        self.git(&["init", "-q"])?;
+        self.git(&["add", "."])?;
+        self.git(&[
             "-c",
             "user.email=bench@example.invalid",
             "-c",
@@ -112,11 +123,20 @@ impl Sandbox {
             "commit",
             "-qm",
             "init",
-        ])?;
-        Ok(Self {
-            _dir: dir,
-            base,
-            repo,
+        ])
+    }
+    pub fn git(&self, args: &[&str]) -> Result<()> {
+        let mut command = vec!["git".to_string(), "-C".into(), self.repo.clone()];
+        command.extend(args.iter().map(|s| s.to_string()));
+        let mut env = self.env();
+        for name in ["GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE"] {
+            env.insert(name.into(), "2000-01-01T00:00:00Z".into());
+        }
+        invoke_isolated(&command, b"", &env, None, 30.0).and_then(|(_, out)| {
+            ensure(
+                out.status.success(),
+                "could not build the synthetic repository",
+            )
         })
     }
     /// Nothing of the caller's session reaches a hook: only the search path,
@@ -144,28 +164,42 @@ impl Sandbox {
     }
 }
 
-/// The command a host runs for one hook: the CLI itself, or the Claude plugin
-/// manifest's command, which goes through the launcher.
+/// The command a host runs for one hook: the CLI itself, or the host's
+/// plugin manifest command, which goes through the launcher.
 pub fn hook_command(
     binary: &str,
     manifest: bool,
-    event: &str,
+    host: &str,
     sub: &str,
     env: &mut Env,
 ) -> Result<Vec<String>> {
     if !manifest {
-        env.insert("AGENT_GUARD_HOOK_HOST".into(), "claude".into());
+        env.insert("AGENT_GUARD_HOOK_HOST".into(), host.into());
         return Ok(vec![binary.into(), sub.into()]);
     }
     let root = Path::new(binary)
         .parent()
         .and_then(Path::parent)
         .ok_or("the binary has no plugin root")?;
-    let hooks = read_json(root.join("hooks/hooks.json"))?;
+    let (file, variable) = if host == "codex" {
+        ("hooks.json", "PLUGIN_ROOT")
+    } else {
+        ("hooks/hooks.json", "CLAUDE_PLUGIN_ROOT")
+    };
+    let event = match sub {
+        "hook-pre-tool" => "PreToolUse",
+        "hook-post-tool" => "PostToolUse",
+        "hook-post-tool-failure" => "PostToolUseFailure",
+        "hook-stop" => "Stop",
+        "hook-session-start" => "SessionStart",
+        "hook-user-prompt" => "UserPromptSubmit",
+        _ => return Err(format!("no hook event for {sub}").into()),
+    };
+    let hooks = read_json(root.join(file))?;
     let command = hooks["hooks"][event][0]["hooks"][0]["command"]
         .as_str()
-        .ok_or("the plugin manifest has no command for this event")?;
-    env.insert("CLAUDE_PLUGIN_ROOT".into(), root.display().to_string());
+        .ok_or_else(|| format!("the {host} plugin manifest has no command for {event}"))?;
+    env.insert(variable.into(), root.display().to_string());
     Ok(vec!["sh".into(), "-c".into(), command.into()])
 }
 
@@ -304,7 +338,7 @@ impl Run<'_> {
         command.extend(hook_command(
             self.binary,
             self.manifest,
-            case.1,
+            "claude",
             case.2,
             &mut env,
         )?);
