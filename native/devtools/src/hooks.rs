@@ -950,38 +950,56 @@ pub fn latency(args: &Args) -> Result<()> {
     // that passed it without looking would otherwise be reported as faster.
     let mut cache_controls = Vec::new();
     for (arm, case) in &cells {
-        if !complete
-            || !samples
-                .iter()
-                .any(|s| s["arm"] == arm.name && s["case"] == case.0 && s["cache"] == "hit")
+        if !samples
+            .iter()
+            .any(|s| s["arm"] == arm.name && s["case"] == case.0 && s["cache"] == "hit")
         {
             continue;
         }
         let state = state_of(arm, case.0);
-        let row = hook(
-            arm,
-            &state,
-            case,
-            &input(arm, case, "fixed"),
-            &[("AGENT_GUARD_SCAN_CACHE", "off")],
-        )?;
-        let words: Vec<String> = row["client"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|w| w.as_str().unwrap().to_owned())
-            .collect();
-        let ran = scanner(
-            &words,
-            number(&row["max_child_peak_rss_kib"]),
-            threshold.filter(|_| row["probe"] == "cached"),
-        );
+        // After a hook that could not run, or when this one cannot, the hits
+        // stay unconfirmed: no further hook is started on a run that stopped.
+        let row = if complete {
+            hook(
+                arm,
+                &state,
+                case,
+                &input(arm, case, "fixed"),
+                &[("AGENT_GUARD_SCAN_CACHE", "off")],
+            )
+            .map_err(|error| error.to_string())
+        } else {
+            Err("the measurement stopped before this check".to_owned())
+        };
+        let ran = match &row {
+            Ok(row) => {
+                let words: Vec<String> = row["client"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|w| w.as_str().unwrap().to_owned())
+                    .collect();
+                scanner(
+                    &words,
+                    number(&row["max_child_peak_rss_kib"]),
+                    threshold.filter(|_| row["probe"] == "cached"),
+                )
+            }
+            Err(_) => "unknown",
+        };
         if !["gitleaks", "helper"].contains(&ran) {
-            problems.push(format!(
-                "{}/{}: with the clean-scan cache off this input is still not scanned ({ran}), so its hits are not cache hits",
-                arm.name, case.0
-            ));
+            problems.push(match &row {
+                Ok(_) => format!(
+                    "{}/{}: with the clean-scan cache off this input is still not scanned ({ran}), so its hits are not cache hits",
+                    arm.name, case.0
+                ),
+                Err(error) => format!(
+                    "{}/{}: the cache-off check did not run ({error}), so its hits are unconfirmed",
+                    arm.name, case.0
+                ),
+            });
             unconfirm_hits(&mut samples, arm.name, case.0);
+            complete &= row.is_ok();
         }
         cache_controls
             .push(json!({"arm": arm.name, "case": case.0, "scanner_with_cache_off": ran}));
@@ -1037,7 +1055,8 @@ pub fn latency(args: &Args) -> Result<()> {
             json!({"case": case.0, "event": case.1, "arm": arm.name, "n": times.len(),
             "median_ms": tenth(median(times.clone())), "p95_ms": tenth(p95),
             "min_ms": tenth(times[0]), "max_ms": tenth(times[times.len() - 1]),
-            "scanner": count("scanner"), "cache": count("cache"), "probe_runs_left_out": all.len() - rows.len()}),
+            "scanner": count("scanner"), "cache": count("cache"), "left_out": all.len() - rows.len(),
+            "probe_runs_left_out": all.iter().filter(|s| s["probe"] == "ran").count()}),
         );
     }
     let report = json!({
