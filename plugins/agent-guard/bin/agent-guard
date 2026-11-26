@@ -1603,10 +1603,13 @@ rundir_parent_safe() {
     && mask_allow_acl .
 }
 
-RUNDIR_STALE_FIND='u=$1 a=$2; shift 2; [ "$#" -gt 0 ] || exit 0; find "$@" -prune -type d -user "$u" -perm 700 -mmin "+$a" -print'
+# Owner-only: rwx for the owner and nothing for group or others. A setgid bit
+# that mktemp -d inherits from a setgid TMPDIR (Linux) is allowed. A failed
+# find prints "!", so count can tell an incomplete check from none found.
+RUNDIR_STALE_FIND='u=$1 a=$2; shift 2; [ "$#" -gt 0 ] || exit 0; find "$@" -prune -type d -user "$u" -perm -0700 ! -perm -0040 ! -perm -0020 ! -perm -0010 ! -perm -0004 ! -perm -0002 ! -perm -0001 -mmin "+$a" -print || echo "!"'
 
 rundir_stale() ( # DIR MODE
-  # count prints "unreadable" when it cannot list the directory.
+  # count prints "unreadable" when it cannot list or check the directory.
   CDPATH= cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo unreadable; exit 0; }
   [ -r . ] || { [ "$2" = remove ] || echo unreadable; exit 0; }
   [ "$2" != remove ] || rundir_parent_safe || exit 0
@@ -1631,9 +1634,9 @@ rundir_stale() ( # DIR MODE
       printf './%s\n' "$ag_rs_name"
     done | xargs sh -c "$RUNDIR_STALE_FIND" sh "$AG_UID" "$RUNDIR_REAP_LEGACY_AGE_MINUTES" 2>/dev/null
   } | if [ "$2" = remove ]; then
-    xargs rm -rf -- 2>/dev/null
+    grep '^\./agent-guard-run\.' | xargs rm -rf -- 2>/dev/null
   else
-    wc -l | tr -d ' '
+    awk '/^!/ { bad = 1; next } { n++ } END { if (bad) print "unreadable"; else print n + 0 }'
   fi
 )
 
@@ -23935,7 +23938,7 @@ doctor_rundir_report() {
   doctor_rundir_count=$(rundir_stale "$doctor_rundir_dir" count 2>/dev/null </dev/null) || doctor_rundir_count=
   case "$doctor_rundir_count" in
     unreadable)
-      info "$PROGRAM: temp: could not list $doctor_rundir_dir to look for stale run directories"
+      info "$PROGRAM: temp: could not check $doctor_rundir_dir for stale run directories"
       return 0
       ;;
     ''|*[!0123456789]*) return 0 ;;

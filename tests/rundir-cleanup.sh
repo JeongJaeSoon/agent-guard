@@ -209,7 +209,9 @@ fixture() {
   mkdir -p "$t" "$out"
   : >"$out/keep"
   # Removed: stale, private, ours, no live owner.
-  mkdir -m 700 "$t/agent-guard-run.Ab12Cd" "$t/agent-guard-run.999999999.Ef34Gh"
+  mkdir -m 700 "$t/agent-guard-run.Ab12Cd" "$t/agent-guard-run.999999999.Ef34Gh" "$t/agent-guard-run.999999995.Sg27Gd"
+  # mktemp -d under a setgid TMPDIR (Linux) inherits the setgid bit.
+  chmod 2700 "$t/agent-guard-run.999999995.Sg27Gd"
   printf 'scan capture\n' >"$t/agent-guard-run.Ab12Cd/agent-guard.Qw12Er"
   mkdir -m 700 "$t/agent-guard-run.Ab12Cd/pii.Zx34Cv"
   # A symlink inside a stale directory is removed, its target is not.
@@ -240,7 +242,7 @@ fixture() {
   mkdir -m 700 "$t/agent-guard-runner.Gh78Ij" "$t/agent-guard-run.Kl90" "$t/agent-guard.Mn12Op" "$t/agent-guard-run.12x.Qr34St"
   for e in agent-guard-run.Ab12Cd agent-guard-run.999999999.Ef34Gh "agent-guard-run.$live.Ij56Kl" \
       agent-guard-run.Qr90St agent-guard-run.999999996.Pm75Xx agent-guard-runner.Gh78Ij agent-guard-run.Kl90 agent-guard.Mn12Op \
-      agent-guard-run.12x.Qr34St agent-guard-run.Cd56Ef; do
+      agent-guard-run.12x.Qr34St agent-guard-run.Cd56Ef agent-guard-run.999999995.Sg27Gd; do
     touch -t "$OLD" "$t/$e"
   done
   touch -t "$OLD" "$out/agent-guard-run.Uv12Wx"
@@ -281,7 +283,7 @@ for sh_ in $SHELLS; do
   reap_run "$sh_" "$tmp" "$state"
   reap_wait
   bad=
-  for e in agent-guard-run.Ab12Cd agent-guard-run.999999999.Ef34Gh agent-guard-run.999999998.Hh22Jj ${KILLED:+"${KILLED##*/}"}; do
+  for e in agent-guard-run.Ab12Cd agent-guard-run.999999999.Ef34Gh agent-guard-run.999999998.Hh22Jj agent-guard-run.999999995.Sg27Gd ${KILLED:+"${KILLED##*/}"}; do
     expect_gone "$tmp" "$e" || bad="$bad $e"
   done
   if [ -z "$bad" ]; then
@@ -537,8 +539,8 @@ for mode in on off; do
     AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
     sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
   case $mode in
-    on) want='temp: 3 stale run directories in [^ ]* (left by a killed run; a later hook or scan removes them' ;;
-    off) want='temp: 3 stale run directories in [^ ]* (left by a killed run; nothing removes them while the private state directory is off' ;;
+    on) want='temp: 4 stale run directories in [^ ]* (left by a killed run; a later hook or scan removes them' ;;
+    off) want='temp: 4 stale run directories in [^ ]* (left by a killed run; nothing removes them while the private state directory is off' ;;
   esac
   after=$(find "$DOC_TMP" | LC_ALL=C sort)
   if grep -q "$want" "$CASE/doctor-out" && [ "$before" = "$after" ]; then
@@ -595,12 +597,33 @@ env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/unlisted
   AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
   sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
 chmod 755 "$CASE/unlisted-tmp"
-if grep -q 'temp: could not list .* to look for stale run directories' "$CASE/doctor-out"; then
-  ok "doctor says when it cannot list the temp directory"
+if grep -q 'temp: could not check .* for stale run directories' "$CASE/doctor-out"; then
+  ok "doctor says when it cannot check the temp directory"
 else
-  not_ok "doctor says when it cannot list the temp directory"
+  not_ok "doctor says when it cannot check the temp directory"
   grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
 fi
+# A find that fails while checking candidates makes the count unknown, not 0.
+mkdir -p "$CASE/badfind-bin"
+real_find=$(command -v find)
+sed "s|@REAL@|$real_find|g" >"$CASE/badfind-bin/find" <<'STUB'
+#!/bin/sh
+case " $* " in *" -mmin "*) exit 1 ;; esac
+exec "@REAL@" "$@"
+STUB
+chmod +x "$CASE/badfind-bin/find"
+fixture "$CASE/badfind-tmp"
+env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/badfind-tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
+  PATH="$CASE/badfind-bin:$PATH" AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+  sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
+if grep -q 'temp: could not check .* for stale run directories' "$CASE/doctor-out"; then
+  ok "doctor says when a failed find leaves the check incomplete"
+else
+  not_ok "doctor says when a failed find leaves the check incomplete"
+  grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+fi
+for p in $LIVE_PIDS; do kill -KILL "$p" 2>/dev/null || :; done
+LIVE_PIDS=
 mkdir "$CASE/doctor-empty"
 env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/doctor-empty" \
   AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
