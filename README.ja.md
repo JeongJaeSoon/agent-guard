@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: d20b49a67f5b47666921295b20d32a19a5d3f503 -->
+<!-- translated-from: README.md; source-blob: e223e5a90adbb6d98a95559972141a85c8027377 -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -49,7 +49,7 @@ Agent Guardは、Claude Code、Codex、Git hook、GitHub Actions、直接実行�
 
 出力マスキングは、認証情報らしいキー名だけではマスクしません。diffの`credential: CredentialSchema,`行のように、値がフィールド名を繰り返す識別子であればそのまま表示します。引用符付き文字列や`password=hunter2`のような裸の値は引き続きマスクします。こうした識別子もマスクするには`AGENT_GUARD_KEY_NAME_REDACT=on`を設定してください（[設定](docs/configuration.md#output-and-prompt-handling)、英語）。
 
-Codexセッションと、レビューとして示されたセッション（環境に`AGENT_GUARD_SESSION_ROLE=review`があるか、タイプ名にreviewを含むClaude Codeエージェント）は、他のセッションが所有するコンテナに入れません。これらのセッションでは、`$HOME/.config/agent-guard/protected-containers.txt`に書かれたスタックを指す`docker`、`podman`、`nerdctl`コマンドと、コンテナの`exec`でデータベースクライアントを実行するコマンドは拒否されます。通常のClaude Codeセッションには影響しません（[設定](docs/configuration.md#containers-other-sessions-own)、英語）。
+レビューとして示されたセッション（環境に`AGENT_GUARD_SESSION_ROLE=review`があるか、タイプ名にreviewを含むClaude Codeエージェント）は、他のセッションが所有するコンテナに入れません。これらのセッションでは、`$HOME/.config/agent-guard/protected-containers.txt`に書かれたスタックを指す`docker`、`podman`、`nerdctl`コマンドと、コンテナの`exec`でデータベースクライアントを実行するコマンドは拒否されます。それ以外のセッションには影響しません（[設定](docs/configuration.md#containers-other-sessions-own)、英語）。
 
 <a id="choose-your-path"></a>
 

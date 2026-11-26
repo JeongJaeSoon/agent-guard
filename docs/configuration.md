@@ -601,18 +601,18 @@ reads it.
 
 ## Containers other sessions own
 
-A Codex session or a review session often runs next to sessions that own local
-container stacks, such as a demo database. Agent Guard keeps those sessions out
-of them. The check applies to a Bash command only in:
+A review session often runs next to sessions that own local container stacks,
+such as a demo database. Agent Guard keeps a review session out of them. The
+check applies to a Bash command only in:
 
-- every Codex session;
 - a session started with `AGENT_GUARD_SESSION_ROLE=review` in its environment;
 - a Claude Code agent whose `agent_type` contains `review` (a reviewer
   subagent, or `claude --agent` with such a name).
 
-Any other session, such as a plain Claude Code session, is not affected. A
-session that is only told to review in its prompt carries none of these
-markers; start it with `AGENT_GUARD_SESSION_ROLE=review`.
+Any other session is not affected. A session that is only told to review in
+its prompt carries neither marker; start it with
+`AGENT_GUARD_SESSION_ROLE=review`. Nothing marks a Codex session by itself:
+restrict what Codex may run with Codex's own command rules.
 
 In those sessions a `docker`, `podman` or `nerdctl` command, their compose
 forms included, is refused when:
@@ -645,11 +645,16 @@ searching for such text stays possible.
 demo-stack-20260101
 ```
 
-The check reads the text of the command. It does not ask the container
-runtime which containers exist, and it does not follow a command into a script
-or another program. For a Codex session it runs only while the Agent Guard
-Codex plugin is installed, enabled and trusted
-(`agent-guard plugin status --host codex`).
+This holds a command that is written out in the Bash call: the runtime, its
+options, and `exec` with the container and what it runs. The check reads that
+text only. It does not ask the container runtime which containers exist, and
+it does not follow a command into a script, another program, or a name the
+shell works out when the command runs. It guards ordinary use and is not a
+sandbox: a session that must not reach a stack should also be kept away from
+that stack's network and credentials. A restricted session is read
+conservatively, so some harmless commands are refused as well, such as any
+variable on a container `exec` line or a database client named anywhere in a
+call that has a container `exec`.
 
 ## Environment reference
 
