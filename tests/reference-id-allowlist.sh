@@ -78,6 +78,11 @@ scan_case() {
   else
     printf '%s\n' "$3" >"$scan_dir/$scan_name"
   fi
+  # A fixture that was not written would scan as clean.
+  if [ ! -s "$scan_dir/$scan_name" ]; then
+    printf 'not ok - scan-path: %s (the fixture was not written)\n' "$2"
+    exit 1
+  fi
   [ "$1" -ne 0 ] || return 0
   PATH="$SCAN_PATH" "$GUARD" scan-path "$CASE_ROOT/scan" \
     >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
@@ -94,6 +99,11 @@ scan_case() {
 # The last scan adds a row that must be found, so a run that skipped the
 # directory cannot pass as clean.
 clean_batch() {
+  batch_files=$(find "$CASE_ROOT/clean" -type f | wc -l | tr -d ' ')
+  if [ "$batch_files" -ne "$clean_rows" ]; then
+    printf 'not ok - scan-path: %s fixtures for %s rows expected clean\n' "$batch_files" "$clean_rows"
+    exit 1
+  fi
   PATH="$SCAN_PATH" "$GUARD" scan-path "$CASE_ROOT/clean" \
     >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
   batch_status=$?
