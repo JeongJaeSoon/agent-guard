@@ -649,8 +649,9 @@ This holds a command that is written out in the Bash call: the runtime, its
 options, and `exec` with the container and what it runs. The check reads that
 text only. It does not ask the container runtime which containers exist, and
 it does not follow a command into a script, another program, or a name the
-shell works out when the command runs. It guards ordinary use and is not a
-sandbox: a session that must not reach a stack should also be kept away from
+shell works out when the command runs. Quoting and shell syntax around the
+runtime's own words are read through in their common forms, not in every form
+a shell accepts. It guards ordinary use and is not a sandbox: a session that must not reach a stack should also be kept away from
 that stack's network and credentials. A restricted session is read
 conservatively, so some harmless commands are refused as well, such as any
 variable on a container `exec` line or a database client named anywhere in a
