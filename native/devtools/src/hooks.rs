@@ -1,6 +1,6 @@
 use crate::common::*;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -61,7 +61,7 @@ fn control(repo: &str, session: &str) -> Value {
     let label = ["PRIVATE", "KEY"].join(" ");
     let body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n".repeat(4);
     json!({"hook_event_name": "PreToolUse", "session_id": session, "cwd": repo, "tool_name": "Write",
-        "tool_input": {"file_path": format!("{repo}/deploy.pem"), "content": format!("-----BEGIN {label}-----\n{body}-----END {label}-----\n")}})
+        "tool_input": {"file_path": format!("{repo}/deploy.txt"), "content": format!("-----BEGIN {label}-----\n{body}-----END {label}-----\n")}})
 }
 
 /// A clean Git repository and the directories every arm keeps apart. The base
@@ -78,6 +78,7 @@ impl Sandbox {
             .prefix("agl")
             .tempdir_in(std::fs::canonicalize("/tmp")?)?;
         let base = dir.path().to_path_buf();
+        remove_on_interrupt(base.clone())?;
         let repo = base.join("repo");
         std::fs::create_dir_all(repo.join("src"))?;
         for name in ["home", "t"] {
@@ -193,6 +194,36 @@ fn helper_gone(state: &Path) -> bool {
     !helper_file(state, ".sock") && !helper_file(state, ".lock")
 }
 
+/// The audit event files of a state directory.
+fn event_files(state: &Path) -> BTreeSet<String> {
+    std::fs::read_dir(state.join("agent-guard"))
+        .map(|dir| {
+            dir.flatten()
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .filter(|name| name.starts_with("event-"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+/// The outcome the one event written since before records: pass, blocked,
+/// masked, or degraded when the check could not run. Exit status 2 alone does
+/// not tell a finding from a scanner that failed.
+fn outcome(state: &Path, before: &BTreeSet<String>) -> Value {
+    let after = event_files(state);
+    let mut new = after.difference(before);
+    let (Some(name), None) = (new.next(), new.next()) else {
+        return Value::Null;
+    };
+    std::fs::read_to_string(state.join("agent-guard").join(name))
+        .ok()
+        .and_then(|text| {
+            text.lines()
+                .last()
+                .and_then(|line| parse(line.as_bytes()).ok())
+        })
+        .map_or(Value::Null, |event| event["outcome"].clone())
+}
+
 /// The readiness-probe cache file: replaced whenever a hook ran `gitleaks version`.
 fn probe_entry(state: &Path) -> Option<(u64, i64, i64)> {
     std::fs::metadata(state.join("agent-guard/gitleaks-probe"))
@@ -280,6 +311,7 @@ impl Run<'_> {
         let _ = std::fs::remove_file(&self.trace);
         let before = cache_entries(state);
         let probe = probe_entry(state);
+        let events = event_files(state);
         let (_, out) = invoke_isolated(
             &command,
             &serde_json::to_vec(input)?,
@@ -300,10 +332,14 @@ impl Run<'_> {
         row["stderr_bytes"] = json!(out.stderr.len());
         row["client"] = json!(words);
         row["cache_changed"] = json!(before != cache_entries(state));
-        row["probe"] = json!(if probe_entry(state) == probe {
-            "cached"
-        } else {
-            "ran"
+        row["outcome"] = outcome(state, &events);
+        // A scanner the CLI does not cache a probe for (a script) leaves no
+        // record either way.
+        let probed = probe_entry(state);
+        row["probe"] = json!(match (&probed, probed == probe) {
+            (None, _) => "unknown",
+            (_, true) => "cached",
+            _ => "ran",
         });
         Ok(row)
     }
@@ -493,7 +529,7 @@ pub fn latency(args: &Args) -> Result<()> {
     idle()?;
     let idle = idle()?;
     ensure(
-        idle["status"] == 0 && idle["probe"] == "cached",
+        idle["status"] == 0 && idle["probe"] != "ran",
         "the calibration hook failed or ran the readiness probe twice",
     )?;
     let config = Path::new(&binary)
@@ -569,21 +605,33 @@ pub fn latency(args: &Args) -> Result<()> {
             continue;
         }
         seen.push(state.clone());
-        let extra: &[(&str, &str)] = if arm.name == "first-call" { &off } else { &[] };
         let row = run.hook(
             arm,
             &state,
             &CASES[1],
             &control(&sandbox.repo, &session(arm)),
-            extra,
+            &[],
         )?;
-        if row["status"] != 2 {
+        if row["status"] != 2 || row["outcome"] != "blocked" {
             problems.push(format!(
-                "control: {} let a private key block through",
+                "control: {} did not report the private key block as a finding",
                 arm.name
             ));
         }
-        controls.push(json!({"arm": arm.name, "status": row["status"], "client": row["client"]}));
+        if arm.helper && row["client"].as_array().unwrap().is_empty() {
+            problems.push(format!(
+                "control: {} scanned without the scan client; the helper files may not be the ones this CLI pins",
+                arm.name
+            ));
+        }
+        if row["client"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("spawned"))
+        {
+            wait_until(30.0, || helper_file(&state, ".sock"));
+        }
+        controls.push(json!({"arm": arm.name, "status": row["status"], "outcome": row["outcome"], "client": row["client"]}));
     }
 
     let load = || {
@@ -660,8 +708,11 @@ pub fn latency(args: &Args) -> Result<()> {
             });
             row["scanner"] = json!(ran);
             let label = format!("{}/{} sample {sample}", arm.name, case.0);
-            if row["status"] != 0 {
-                problems.push(format!("{label}: exit status {}", row["status"]));
+            if row["status"] != 0 || row["outcome"] != "pass" {
+                problems.push(format!(
+                    "{label}: exit status {}, audit outcome {}",
+                    row["status"], row["outcome"]
+                ));
             }
             let all = |word: &str| words.iter().all(|w| w == word);
             let expected = match arm.name {
@@ -677,6 +728,9 @@ pub fn latency(args: &Args) -> Result<()> {
             };
             if !expected {
                 problems.push(format!("{label}: the scan client reported {words:?}"));
+            }
+            if arm.helper && words.is_empty() && ran == "gitleaks" {
+                problems.push(format!("{label}: gitleaks ran without the scan client"));
             }
             if let (Some(limit), false) = (limit, words.is_empty()) {
                 if (ran == "helper") != (rss < limit) {
@@ -708,8 +762,8 @@ pub fn latency(args: &Args) -> Result<()> {
         }
     }
     for arm in &arms {
-        for case in &cases {
-            let state = state_of(arm, case.0);
+        for name in cases.iter().map(|case| case.0).chain(["control"]) {
+            let state = state_of(arm, name);
             if arm.helper && !wait_until(40.0, || !helper_file(&state, ".lock")) {
                 problems.push(format!("{}: a helper is still running", arm.name));
             }
