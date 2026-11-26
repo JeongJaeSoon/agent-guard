@@ -29,10 +29,12 @@ Code.
 Temporary scan reports and provider responses are created under a single
 per-invocation directory inside the operating system temporary directory and
 removed by a cleanup trap when the operation exits — including on the
-interrupting signals a host actually sends: SIGTERM when it kills a hook at its
-timeout, and SIGINT on Ctrl-C. Only an un-trappable SIGKILL can bypass this,
-leaving those temporary files for the operating system's temporary-directory
-reaper to remove. Agent Guard does not write inspected tool content to its own
+interrupting signals a host sends: SIGTERM when it ends a hook at its timeout,
+SIGINT on Ctrl-C, and SIGHUP when the terminal closes. An un-trappable SIGKILL
+(Codex ends a hook that reaches its timeout with one) leaves the directory
+behind; a later Agent Guard run that has its local state directory removes
+such a directory once it is more than 61 minutes old and the process that made
+it has ended, checking at most once an hour. Agent Guard does not write inspected tool content to its own
 log or database. The host application may independently retain tool inputs and
 outputs under its own privacy policy.
 

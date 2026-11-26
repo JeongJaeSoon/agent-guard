@@ -1492,6 +1492,73 @@ audit_prune() (
     | xargs -0 rm -f -- 2>/dev/null
 )
 
+# Run directories no trap removed (a KILL; see AGENT_GUARD_RUNDIR) keep scan
+# text on disk, so a later run removes them: at most once an interval, timed
+# by a marker in the private state directory (one read on the hot path), and
+# only for state that audit_begin validated. A first marker only starts the
+# clock. The age is an hour past the longest hook timeout (60 s); a run that
+# lasts longer keeps its directory while its PID, in the name, is alive.
+RUNDIR_REAP_INTERVAL_SECONDS=3600
+RUNDIR_REAP_AGE_MINUTES=61
+
+rundir_reap() {
+  [ -n "$AG_STATE_DIR" ] || return 0
+  case "$AG_UID" in ''|*[!0123456789]*) return 0 ;; esac
+  case "$AG_AUDIT_START" in ''|0|*[!0123456789]*) return 0 ;; esac
+  ag_rr_marker="$AG_STATE_DIR/rundir-reap"
+  ag_rr_last=
+  if [ -f "$ag_rr_marker" ] && [ ! -L "$ag_rr_marker" ]; then
+    IFS= read -r ag_rr_last <"$ag_rr_marker" 2>/dev/null || :
+  fi
+  case "$ag_rr_last" in ''|*[!0123456789]*) ag_rr_last= ;; esac
+  [ "${#ag_rr_last}" -le 12 ] || ag_rr_last=
+  # A marker from the future (a clock set back) is due.
+  if [ -n "$ag_rr_last" ] && [ "$ag_rr_last" -le "$AG_AUDIT_START" ] \
+      && [ "$((AG_AUDIT_START - ag_rr_last))" -lt "$RUNDIR_REAP_INTERVAL_SECONDS" ]; then
+    return 0
+  fi
+  # Restarted before the pass, so concurrent runs mostly skip it.
+  { printf '%s\n' "$AG_AUDIT_START" >"$ag_rr_marker"; } 2>/dev/null || return 0
+  [ -n "$ag_rr_last" ] || return 0
+  rundir_reap_pass "${TMPDIR:-/tmp}" </dev/null >/dev/null 2>&1 || :
+}
+
+# Lists TMPDIR itself and nothing below it ("/." also lists a TMPDIR that is a
+# symlink). find selects directories that are no symlink, owned by this user,
+# mode 0700 and old enough; the loop keeps only this CLI's mktemp names, with
+# or without an owner PID, and skips a live owner (kill -0 fails for another
+# user's process, which owns no directory of this user). rm -rf does not
+# follow symlinks inside. The listing is bounded like audit_prune's.
+rundir_reap_pass() (
+  ag_rr_prefix="$1/./agent-guard-run."
+  find "$1/." -mindepth 1 -maxdepth 1 -name 'agent-guard-run.*' -type d \
+      -user "$AG_UID" -perm 700 -mmin "+$RUNDIR_REAP_AGE_MINUTES" -print 2>/dev/null \
+    | head -n 2000 \
+    | while IFS= read -r ag_rr_path; do
+        case "$ag_rr_path" in "$ag_rr_prefix"*) ;; *) continue ;; esac
+        ag_rr_rest=${ag_rr_path#"$ag_rr_prefix"}
+        ag_rr_pid=
+        case "$ag_rr_rest" in
+          *.*)
+            ag_rr_pid=${ag_rr_rest%%.*}
+            ag_rr_rest=${ag_rr_rest#*.}
+            case "$ag_rr_pid" in ''|0*|*[!0123456789]*) continue ;; esac
+            [ "${#ag_rr_pid}" -le 10 ] || continue
+            ;;
+        esac
+        case "$ag_rr_rest" in
+          ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) continue ;;
+        esac
+        [ "${#ag_rr_rest}" -eq 6 ] || continue
+        if [ -n "$ag_rr_pid" ] && kill -0 "$ag_rr_pid" 2>/dev/null; then
+          continue
+        fi
+        [ -d "$ag_rr_path" ] && [ ! -L "$ag_rr_path" ] || continue
+        printf '%s\0' "$ag_rr_path"
+      done \
+    | xargs -0 rm -rf -- 2>/dev/null
+)
+
 audit_begin() {
   case "${AGENT_GUARD_LOG_MODE:-on}" in
     on) ag_log=on ;;
@@ -23840,28 +23907,32 @@ do_update() {
 # Per-invocation temp workspace. Every scan temp file (gitleaks stdin captures,
 # read-loop payloads) may hold plaintext secrets, so route them all under one
 # directory (see mktemp_file) and remove it with a single trap on exit —
-# including the catchable signals the host actually sends: SIGTERM when it kills
-# the PostToolUse/Stop hook at its timeout, SIGINT on Ctrl-C. mktemp -d (not a
-# predictable $$-based name) because these files hold secrets and a guessable
-# path in a shared /tmp invites a symlink / pre-create race. Non-fatal: if the
-# dir cannot be created, mktemp_file falls back to per-file temps so no command
-# breaks. An un-trappable SIGKILL also leaves the dir to the OS temp reaper.
+# including the catchable signals a host sends to the hook's process group:
+# TERM at the hook timeout (Claude Code, which sends KILL about 1.5 s later),
+# INT on Ctrl-C, HUP when the terminal goes. dash runs no EXIT trap for a
+# signal without a trap of its own, so each of the three has one. mktemp -d
+# makes the name unguessable; the PID in it only tells rundir_reap the owner.
+# Non-fatal: if the dir cannot be created, mktemp_file falls back to per-file
+# temps so no command breaks. A KILL (Codex kills a timed-out hook's group with
+# it) runs no trap; rundir_reap removes such leftovers later.
 # This is the process's only EXIT trap: a command running in this shell that
 # needs its own temp directory removed sets AG_EXIT_TMP_DIR instead of
 # replacing the trap, which would skip everything else here.
-AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.XXXXXX" 2>/dev/null \
-  || mktemp -d /tmp/agent-guard-run.XXXXXX 2>/dev/null || printf '')
+AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.$$.XXXXXX" 2>/dev/null \
+  || mktemp -d "/tmp/agent-guard-run.$$.XXXXXX" 2>/dev/null || printf '')
 AG_EXIT_TMP_DIR=
 # Saved once so rundir_temp_file can restore it without a process per file.
 AG_UMASK=$(umask 2>/dev/null) || AG_UMASK=
 # Logging is independent of stdout and never changes the guard's exit status.
 # SIGKILL cannot be trapped; a started-only record remains useful evidence.
 trap 'ag_final_status=$?; clear_gitleaks_probe_processes; clear_codex_trust_probe_processes; claude_block_capture_finish "$ag_final_status"; audit_finish "$ag_final_status"; [ -z "$AGENT_GUARD_RUNDIR" ] || rm -rf "$AGENT_GUARD_RUNDIR"; [ -z "$AG_EXIT_TMP_DIR" ] || rm -rf "$AG_EXIT_TMP_DIR"; exit "$ag_final_status"' 0
+trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 cmd=${1:-}
 audit_begin "$cmd"
+rundir_reap
 case "$cmd" in
   hook-pre-tool) claude_block_capture_begin PreToolUse; hook_pre_tool ;;
   hook-post-tool) hook_post_tool ;;
