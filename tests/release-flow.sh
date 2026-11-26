@@ -392,6 +392,11 @@ expect_tested 'reuse=false ordinary=true ' 'a newer failed run on the head is no
 ordinary_pr
 edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 6 | .run_started_at = "2026-11-21T00:00:00Z" | del(.head_repository) | .conclusion = "failure"]'
 expect_tested 'reuse=false ordinary=false ' 'a run without identity keeps the full matrix'
+for field in head_sha event path; do
+  ordinary_pr
+  edit_fixture ci.yml.json ".workflow_runs += [.workflow_runs[0] | .id = 6 | .run_started_at = \"2026-11-21T00:00:00Z\" | del(.$field) | .conclusion = \"failure\"]"
+  expect_tested 'reuse=false ordinary=false ' "a newer run without $field keeps the full matrix"
+done
 # A run without a start time cannot be ordered: that is unreadable evidence.
 ordinary_pr
 edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 6 | .run_started_at = null | .conclusion = "failure"]'
@@ -510,6 +515,13 @@ for change in '.status = "in_progress"' '.event = "push"' \
 done
 { nightly_run 8 20 success true; nightly_run 10 21 success true | jq -c 'del(.run_started_at) | .status = "queued"'; } | nightlies
 expect_tested 'reuse=false ordinary=false ' 'a nightly without a start time runs'
+for field in head_sha event path; do
+  { nightly_run 8 20 success true; nightly_run 10 21 failure false | jq -c "del(.$field)"; } | nightlies
+  expect_tested 'reuse=false ordinary=false ' "a newer nightly without $field runs"
+done
+{ nightly_run 8 20 success true; } | nightlies
+printf '{"artifacts":{"x":{"name":"tested-tree","expired":false}}}\n' > "$case_dir/artifacts-8.json"
+expect_tested 'reuse=false ordinary=false ' 'a nightly artifact list that is not an array runs'
 { nightly_run 8 20 success true; } | nightlies
 printf '{"message":"error"}\n' > "$case_dir/artifacts-8.json"
 expect_tested 'reuse=false ordinary=false ' 'an unreadable nightly record runs'
