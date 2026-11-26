@@ -670,7 +670,7 @@ Hook modes:
 
 | Variable | Default / use |
 | --- | --- |
-| `AGENT_GUARD_INFRA_FAILURE_MODE` | Hook behavior when a dependency, policy or scanner fails: unset (default), `open` or `closed`. Unset is `closed` for a secret scan that did not run and `open` for every other infrastructure failure; `PostToolUseFailure` cannot block and reports the unchecked output instead ([Infrastructure policy](#infrastructure-policy)). The shell integration (wrapped commands and `agx`) reads it only when it cannot locate the CLI or `agent-guard check` fails: `closed` then refuses the command, and otherwise it runs unmasked. |
+| `AGENT_GUARD_INFRA_FAILURE_MODE` | Hook behavior when a dependency, policy or scanner fails: unset (default), `open` or `closed`. Unset is `closed` for a secret scan that did not run and `open` for every other infrastructure failure; `SessionStart` only reports degraded protection in every mode, and `PostToolUseFailure` cannot block, so it reports the unchecked output instead ([Infrastructure policy](#infrastructure-policy)). The shell integration (wrapped commands and `agx`) reads it only when it cannot locate the CLI or `agent-guard check` fails: `closed` then refuses the command, and otherwise it runs unmasked. |
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block` (default), `warn`, `off`, or the currently blocking `mask` fallback. |
 | `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
 | `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
