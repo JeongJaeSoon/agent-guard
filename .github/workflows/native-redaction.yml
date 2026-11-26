@@ -79,7 +79,7 @@ jobs:
         run: |
           native/devtools/target/release/agent-guard-devtools native-integration --core "$PWD/native/redaction-core/target/release/agent-guard-redact" --scanner "$RUNNER_TEMP/gitleaks"
       - name: Developer tool compatibility contracts
-        run: sh tests/devtools.sh "$PWD/native/devtools/target/release/agent-guard-devtools"
+        run: sh tests/devtools.sh "$PWD/native/devtools/target/release/agent-guard-devtools" "$RUNNER_TEMP/gitleaks"
       - name: Native scanner and output regression partition
         env:
           AGENT_GUARD_TEST_SHARD: '4'
