@@ -626,6 +626,32 @@ else
   grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
 fi
 
+# A state path under a regular file cannot be made, and a TMPDIR with a
+# newline cannot be keyed in the line-based marker: neither is reaped.
+stale_in "$CASE/filestate-tmp" agent-guard-run.Fs12St
+: >"$CASE/state-is-a-file"
+env HOME="$CASE/home" XDG_STATE_HOME="$CASE/state-is-a-file" TMPDIR="$CASE/filestate-tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
+  AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+  sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
+if grep -q 'temp: 1 stale run directories in .*nothing removes them while the private state directory cannot be created' "$CASE/doctor-out"; then
+  ok "doctor says nothing removes them while the state directory cannot be created"
+else
+  not_ok "doctor says nothing removes them while the state directory cannot be created"
+  grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+fi
+nl_tmp="$CASE/nl
+tmp"
+stale_in "$nl_tmp" agent-guard-run.Nl12Tm
+env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$nl_tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
+  AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+  sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
+if grep -q 'nothing removes them while the temp directory path contains a newline' "$CASE/doctor-out"; then
+  ok "doctor says nothing removes them while the temp directory path has a newline"
+else
+  not_ok "doctor says nothing removes them while the temp directory path has a newline"
+  grep -A1 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+fi
+
 # A TMPDIR that cannot be listed is reported as such, not as clean.
 mkdir -p "$CASE/unlisted-tmp"
 stale_in "$CASE/unlisted-tmp" agent-guard-run.Un12Ls

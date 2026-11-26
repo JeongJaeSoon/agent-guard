@@ -23981,10 +23981,21 @@ doctor_rundir_report() {
             || { [ -e "$doctor_rundir_state/rundir-reap" ] && [ ! -f "$doctor_rundir_state/rundir-reap" ]; }; then
           doctor_rundir_why='its marker in the private state directory is not a regular file'
         fi
+      else
+        # mkdir -p makes it under the nearest entry that exists.
+        doctor_rundir_up=$doctor_rundir_state
+        while [ ! -e "$doctor_rundir_up" ] && [ ! -L "$doctor_rundir_up" ]; do
+          doctor_rundir_up=${doctor_rundir_up%/*}
+          [ -n "$doctor_rundir_up" ] || doctor_rundir_up=/
+        done
+        [ -d "$doctor_rundir_up" ] && [ -w "$doctor_rundir_up" ] \
+          || doctor_rundir_why='the private state directory cannot be created'
       fi
       ;;
   esac
   case "$doctor_rundir_dir" in
+    *'
+'*) [ -n "$doctor_rundir_why" ] || doctor_rundir_why='the temp directory path contains a newline' ;;
     /*) ;;
     *) [ -n "$doctor_rundir_why" ] || doctor_rundir_why='TMPDIR is a relative path' ;;
   esac
