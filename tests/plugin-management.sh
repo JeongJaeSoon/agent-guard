@@ -1160,8 +1160,6 @@ for killed_case in hang linger hang_term spawn; do
     linger) export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=2 ;;
     spawn) export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=30 AG_PLUGIN_TEST_TRUST_GATE="$case_dir/gate" ;;
   esac
-  # SIGKILL skips the guard's exit trap, so its run directory has to be where
-  # this suite removes it.
   # This setsid starts the launcher the guard would use. For the probe it
   # first records its PID, which the probe keeps as its process group.
   printf '%s\n' '#!/bin/sh' \
@@ -1171,6 +1169,8 @@ for killed_case in hang linger hang_term spawn; do
     >"$case_bin/setsid"
   chmod +x "$case_bin/setsid"
   export AG_TEST_PROBE_GROUP="$case_dir/probe-group" AG_TEST_REAL_SETSID="$REAL_SETSID"
+  # SIGKILL skips the guard's exit trap, so its run directory has to be where
+  # this suite removes it.
   (cd "$case_dir" && PATH="$case_bin:/usr/bin:/bin" && TMPDIR=$case_dir && export PATH TMPDIR \
     && exec setsid "$GUARD" doctor >"$case_dir/out" 2>"$case_dir/err") &
   guard_pid=$!
