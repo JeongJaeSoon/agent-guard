@@ -73,7 +73,12 @@ jq -c --arg repo "$REPO" --arg suffix "$SUFFIXDIR" '
 while IFS= read -r row; do
   expected=$(printf '%s' "$row" | jq -r '.expected_status')
   name=$(printf '%s' "$row" | jq -r '.id + " (" + .classification + "): " + .description')
-  hosts=$(printf '%s' "$row" | jq -r 'if .both_hosts == true then "claude codex" else "claude" end')
+  # An empty host list would skip the case without a failure.
+  hosts=$(printf '%s' "$row" | jq -r 'if .both_hosts == true then "claude codex" else "claude" end') \
+    && [ -n "$hosts" ] || {
+      printf 'not ok - %s: cannot read which hosts run the case\n' "$name"
+      exit 1
+    }
   for host in $hosts; do
     case "$host" in
       codex) shape='{tool_name:"Bash",tool_input:({command:.command} + (if .workdir == "" then {} else {workdir:.workdir} end))}' ;;
