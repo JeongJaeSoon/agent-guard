@@ -37,7 +37,7 @@ warnings() { grep -F 'doctor' "$CASE/err" | grep -cF 'deprecated'; }
 doctor --install --gitleaks-checksum "$SUM"
 expect "deprecated: doctor --install still runs setup's install path, with a warning that points to setup" \
   '[ "$(status)" = 0 ] && grep -qF "skipping --install" "$CASE/err" && warned'
-expect "the warning says this run still installs, once" '[ "$(warnings)" = 1 ] && grep -F deprecated "$CASE/err" | grep -qF "still installs"'
+expect "the warning says this run still installs, once" '[ "$(warnings)" = 1 ] && grep -F deprecated "$CASE/err" | grep -qF "still passes them to setup"'
 expect "and the warning does not repeat the checksum" '! grep -F deprecated "$CASE/err" | grep -qF "$SUM"'
 for arg in --install-gitleaks-helper "--gitleaks-version=8.30.1" "--gitleaks-checksum=$SUM"; do
   doctor "$arg" --help
