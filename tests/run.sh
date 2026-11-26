@@ -15828,6 +15828,8 @@ fi
 
 run_expect 0 "PII settings the guard cannot honor stop every entry point" \
   sh "$ROOT/tests/pii-config.sh"
+run_expect 0 "the hook PII request cap is an internal argument; the environment flag is deprecated" \
+  sh "$ROOT/tests/pii-hook-request.sh"
 
 # An empty skip set must leave endpoint providers exactly as they were:
 # reaching the request (and failing on the unreachable URL) proves the new
