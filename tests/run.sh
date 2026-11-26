@@ -238,6 +238,7 @@ for file in \
   "$ROOT/tests/deny-read-mask-rules.sh" \
   "$ROOT/tests/deny-read-mask-allow.sh" \
   "$ROOT/tests/gitleaks-resolution.sh" \
+  "$ROOT/tests/test-only-sources.sh" \
   "$ROOT/tests/scan-failure-default.sh" \
   "$ROOT/tests/gitleaks-probe-cache.sh" \
   "$ROOT/tests/gitleaks-clean-cache.sh" \
@@ -12091,7 +12092,7 @@ mock_checksums_url="file://$ROOT/tests/fixtures/gitleaks-checksums-mock.txt"
 CHECKSUM_PATH_BIN="$TMP_ROOT/checksum-path-bin"
 mkdir -p "$CHECKSUM_PATH_BIN"
 ln -sf "$PLUGIN_ROOT/bin/agent-guard" "$CHECKSUM_PATH_BIN/agent-guard"
-checksum_out=$(PATH="$CHECKSUM_PATH_BIN:$PATH" AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$mock_checksums_url" "$PLUGIN_ROOT/bin/agent-guard" checksum 8.30.1 2>&1)
+checksum_out=$(PATH="$CHECKSUM_PATH_BIN:$PATH" AG_PLUGIN_TEST_MODE=1 AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$mock_checksums_url" "$PLUGIN_ROOT/bin/agent-guard" checksum 8.30.1 2>&1)
 checksum_status=$?
 if [ "$checksum_status" -eq 0 ] \
    && printf '%s\n' "$checksum_out" | grep -q 'darwin/arm64:' \
@@ -12107,7 +12108,7 @@ else
 fi
 
 missing_url="file://$ROOT/tests/fixtures/does-not-exist-checksums.txt"
-AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$missing_url" "$PLUGIN_ROOT/bin/agent-guard" checksum 8.30.1 \
+AG_PLUGIN_TEST_MODE=1 AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$missing_url" "$PLUGIN_ROOT/bin/agent-guard" checksum 8.30.1 \
   >"$OUT" 2>"$ERR"
 checksum_missing_status=$?
 if [ "$checksum_missing_status" -eq 2 ] && grep -q 'failed to fetch' "$ERR"; then
@@ -12117,6 +12118,8 @@ else
   sed 's/^/  /' "$ERR"
 fi
 
+run_expect 0 "checksum URL and installer repository overrides are test seams, deprecated outside tests" \
+  sh "$ROOT/tests/test-only-sources.sh"
 run_expect 0 "framed leaf fast path preserves detector records and errors" sh "$ROOT/tests/framed-leaves.sh"
 run_expect 0 "redaction plan preserves ordering, context and output budgets" sh "$ROOT/tests/redaction-plan.sh"
 # --- Tool-output secret redaction (PostToolUse updatedToolOutput) ----------
