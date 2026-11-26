@@ -78,7 +78,8 @@ new_case() {
   # Keep call logs exact; trust cases opt in through trust_case.
   export AGENT_GUARD_CODEX_TRUST_CHECK=off
   unset AG_PLUGIN_TEST_TRUST AG_PLUGIN_TEST_TRUST_REQUESTS AG_PLUGIN_TEST_TRUST_PIDFILE \
-    AG_PLUGIN_TEST_TRUST_CHILD AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT AGENT_GUARD_GITLEAKS_BIN
+    AG_PLUGIN_TEST_TRUST_CHILD AG_PLUGIN_TEST_TRUST_GATE AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT \
+    AGENT_GUARD_GITLEAKS_BIN
 }
 
 # Mock the GitHub releases/latest HEAD redirect. $1 is the tag the redirect
@@ -1154,21 +1155,26 @@ done
 # the guard's watchdog with it, as when a runner ends a timed-out job. The
 # probe has a session of its own, so it has to end itself. In hang_term the
 # watchdog had already sent TERM to the probe group when it was killed.
-for killed_case in hang linger hang_term; do
+for killed_case in hang linger hang_term spawn; do
   trust_mode=${killed_case%_term}
   trust_case "doctor_trust_${killed_case}_guard_killed" "$trust_mode"
-  # As in the loop above: linger has to answer before the limit, hang never does.
+  export AG_PLUGIN_TEST_TRUST_CHILD="$case_dir/child-pid"
+  # As in the loop above, hang never answers and linger has to answer before
+  # the limit. spawn answers only once the guard is gone, and then has to end
+  # long before its limit: the server exits by itself, so the deadline must
+  # not be what ends the helper it leaves behind.
   case "$trust_mode" in
     hang) export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=1 ;;
     linger) export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=2 ;;
+    spawn) export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=30 AG_PLUGIN_TEST_TRUST_GATE="$case_dir/gate" ;;
   esac
   (cd "$case_dir" && PATH="$case_bin:/usr/bin:/bin" && export PATH \
     && exec_as_group_leader "$GUARD" doctor >"$case_dir/out" 2>"$case_dir/err") &
   guard_pid=$!
-  # linger blocks only after it has read hooks/list; hang never reads.
+  # linger blocks only after it has read hooks/list.
   tries=0
   until [ -s "$case_dir/server-pids" ] \
-      && { [ "$trust_mode" = hang ] || grep -Fq '"method":"hooks/list"' "$case_dir/requests"; }; do
+      && { [ "$trust_mode" != linger ] || grep -Fq '"method":"hooks/list"' "$case_dir/requests"; }; do
     [ "$tries" -lt 100 ] || break
     sleep 0.1; tries=$((tries + 1))
   done
@@ -1187,16 +1193,29 @@ for killed_case in hang linger hang_term; do
   fi
   wait "$guard_pid" 2>/dev/null
   status=$?
-  [ "$staged" -eq 0 ] || [ "$killed_case" = "$trust_mode" ] || kill -TERM -"$probe_group" 2>/dev/null
+  case "$staged:$killed_case" in
+    1:hang_term) kill -TERM -"$probe_group" 2>/dev/null ;;
+    1:spawn) : >"$case_dir/gate" ;;
+  esac
+  # A killed process stays visible to kill -0 until its new parent reaps it,
+  # so the group can be empty a moment before its last PID is gone.
+  left=1
   tries=0
-  while [ "$staged" -eq 1 ] && kill -0 -"$probe_group" 2>/dev/null && [ "$tries" -lt 100 ]; do
+  while [ "$staged" -eq 1 ] && [ "$tries" -lt 100 ]; do
+    if ! kill -0 -"$probe_group" 2>/dev/null && no_server_left \
+       && { [ "$trust_mode" != spawn ] \
+            || { [ -s "$case_dir/child-pid" ] && ! kill -0 "$(cat "$case_dir/child-pid")" 2>/dev/null; }; }; then
+      left=0
+      break
+    fi
     sleep 0.1; tries=$((tries + 1))
   done
-  if [ "$staged" -eq 1 ] && [ "$status" -eq 137 ] \
-     && ! kill -0 -"$probe_group" 2>/dev/null && no_server_left; then
+  if [ "$staged" -eq 1 ] && [ "$status" -eq 137 ] && [ "$left" -eq 0 ]; then
     ok "a $killed_case Codex app-server ends with its probe group after the guard's process group is killed"
   else
     not_ok "a $killed_case Codex app-server ends with its probe group after the guard's process group is killed (staged $staged, guard status $status, waited $tries)"
+    # Staging saw this group seconds ago; end it here even where ps is denied.
+    [ "$staged" -eq 0 ] || kill -KILL -"$probe_group" 2>/dev/null
   fi
   reap_trust_servers
 done
