@@ -36,6 +36,7 @@ case " $* " in
       esac
     done
     exit 2 ;;
+  *' workflow run '*) printf '%s\n' "$*" >> "$RELEASE_FIXTURE_DIR/dispatch.log" ;;
   *commits/*/pulls*) cat "$RELEASE_FIXTURE_DIR/prs.json" ;;
   *pulls/1*) cat "$RELEASE_FIXTURE_DIR/pr.json" ;;
   *commits/*) cat "$RELEASE_FIXTURE_DIR/merge.json" ;;
@@ -328,3 +329,32 @@ first=$(cause)
 printf 'output validation failed\n' > "$case_dir/evidence/packaged-performance/errors.txt"
 [ "$first" != "$(cause)" ] || fail 'different tool error opens a different issue'
 printf 'ok - changed nightly failure cause gets a separate issue identity\n'
+
+# Publication falls back to the exact merge commit when the reviewed tree
+# differs. Workflows that never run on a push must then be dispatched there,
+# or their required checks never report on that SHA.
+pub="$case_dir/publish-fallback"
+mkdir -p "$pub/.github"
+cp -R "$ROOT/.github/workflows" "$pub/.github/workflows"
+cp "$ROOT/.github/release-checks.tsv" "$pub/.github/release-checks.tsv"
+awk '/^      - name: Dispatch candidate verification/ { on = 1; next } on && /^      - name:/ { exit }
+  on && /^        run: \|$/ { body = 1; next } body { print substr($0, 11) }' "$ROOT/.github/workflows/release.yml" > "$case_dir/dispatch-step.sh"
+[ -s "$case_dir/dispatch-step.sh" ] || fail 'the dispatch step has a run block'
+(
+  cd "$pub"
+  git init -q && git add . && git -c user.name=f -c user.email=f@example.invalid commit -qm pub
+  git update-ref refs/remotes/origin/main HEAD
+  current=$(git rev-parse HEAD)
+  : > "$case_dir/dispatch.log"
+  MODE=publish SOURCE_SHA="$current" RELEASE_SHA="$current" RELEASE_BRANCH=main bash "$case_dir/dispatch-step.sh"
+) || fail 'the publish fallback dispatch step runs'
+grep -Fxq 'workflow run performance.yml --ref main' "$case_dir/dispatch.log" || fail 'fallback measures the merge commit'
+cut -f1 "$ROOT/.github/release-checks.tsv" | sort -u | while IFS= read -r workflow; do
+  if awk '/^on:$/ { on = 1; next } on && /^[a-z]/ { exit } on' "$ROOT/.github/workflows/$workflow" | grep -Eq '^  push:'; then
+    if grep -Fq "workflow run $workflow " "$case_dir/dispatch.log"; then fail "push-triggered $workflow is not dispatched again"; fi
+  else
+    grep -Fxq "workflow run $workflow --ref main" "$case_dir/dispatch.log" || fail "fallback dispatches $workflow, which has no push trigger"
+  fi
+done
+grep -Fxq 'workflow run mutation-check.yml --ref main' "$case_dir/dispatch.log" || fail 'fallback dispatches the mutation check'
+printf 'ok - the merge-commit fallback dispatches required workflows that a push does not start\n'
