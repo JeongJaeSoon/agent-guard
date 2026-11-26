@@ -23885,9 +23885,9 @@ case "$cmd" in
   shell-init) shift; shell_init "$@" ;;
   pii-filter) shift; pii_filter "$@" ;;
   mask-file) shift; do_mask_file "$@" ;;
-  scan-staged) shift; gitleaks_bin_dir_notice >&2; scan_staged "$@" ;;
-  scan-working-tree) shift; gitleaks_bin_dir_notice >&2; scan_working_tree "$@" ;;
-  scan-path) shift; gitleaks_bin_dir_notice >&2; scan_path "$@" ;;
+  scan-staged) shift; gitleaks_bin_dir_notice >&2 || :; scan_staged "$@" ;;
+  scan-working-tree) shift; gitleaks_bin_dir_notice >&2 || :; scan_working_tree "$@" ;;
+  scan-path) shift; gitleaks_bin_dir_notice >&2 || :; scan_path "$@" ;;
   filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;
   logs) shift; audit_logs "$@" ;;
   plugin) shift; do_plugin "$@" ;;

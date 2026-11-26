@@ -140,6 +140,8 @@ mkdir -p "$CASE/clean"
 run "$H" AGENT_GUARD_BIN_DIR="$LEGACY" "$GUARD" scan-path "$CASE/clean"
 expect "scan-path warns about the deprecated directory and still scans with it" \
   '[ "$(cat "$CASE/status")" = 0 ] && notice_is_value_free "$CASE/err" && grep -qxF "$LEGACY/gitleaks dir" "$CASE/log"'
+run "$H" AGENT_GUARD_GITLEAKS_BIN_DIR="$NEW" sh -e "$GUARD" scan-path "$CASE/clean"
+expect "control: scan-path without a notice keeps the scanner's status under sh -e" '[ "$(cat "$CASE/status")" = 0 ]'
 run "$H" AGENT_GUARD_BIN_DIR="$LINKS" "$GUARD" scan-path "$CASE/clean"
 expect "control: scan-path with an installer link directory has no notice" '! notice "$CASE/err"'
 run "$H" AGENT_GUARD_BIN_DIR="$LINKS" "$GUARD" setup
