@@ -16,8 +16,35 @@ export AG_PLUGIN_TEST_EXPECTED_TAG="$CLI_TAG"
 export AG_PLUGIN_TEST_OLD_VERSION="$OLD_VERSION"
 export AG_PLUGIN_TEST_OLD_TAG="$OLD_TAG"
 CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-plugin-test.XXXXXX")
-trap 'rm -rf "$CASE_ROOT"' EXIT INT TERM
+
+# Ends what a Codex stub left running: the stub by its recorded PID and, when
+# the probe has a process group other than this suite's, that group. A PID is
+# signalled only while its command line still names this run's private
+# directory, so a PID the system has reused is never touched.
+reap_trust_servers() {
+  reap_own_group=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
+  for reap_pidfile in "$CASE_ROOT"/*/server-pids; do
+    [ -f "$reap_pidfile" ] || continue
+    while IFS= read -r reap_pid; do
+      case "$reap_pid" in ''|*[!0-9]*) continue ;; esac
+      case "$(ps -o command= -p "$reap_pid" 2>/dev/null)" in
+        *"$CASE_ROOT/"*) ;;
+        *) continue ;;
+      esac
+      reap_group=$(ps -o pgid= -p "$reap_pid" 2>/dev/null | tr -d ' ')
+      case "$reap_own_group:$reap_group" in
+        :*|*:|*[!0-9:]*|"$reap_group:$reap_group") ;;
+        *) kill -KILL -"$reap_group" 2>/dev/null ;;
+      esac
+      kill -KILL "$reap_pid" 2>/dev/null
+    done <"$reap_pidfile"
+  done
+  return 0
+}
+
+trap 'reap_trust_servers; rm -rf "$CASE_ROOT"' EXIT INT TERM
 REAL_JQ=$(command -v jq)
+REAL_SETSID=$(command -v setsid 2>/dev/null) || REAL_SETSID=
 REAL_MKTEMP=$(command -v mktemp)
 REAL_RM=$(command -v rm)
 pass=0
@@ -52,7 +79,8 @@ new_case() {
   # Keep call logs exact; trust cases opt in through trust_case.
   export AGENT_GUARD_CODEX_TRUST_CHECK=off
   unset AG_PLUGIN_TEST_TRUST AG_PLUGIN_TEST_TRUST_REQUESTS AG_PLUGIN_TEST_TRUST_PIDFILE \
-    AG_PLUGIN_TEST_TRUST_CHILD AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT AGENT_GUARD_GITLEAKS_BIN
+    AG_PLUGIN_TEST_TRUST_CHILD AG_PLUGIN_TEST_TRUST_GATE AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT \
+    AGENT_GUARD_GITLEAKS_BIN
 }
 
 # Mock the GitHub releases/latest HEAD redirect. $1 is the tag the redirect
@@ -1112,7 +1140,91 @@ for trust_mode in hang linger spawn; do
     not_ok "doctor bounds a $trust_mode Codex app-server and leaves no probe process behind (elapsed ${elapsed}s, child_gone $child_gone)"
     sed 's/^/  stderr: /' "$case_dir/err"
   fi
+  reap_trust_servers
 done
+
+# SIGKILL of the guard's whole process group runs no exit cleanup and takes
+# the guard's watchdog with it, as when a runner ends a timed-out job. The
+# probe has a session of its own, so it has to end itself. In hang_term the
+# watchdog had already sent TERM to the probe group when it was killed.
+for killed_case in hang linger hang_term spawn; do
+  trust_mode=${killed_case%_term}
+  trust_case "doctor_trust_${killed_case}_guard_killed" "$trust_mode"
+  export AG_PLUGIN_TEST_TRUST_CHILD="$case_dir/child-pid"
+  # As in the loop above, hang never answers and linger has to answer before
+  # the limit. spawn answers only once the guard is gone, and then has to end
+  # long before its limit: the server exits by itself, so the deadline must
+  # not be what ends the helper it leaves behind.
+  case "$trust_mode" in
+    hang) export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=1 ;;
+    linger) export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=2 ;;
+    spawn) export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=30 AG_PLUGIN_TEST_TRUST_GATE="$case_dir/gate" ;;
+  esac
+  # This setsid starts the launcher the guard would use. For the probe it
+  # first records its PID, which the probe keeps as its process group.
+  printf '%s\n' '#!/bin/sh' \
+    'case "$*" in *agent-guard-codex-trust*) printf "%s\n" "$$" >"$AG_TEST_PROBE_GROUP" ;; esac' \
+    '[ -z "$AG_TEST_REAL_SETSID" ] || exec "$AG_TEST_REAL_SETSID" "$@"' \
+    "exec perl -MPOSIX -e 'POSIX::setsid() >= 0 or exit 125; exec @ARGV; exit 126' \"\$@\"" \
+    >"$case_bin/setsid"
+  chmod +x "$case_bin/setsid"
+  export AG_TEST_PROBE_GROUP="$case_dir/probe-group" AG_TEST_REAL_SETSID="$REAL_SETSID"
+  # SIGKILL skips the guard's exit trap, so its run directory has to be where
+  # this suite removes it.
+  (cd "$case_dir" && PATH="$case_bin:/usr/bin:/bin" && TMPDIR=$case_dir && export PATH TMPDIR \
+    && exec setsid "$GUARD" doctor >"$case_dir/out" 2>"$case_dir/err") &
+  guard_pid=$!
+  # linger blocks only after it has read hooks/list.
+  tries=0
+  until [ -s "$case_dir/server-pids" ] \
+      && { [ "$trust_mode" != linger ] || grep -Fq '"method":"hooks/list"' "$case_dir/requests"; }; do
+    [ "$tries" -lt 100 ] || break
+    sleep 0.1; tries=$((tries + 1))
+  done
+  probe_group=$(cat "$case_dir/probe-group" 2>/dev/null)
+  # Without a guard that leads its own group and a probe in another one, the
+  # kill below would not be the case under test.
+  staged=0
+  case "$probe_group" in
+    ''|*[!0-9]*|"$guard_pid") ;;
+    *) [ "$tries" -lt 100 ] && kill -0 -"$guard_pid" 2>/dev/null && kill -0 -"$probe_group" 2>/dev/null && staged=1 ;;
+  esac
+  if [ "$staged" -eq 1 ]; then
+    kill -KILL -"$guard_pid" 2>/dev/null
+  else
+    kill -KILL "$guard_pid" 2>/dev/null
+  fi
+  # The server is released before the killed guard is reaped: the probe must
+  # not take a PID that still exists for a guard that will clean up.
+  case "$staged:$killed_case" in
+    1:hang_term) kill -TERM -"$probe_group" 2>/dev/null ;;
+    1:spawn) : >"$case_dir/gate" ;;
+  esac
+  wait "$guard_pid" 2>/dev/null
+  status=$?
+  # A killed process stays visible to kill -0 until its new parent reaps it,
+  # so the group can be empty a moment before its last PID is gone.
+  left=1
+  tries=0
+  while [ "$staged" -eq 1 ] && [ "$tries" -lt 100 ]; do
+    if ! kill -0 -"$probe_group" 2>/dev/null && no_server_left \
+       && { [ "$trust_mode" != spawn ] \
+            || { [ -s "$case_dir/child-pid" ] && ! kill -0 "$(cat "$case_dir/child-pid")" 2>/dev/null; }; }; then
+      left=0
+      break
+    fi
+    sleep 0.1; tries=$((tries + 1))
+  done
+  if [ "$staged" -eq 1 ] && [ "$status" -eq 137 ] && [ "$left" -eq 0 ]; then
+    ok "a $killed_case Codex app-server ends with its probe group after the guard's process group is killed"
+  else
+    not_ok "a $killed_case Codex app-server ends with its probe group after the guard's process group is killed (staged $staged, guard status $status, waited $tries)"
+    # Staging saw this group seconds ago; end it here even where ps is denied.
+    [ "$staged" -eq 0 ] || kill -KILL -"$probe_group" 2>/dev/null
+  fi
+  reap_trust_servers
+done
+unset AG_TEST_PROBE_GROUP AG_TEST_REAL_SETSID
 
 trust_case plugin_status_trust modified
 export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
