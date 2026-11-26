@@ -248,7 +248,32 @@ else
   DENY_READ_PATHS="$ROOT_DIR/config/deny-read-paths.txt"
 fi
 DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash-patterns.txt"}
-GITLEAKS_PRIVATE_BIN_DIR=${AGENT_GUARD_GITLEAKS_BIN_DIR:-${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}}
+# AGENT_GUARD_BIN_DIR is the installer's public link directory. Until a later
+# release removes its CLI meaning, a gitleaks already in it is
+# (or a helper installed there) still makes it the private one when
+# AGENT_GUARD_GITLEAKS_BIN_DIR is unset (state 1);
+# otherwise it no longer selects the directory (state 2: set but ignored).
+GITLEAKS_BIN_DIR_LEGACY=0
+if [ -n "${AGENT_GUARD_GITLEAKS_BIN_DIR:-}" ]; then
+  GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_GITLEAKS_BIN_DIR
+elif [ -n "${AGENT_GUARD_BIN_DIR:-}" ]; then
+  if [ -e "$AGENT_GUARD_BIN_DIR/gitleaks" ] || [ -L "$AGENT_GUARD_BIN_DIR/gitleaks" ] \
+      || { [ -f "$AGENT_GUARD_BIN_DIR/gitleaks-helper/agent-guard-scan" ] \
+           && [ -x "$AGENT_GUARD_BIN_DIR/gitleaks-helper/agent-guard-scan" ]; }; then
+    GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_BIN_DIR
+    GITLEAKS_BIN_DIR_LEGACY=1
+  elif [ -n "${HOME:-}" ]; then
+    GITLEAKS_PRIVATE_BIN_DIR=$HOME/.agent-guard/bin
+    GITLEAKS_BIN_DIR_LEGACY=2
+  else
+    # No home directory to default to: lookups keep the old reading, which
+    # finds no gitleaks here and goes on to PATH; setup refuses to install.
+    GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_BIN_DIR
+    GITLEAKS_BIN_DIR_LEGACY=3
+  fi
+else
+  GITLEAKS_PRIVATE_BIN_DIR=$HOME/.agent-guard/bin
+fi
 LIVE_PRE_TOOL_PROBE=AGENT_GUARD_LIVE_PRE_TOOL_PROBE
 # Never holds the value: a typo may be anything the user pasted.
 SESSION_ROLE_INVALID='AGENT_GUARD_SESSION_ROLE is set to a value that is not accepted (accepted values: review, or unset or empty for no effect)'
@@ -3028,6 +3053,18 @@ check_deps() {
 
 SETUP_INSTALL_DIR=$GITLEAKS_PRIVATE_BIN_DIR
 
+# Deprecation notice for the CLI meaning of AGENT_GUARD_BIN_DIR. It names the
+# settings, never their values: Codex copies SessionStart text into the model
+# context. $1 = install also reports state 2, where setup now installs into the
+# default directory instead.
+gitleaks_bin_dir_notice() {
+  case $GITLEAKS_BIN_DIR_LEGACY:${1:-} in
+    1:*) printf '%s\n' "agent-guard: AGENT_GUARD_BIN_DIR is deprecated as the gitleaks directory. While AGENT_GUARD_GITLEAKS_BIN_DIR is unset, the gitleaks and warm helper in it are still looked up there and setup --install still installs there, but a later release reads only AGENT_GUARD_GITLEAKS_BIN_DIR (default ~/.agent-guard/bin). Set AGENT_GUARD_GITLEAKS_BIN_DIR to that directory to keep using it." ;;
+    2:install) printf '%s\n' "agent-guard: AGENT_GUARD_BIN_DIR no longer selects the gitleaks directory (it stays the installer link directory), so setup --install installs into ~/.agent-guard/bin. Set AGENT_GUARD_GITLEAKS_BIN_DIR to install elsewhere." ;;
+    *) return 1 ;;
+  esac
+}
+
 setup_status_line() {
   name=$1
   if command -v "$name" >/dev/null 2>&1; then
@@ -3126,7 +3163,18 @@ setup_suggest_gitleaks_runtime_repair() {
   return 1
 }
 
+# Only a write needs the directory, so a setup that installs nothing still runs.
+SETUP_INSTALL_DIR_NOTICED=0
+setup_require_install_dir() {
+  [ "$GITLEAKS_BIN_DIR_LEGACY" != 3 ] \
+    || die "setup: no gitleaks install directory: HOME is unset and AGENT_GUARD_BIN_DIR no longer selects one; set AGENT_GUARD_GITLEAKS_BIN_DIR"
+  [ "$GITLEAKS_BIN_DIR_LEGACY" = 2 ] && [ "$SETUP_INSTALL_DIR_NOTICED" = 0 ] || return 0
+  SETUP_INSTALL_DIR_NOTICED=1
+  gitleaks_bin_dir_notice install >&2
+}
+
 setup_install_gitleaks() {
+  setup_require_install_dir
   version=$1
   checksum=$2
   if [ -z "$checksum" ]; then
@@ -3197,6 +3245,7 @@ gitleaks_helper_target() {
 # where gitleaks_helper_installed finds them. Any failure leaves an earlier
 # installed helper as it was.
 setup_install_gitleaks_helper() {
+  setup_require_install_dir
   gitleaks_helper_target \
     || die "setup: no warm gitleaks helper is released for this platform ($(uname -s) $(uname -m))"
   need_cmd curl
@@ -3430,6 +3479,7 @@ EOF
     shift
   done
 
+  gitleaks_bin_dir_notice >&2 || :
   jq_ok=1; awk_ok=1; git_ok=1; gitleaks_ok=1
   setup_status_line jq       || jq_ok=0
   [ "$jq_ok" -eq 0 ] || setup_jq_lookbehind_status_line
@@ -22634,6 +22684,10 @@ hook_session_start() {
     message=$(degraded_hook_message)
   fi
 
+  if [ "$GITLEAKS_BIN_DIR_LEGACY" = 1 ] && bin_dir_notice=$(gitleaks_bin_dir_notice); then
+    if [ -n "$message" ]; then message="$message $bin_dir_notice"; else message=$bin_dir_notice; fi
+  fi
+
   marker=${AGENT_GUARD_SHELL_INIT_VERSION:-}
   # Accept only a digit-led version token drawn from a safe charset: an empty or
   # unparseable marker fails quiet, and the charset keeps the hand-built JSON
@@ -24004,8 +24058,12 @@ do_update() {
     update_bin_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) \
       || die "update: cannot resolve the invocation directory"
   fi
+  # The link directory is not the gitleaks directory: pass the one in use so the
+  # setup that the new bootstrap runs does not read the link directory as it.
+  gitleaks_bin_dir_notice >&2 || :
   AGENT_GUARD_HOME="$ROOT_DIR" \
     AGENT_GUARD_BIN_DIR="$update_bin_dir" \
+    AGENT_GUARD_GITLEAKS_BIN_DIR="$GITLEAKS_PRIVATE_BIN_DIR" \
     sh "$update_script"
 }
 
@@ -24045,9 +24103,9 @@ case "$cmd" in
   shell-init) shift; shell_init "$@" ;;
   pii-filter) shift; pii_filter "$@" ;;
   mask-file) shift; do_mask_file "$@" ;;
-  scan-staged) shift; scan_staged "$@" ;;
-  scan-working-tree) shift; scan_working_tree "$@" ;;
-  scan-path) shift; scan_path "$@" ;;
+  scan-staged) shift; gitleaks_bin_dir_notice >&2 || :; scan_staged "$@" ;;
+  scan-working-tree) shift; gitleaks_bin_dir_notice >&2 || :; scan_working_tree "$@" ;;
+  scan-path) shift; gitleaks_bin_dir_notice >&2 || :; scan_path "$@" ;;
   filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;  # internal
   logs) shift; audit_logs "$@" ;;
   plugin) shift; do_plugin "$@" ;;
