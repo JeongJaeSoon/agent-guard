@@ -502,4 +502,16 @@ if (cd "$repo" && sh "$sites_script" no-such-revision HEAD >/dev/null 2>&1); the
 pass=$((pass + 17))
 rm -rf "$sites_tmp"
 trap - 0
+# The rule mutation check runs on a pull request that changes the rules, the
+# list, the checker or test code; a fixtures-only change waits for the
+# release PR, whose version bump always changes the binary.
+mutation_paths=$(awk '/^  pull_request:$/ { on = 1; next } on && /^  [a-z_]+:/ { exit } on && /^      - / { sub(/^      - /, ""); gsub(/\047/, ""); print }' "$ROOT/.github/workflows/mutation-check.yml")
+for required in plugins/agent-guard/bin/agent-guard tests/mutations.json tests/mutation-check.sh \
+  .github/workflows/mutation-check.yml 'tests/*.sh' 'tests/*.py' 'tests/helpers/**'; do
+  printf '%s\n' "$mutation_paths" | grep -Fxq -- "$required" || fail "mutation check runs when $required changes"
+done
+if printf '%s\n' "$mutation_paths" | grep -q '^tests/fixtures'; then
+  fail 'a fixtures-only pull request skips the mutation check'
+fi
+pass=$((pass + 2))
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"
