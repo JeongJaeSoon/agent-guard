@@ -13,7 +13,8 @@
 # message and the output envelope, never the decision, and Codex's shape differs
 # only in where the event carries the working directory. So only the cases
 # marked "both_hosts" also run in Codex's shape: the must-pass cases whose
-# result depends on the event workdir, each with the block case after it.
+# result depends on the event workdir, each with the block case after it, and
+# the cases that set a workdir of their own.
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD=${AGENT_GUARD_TEST_BINARY:-$ROOT/plugins/agent-guard/bin/agent-guard}
@@ -54,15 +55,16 @@ jq -e '. as $all | all(range(0; length); . as $i
   printf 'not ok - every must-pass case in %s needs a must-still-block case right after it\n' "$FIXTURE"
   exit 1
 }
-# Each fixture keeps cases for Codex, and a must-pass case that runs there has
-# its block case there too.
-jq -e '. as $all | any(.[]; .both_hosts == true)
+# Each fixture keeps a must-pass case for Codex, a must-pass case that runs
+# there has its block case there too, and so does a case with its own workdir.
+jq -e '. as $all | any(.[]; .both_hosts == true and .classification == "must-pass")
        and all(.[]; (.both_hosts // false) | type == "boolean")
+       and all(.[]; (has("workdir") | not) or .both_hosts == true)
        and all(range(0; length); . as $i
          | ($all[$i].both_hosts // false) == false
            or $all[$i].classification == "must-still-block"
            or ($all[$i + 1].both_hosts // false) == true)' "$FIXTURE" >/dev/null || {
-  printf 'not ok - %s needs a both_hosts case, and each both_hosts must-pass case needs its block case marked too\n' "$FIXTURE"
+  printf 'not ok - %s needs a both_hosts must-pass case; its block case and each case with a workdir need the mark too\n' "$FIXTURE"
   exit 1
 }
 jq -c --arg repo "$REPO" --arg suffix "$SUFFIXDIR" '

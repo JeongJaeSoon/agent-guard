@@ -198,6 +198,7 @@
   },
   {
     "id": "py-suffix-file-exists",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "the suffix mention when a file of exactly that name exists in the workdir",
@@ -880,6 +881,7 @@
   },
   {
     "id": "no-workdir-program-text",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "an event without a workdir gets no second reading",
