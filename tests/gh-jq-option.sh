@@ -25,12 +25,21 @@ jq -e 'type == "array" and length > 0' "$FIXTURE" >/dev/null || {
   printf 'not ok - %s is not a non-empty array\n' "$FIXTURE"
   exit 1
 }
-jq -e 'any(.[]; .both_hosts == true and .expected_status == 0)
-       and any(.[]; .both_hosts == true and .expected_status == 2)
-       and all(.[]; (.both_hosts // false) | type == "boolean")' "$FIXTURE" >/dev/null || {
-  printf 'not ok - %s needs a both_hosts row that passes and one that blocks\n' "$FIXTURE"
+jq -e 'all(.[]; (has("both_hosts") | not) or (.both_hosts | type == "boolean"))' "$FIXTURE" >/dev/null || {
+  printf 'not ok - %s: both_hosts must be true or false where a row sets it\n' "$FIXTURE"
   exit 1
 }
+# A bundled fixture keeps rows for Codex; one given from outside may hold a
+# single row.
+case "$FIXTURE" in
+  "$ROOT"/tests/fixtures/*)
+    jq -e 'any(.[]; .both_hosts == true and .expected_status == 0)
+           and any(.[]; .both_hosts == true and .expected_status == 2)' "$FIXTURE" >/dev/null || {
+      printf 'not ok - %s needs a both_hosts row that passes and one that blocks\n' "$FIXTURE"
+      exit 1
+    }
+    ;;
+esac
 jq -c '.[]' "$FIXTURE" >"$CASE_ROOT/cases" || exit 1
 while IFS= read -r row; do
   expected=$(printf '%s' "$row" | jq -r '.expected_status')
