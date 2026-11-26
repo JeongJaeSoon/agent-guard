@@ -289,6 +289,7 @@ matrix can be verified before merging a CI change.
 | Lint | ShellCheck on tracked shell scripts and actionlint on workflows |
 | Plugin Layout | Codex, Claude, marketplaces, release archive, and submission metadata |
 | HOL Plugin Scanner | Independent plugin scanner |
+| Rule mutations fail a test (group) | Each hand-written rule mutant fails a listed test; runs on pull requests that change the CLI, the mutation list, the checker or test code, and release verification dispatches every group at the release SHA |
 
 Only Linux partition 4 installs the pinned, checksum-verified real scanner; the
 other partitions use the suite's mock. No cache is used: downloading the small
