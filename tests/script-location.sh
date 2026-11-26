@@ -9,8 +9,8 @@ cp "$ROOT/plugins/agent-guard/bin/agent-guard" "$CASE/payload with spaces/bin/ag
 cat >"$CASE/payload with spaces/scripts/gitleaks-checksum.sh" <<'MARKER'
 #!/bin/sh
 test "$#" -eq 1 && test "$1" = location-contract || exit 2
-# The interpreter handover leaves nothing in the environment of what the CLI runs.
-test -z "${AGENT_GUARD_SH_HANDOVER+set}" || exit 3
+# What the CLI runs inherits descriptor 9 only when the caller opened it.
+if [ -n "${LOCATION_CONTRACT_FD9:-}" ]; then echo seen >&9; else test ! -e /dev/fd/9 || exit 3; fi
 printf 'selected expected payload\n'
 MARKER
 ln -s "$CASE/payload with spaces/bin/agent-guard" "$CASE/links/absolute"
@@ -21,7 +21,7 @@ ln -s missing "$CASE/links/broken"
 export AGENT_GUARD_LOG_MODE=off AGENT_GUARD_RELEASE_CHECK=off
 count=0
 check() {
-  "$@" checksum location-contract >"$CASE/out"
+  "$@" checksum location-contract 9<&- >"$CASE/out"
   test "$(cat "$CASE/out")" = 'selected expected payload'
   count=$((count + 1))
   printf 'ok - script location contract %s\n' "$count"
@@ -47,8 +47,9 @@ count=$((count + 1))
 # bash acting as sh runs this script several times slower than dash. Started
 # that way, the CLI hands itself to a system dash; every entry point reaches
 # that: the file itself, a link to it (the bootstrap install), a PATH lookup
-# and a wrapper script (the Homebrew install). An explicit bash stays bash,
-# and where sh is not bash nothing changes.
+# and a wrapper script (the Homebrew install). An explicit bash stays bash, a
+# shell given options of its own keeps them, and where sh is not bash nothing
+# changes.
 want=sh
 if sh -c 'case ${BASH:-} in */sh) exit 0 ;; esac; exit 1'; then
   for candidate in /bin/dash /usr/bin/dash; do
@@ -63,6 +64,11 @@ mkfifo "$CASE/hold"
 interpreter() {
   expected=$1
   shift
+  # A sandbox can deny ps even for the test's own processes.
+  if ! ps -o comm= -p "$$" >/dev/null 2>&1; then
+    printf 'skip - %s: no process listing here\n' "$*"
+    return 0
+  fi
   "$@" hook-pre-tool <"$CASE/hold" >/dev/null 2>&1 &
   pid=$!
   exec 9>"$CASE/hold"
@@ -93,9 +99,22 @@ interpreter "$want" sh "$CASE/payload with spaces/bin/agent-guard"
 interpreter "$want" "$CASE/links/chain"
 interpreter "$want" env PATH="$CASE/payload with spaces/bin:$PATH" agent-guard
 interpreter "$want" "$CASE/tools/wrapper"
-# The marker of a finished handover: no second one, so a dash that is bash
-# cannot loop.
-interpreter sh env AGENT_GUARD_SH_HANDOVER=1 sh "$CASE/payload with spaces/bin/agent-guard"
+# A mark that is already set means no handover, so there is never a second one.
+interpreter sh env AG_SCRIPT_FD=9 sh "$CASE/payload with spaces/bin/agent-guard"
+# Options given to the shell stay with the shell they were given to.
+interpreter sh sh -x "$CASE/payload with spaces/bin/agent-guard"
+interpreter sh sh -e "$CASE/payload with spaces/bin/agent-guard"
+# The caller's descriptor 9 reaches what the CLI runs: it is not taken over.
+LOCATION_CONTRACT_FD9=1 "$CASE/payload with spaces/bin/agent-guard" checksum location-contract 9>"$CASE/fd9" >"$CASE/out"
+test "$(cat "$CASE/out")" = 'selected expected payload' && test "$(cat "$CASE/fd9")" = seen
+count=$((count + 1))
+printf 'ok - script location contract %s (descriptor 9 is the caller'"'"'s)\n' "$count"
+# A relative path that starts with a hyphen is a path, not shell options.
+mkdir -p "$CASE/-payload/bin" "$CASE/-payload/scripts"
+cp "$CASE/payload with spaces/bin/agent-guard" "$CASE/-payload/bin/agent-guard"
+cp "$CASE/payload with spaces/scripts/gitleaks-checksum.sh" "$CASE/-payload/scripts/gitleaks-checksum.sh"
+(cd "$CASE" && check sh -- -payload/bin/agent-guard)
+count=$((count + 1))
 if bash_path=$(command -v bash 2>/dev/null) && [ "${bash_path##*/}" = bash ]; then
   interpreter bash "$bash_path" "$CASE/payload with spaces/bin/agent-guard"
 fi

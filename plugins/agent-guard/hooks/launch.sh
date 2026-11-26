@@ -34,11 +34,6 @@
 #   blocks, this shell stays as its parent: 0 and 2 pass through, any other
 #   status is a check that did not finish and becomes exit 2 with the reason,
 #   and a TERM, INT or HUP sent to this shell is passed on to the binary.
-# - A binary that starts with the CLI's own interpreter line (#!/usr/bin/env
-#   sh) is a POSIX sh script, and dash runs it several times faster than bash
-#   acting as sh (macOS). It is handed to /bin/dash or /usr/bin/dash where one
-#   is executable. Any other binary is executed as it is: this launcher may
-#   start a binary of another version, which need not be a script.
 #
 # The whole body is one brace group, so the shell parses the entire file
 # before running any of it: a truncated or half-replaced launcher fails as a
@@ -191,15 +186,7 @@ fi
 
 AGENT_GUARD_HOOK_HOST=$host
 export AGENT_GUARD_HOOK_HOST
-set -- "$x" "$sub"
-l=
-IFS= read -r l <"$x" 2>/dev/null || :
-if [ "$l" = '#!/usr/bin/env sh' ]; then
-  for y in /bin/dash /usr/bin/dash; do
-    [ ! -x "$y" ] || { set -- "$y" "$@"; break; }
-  done
-fi
-[ "$mode" = closed ] && [ "$text" -eq 1 ] || exec "$@"
+[ "$mode" = closed ] && [ "$text" -eq 1 ] || exec "$x" "$sub"
 
 # This shell stays to see how the binary ends. A background command reads
 # /dev/null unless its input is another descriptor, hence 3.
@@ -207,7 +194,7 @@ got=
 child=
 trap 'got=1; [ -z "$child" ] || kill -TERM "$child" 2>/dev/null' TERM INT HUP
 exec 3<&0
-"$@" <&3 3<&- &
+"$x" "$sub" <&3 3<&- &
 child=$!
 exec 3<&-
 [ -z "$got" ] || kill -TERM "$child" 2>/dev/null

@@ -2,24 +2,34 @@
 set -u
 
 # bash acting as sh (macOS) parses and runs this script several times slower
-# than dash. Started that way, hand the same file and arguments to a system
-# dash before anything else is read. $BASH ends in /sh only when bash was
-# started as sh, so an explicit `bash agent-guard` keeps bash, and a name
-# without a slash is left to the shell that found it. The marker reaches only
-# the dash started here and is unset at once: no child inherits it, and a
-# dash that is itself bash cannot hand over again. With execfail a dash that
-# cannot be started leaves this shell running the script as before.
-if [ -n "${AGENT_GUARD_SH_HANDOVER:-}" ]; then
-  unset AGENT_GUARD_SH_HANDOVER
+# than dash. Started that way, and with no shell option of the caller's own,
+# hand the same file and arguments to a system dash before anything else is
+# read. $BASH ends in /sh only when bash was started as sh, so an explicit
+# `bash agent-guard` keeps bash, and a name without a slash is left to the
+# shell that found it. dash reads the script from descriptor 9, which this
+# shell opens: the file is never opened by its path a second time, so one that
+# a plugin update removes meanwhile cannot end dash with a status that reads
+# as a verdict. If the file cannot be opened, descriptor 9 is the caller's, or
+# dash cannot start (execfail), this shell runs the script as before. The dash
+# started here is told so by a shell variable, which no child inherits, and
+# closes the descriptor at once, so nothing the CLI runs inherits that either.
+if [ "${AG_SCRIPT_FD:-}" = 9 ]; then
+  unset AG_SCRIPT_FD
+  exec 9<&-
 else
   # shellcheck disable=SC3028,SC3044 # reached only by bash
-  case "${BASH:-}:$0" in
-    */sh:*/*)
-      shopt -s execfail 2>/dev/null || :
+  case "${BASH:-}:$0:${SHELLOPTS:-}" in
+    */sh:*/*:braceexpand:hashall:interactive-comments:nounset:posix)
       for ag_dash in /bin/dash /usr/bin/dash; do
-        [ ! -x "$ag_dash" ] || AGENT_GUARD_SH_HANDOVER=1 exec "$ag_dash" "$0" "$@"
+        [ -x "$ag_dash" ] || continue
+        if [ ! -e /dev/fd/9 ] && { command exec 9<"$0"; } 2>/dev/null; then
+          shopt -s execfail 2>/dev/null || :
+          [ ! -r /dev/fd/9 ] || exec "$ag_dash" -c 'AG_SCRIPT_FD=9; . /dev/fd/9' "$0" "$@"
+          exec 9<&-
+        fi
+        break
       done
-      unset AGENT_GUARD_SH_HANDOVER ag_dash
+      unset ag_dash
       ;;
   esac
 fi
