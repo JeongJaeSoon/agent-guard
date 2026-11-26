@@ -30,7 +30,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 # Scanned directory holds only the fixture; stdout/stderr captures stay outside.
-mkdir -p "$CASE_ROOT/scan" "$CASE_ROOT/work"
+mkdir -p "$CASE_ROOT/scan" "$CASE_ROOT/work" "$CASE_ROOT/clean" "$CASE_ROOT/labels"
 
 if [ -z "$GITLEAKS" ]; then
   printf 'skip - real gitleaks is not installed\n'
@@ -58,14 +58,32 @@ not_ok() {
 
 # $1 expected status, $2 label, $3 file content, $4 `raw` to omit the final LF.
 # The fixture is named $scan_name (a path allowlist keys on the extension).
+# A row expected clean is only written here, in a directory of its own;
+# clean_batch scans them all in one run. A row expected found is scanned alone:
+# the exit status cannot tell one finding from several.
 scan_name=fixture.ts
+clean_rows=0
 scan_case() {
-  rm -f "$CASE_ROOT/scan/"*
-  if [ "${4:-}" = raw ]; then
-    printf '%s' "$3" >"$CASE_ROOT/scan/$scan_name"
+  if [ "$1" -eq 0 ]; then
+    clean_rows=$((clean_rows + 1))
+    scan_dir="$CASE_ROOT/clean/$clean_rows"
+    mkdir "$scan_dir" || exit 1
+    printf '%s\n' "$2" >"$CASE_ROOT/labels/$clean_rows"
   else
-    printf '%s\n' "$3" >"$CASE_ROOT/scan/$scan_name"
+    scan_dir="$CASE_ROOT/scan"
+    rm -f "$scan_dir/"*
   fi
+  if [ "${4:-}" = raw ]; then
+    printf '%s' "$3" >"$scan_dir/$scan_name"
+  else
+    printf '%s\n' "$3" >"$scan_dir/$scan_name"
+  fi
+  # A fixture that was not written would scan as clean.
+  if [ ! -s "$scan_dir/$scan_name" ]; then
+    printf 'not ok - scan-path: %s (the fixture was not written)\n' "$2"
+    exit 1
+  fi
+  [ "$1" -ne 0 ] || return 0
   PATH="$SCAN_PATH" "$GUARD" scan-path "$CASE_ROOT/scan" \
     >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
   scan_status=$?
@@ -73,6 +91,48 @@ scan_case() {
     ok "scan-path: $2"
   else
     not_ok "scan-path: $2 (expected $1, got $scan_status)"
+  fi
+}
+
+# One scan over every row expected clean: it is clean only when each row is.
+# When it is not, each row is scanned alone to name the ones that were found.
+# The last scan adds a row that must be found, so a run that skipped the
+# directory cannot pass as clean.
+clean_batch() {
+  batch_files=$(find "$CASE_ROOT/clean" -type f | wc -l | tr -d ' ')
+  if [ "$batch_files" -ne "$clean_rows" ]; then
+    printf 'not ok - scan-path: %s fixtures for %s rows expected clean\n' "$batch_files" "$clean_rows"
+    exit 1
+  fi
+  PATH="$SCAN_PATH" "$GUARD" scan-path "$CASE_ROOT/clean" \
+    >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+  batch_status=$?
+  if [ "$batch_status" -eq 0 ]; then
+    ok "scan-path: all $clean_rows rows expected clean are clean in one scan"
+  else
+    batch_named=0
+    batch_row=0
+    while [ "$batch_row" -lt "$clean_rows" ]; do
+      batch_row=$((batch_row + 1))
+      PATH="$SCAN_PATH" "$GUARD" scan-path "$CASE_ROOT/clean/$batch_row" \
+        >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+      scan_status=$?
+      [ "$scan_status" -ne 0 ] || continue
+      batch_named=$((batch_named + 1))
+      not_ok "scan-path: $(cat "$CASE_ROOT/labels/$batch_row") (expected 0, got $scan_status)"
+    done
+    [ "$batch_named" -gt 0 ] ||
+      not_ok "scan-path: the rows expected clean are clean alone but not in one scan (got $batch_status)"
+  fi
+  mkdir "$CASE_ROOT/clean/control" || exit 1
+  printf '%s\n' "$1" >"$CASE_ROOT/clean/control/fixture.ts"
+  PATH="$SCAN_PATH" "$GUARD" scan-path "$CASE_ROOT/clean" \
+    >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+  scan_status=$?
+  if [ "$scan_status" -eq 1 ]; then
+    ok "scan-path: the same scan finds a secret-named row added to those rows"
+  else
+    not_ok "scan-path: the same scan finds a secret-named row added to those rows (expected 1, got $scan_status)"
   fi
 }
 
@@ -364,6 +424,8 @@ rule_case heroku-api-key "a UUID under a heroku key id field" \
   "  ${REF_HK}KeyId: \"$REF_ID\","
 rule_case snyk-api-token "a UUID under a snyk token id field" \
   "${REF_SNYK}_${REF_TOK}_id = \"$REF_ID\""
+
+clean_batch "  ${REF_SEC}Id: \"$REF_ID\","
 
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

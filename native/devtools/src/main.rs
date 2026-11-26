@@ -2,6 +2,7 @@ mod common;
 mod contracts;
 mod hooks;
 mod measure;
+mod parity;
 mod scanner;
 mod verification;
 use common::*;
@@ -84,6 +85,23 @@ const COMMANDS: &[Subcommand] = &[
         ]),
         flags: &["--unverified"],
         run: hooks::latency,
+    },
+    Subcommand {
+        name: "cli-differential",
+        options: Some(&[
+            "--baseline",
+            "--candidate",
+            "--baseline-shell",
+            "--candidate-shell",
+            "--scanner",
+            "--corpus",
+            "--entry",
+            "--case",
+            "--timeout",
+            "--out",
+        ]),
+        flags: &["--names"],
+        run: parity::differential,
     },
     Subcommand {
         name: "kernel",
