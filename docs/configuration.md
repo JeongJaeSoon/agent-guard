@@ -599,6 +599,54 @@ and a finding there blocks as before. The view is never scanned more than
 twice. A missing file means no list and no warning, and `block` mode never
 reads it.
 
+## Containers other sessions own
+
+A Codex session or a review session often runs next to sessions that own local
+container stacks, such as a demo database. Agent Guard keeps those sessions out
+of them. The check applies to a Bash command only in:
+
+- every Codex session;
+- a session started with `AGENT_GUARD_SESSION_ROLE=review` in its environment;
+- a Claude Code agent whose `agent_type` contains `review` (a reviewer
+  subagent, or `claude --agent` with such a name).
+
+Any other session, such as a plain Claude Code session, is not affected. A
+session that is only told to review in its prompt carries none of these
+markers; start it with `AGENT_GUARD_SESSION_ROLE=review`.
+
+In those sessions a `docker`, `podman` or `nerdctl` command, their compose
+forms included, is refused when:
+
+- it names a stack listed in
+  `$HOME/.config/agent-guard/protected-containers.txt`
+  (`reason=bash_container_protected_stack`). Each line of the file is one
+  literal name, such as a container name prefix or a compose project; blank
+  lines and lines starting with `#` are ignored. A name counts when it appears
+  in the command, in the directory the command runs in, or in the session's
+  `COMPOSE_PROJECT_NAME`, and for any subcommand, not only `exec`. A missing
+  file lists nothing. A file that exists but cannot be read refuses every
+  container runtime command of these sessions
+  (`reason=bash_container_policy_unreadable`).
+- a container `exec` comes with a database client (`psql`, `pg_dump`,
+  `mysql`, `mysqldump`, `mongosh`, `mongo`, `redis-cli`, `sqlite3`,
+  `clickhouse-client` and their siblings), for any container
+  (`reason=bash_container_db_client`).
+- a container `exec` line holds a variable, a command substitution or a
+  container ID, so the stack it reaches cannot be read from the command
+  (`reason=bash_container_unresolved_target`).
+
+```text
+# $HOME/.config/agent-guard/protected-containers.txt
+# the demo stack
+demo-stack-20260101
+```
+
+The check reads the text of the command. It does not ask the container
+runtime which containers exist, and it does not follow a command into a script
+or another program. For a Codex session it runs only while the Agent Guard
+Codex plugin is installed, enabled and trusted
+(`agent-guard plugin status --host codex`).
+
 ## Environment reference
 
 | Variable | Default / use |
@@ -629,6 +677,7 @@ reads it.
 | `AGENT_GUARD_SCAN_CACHE` | `on` (default) or `off`; with `AGENT_GUARD_LOG_MODE=off` the default is off and only an explicit `on` enables it. When on, the PreToolUse Bash command-text scan (the one that repeats, such as `ls -la` or `git status`) skips gitleaks only for a command that was already scanned clean within the last 10 minutes under the same gitleaks executable (a native binary, not a script shim), configuration file contents, `GITLEAKS_CONFIG`/`GITLEAKS_CONFIG_TOML`, scan flags, and agent-guard version. Prompts, file edits, patches, MCP and network input, and `scan-staged`/`scan-working-tree` are always scanned directly. Entries are SHA-256 hashes in the private state directory, at most 256 of them; the scanned text is never stored. Findings, scanner errors, and scans that could not run are never cached. A `.gitleaksignore` in the scan directory, a configuration that names `extend` anywhere except a plain `[extend]` table holding only `useDefault` and a one-line `disabledRules` with no multiline string before or inside it, a configuration with a double-quoted key or table name, `AGENT_GUARD_LOG_MODE=off` without an explicit `AGENT_GUARD_SCAN_CACHE=on`, no root-owned, non-writable `/usr/bin/sha256sum`, `/bin/sha256sum`, or `/usr/bin/shasum` (the hash tool is never taken from `PATH`) or one that fails a known-answer check, and any value other than `on` disable it. With logging on, `off` disables only this cache. With `AGENT_GUARD_LOG_MODE=off`, only an explicit `on` prepares the private state directory, under the same ownership, mode, and symlink checks, and enables this cache together with the readiness and protected-path regex caches; no event record is written. An `AGENT_GUARD_LOG_MODE` value other than `on` or `off` leaves all three caches off whatever this variable says. |
 | `AGENT_GUARD_RELEASE_CHECK` | `on` (default) or `off`; `doctor`, `plugin status`, and the `plugin update` no-op skip the latest-release lookup when off. |
 | `AGENT_GUARD_CODEX_TRUST_CHECK` | `on` (default) or `off`; when off, `doctor` and the Codex `plugin status`/`install`/`update` output skip the `codex app-server` hook-trust query and report it as unverified. |
+| `AGENT_GUARD_SESSION_ROLE` | Set to `review` in the environment of a review session to hold it to the container boundary ([Containers other sessions own](#containers-other-sessions-own)). Unset or any other value: no effect. |
 
 `AGENT_GUARD_HOME`, `AGENT_GUARD_BIN`, `AGENT_GUARD_HOOK_HOST`,
 `AGENT_GUARD_RUNDIR`, `AGENT_GUARD_SESSION_ID`, `AGENT_GUARD_SHELL_INIT_VERSION`,

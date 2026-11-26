@@ -15365,6 +15365,72 @@ bash_file_write_env_names() {
   '
 }
 
+# A Codex session, a session started with AGENT_GUARD_SESSION_ROLE=review and
+# a Claude agent whose type names a review do not own the containers on this
+# machine. For them, command text $1 (as the deny patterns read it) run in
+# directory $2 is refused when a container runtime command names a stack
+# listed in protected-containers.txt, when a container exec comes with a
+# database client, or when a container exec line holds an expansion or a
+# container ID, so the stack it reaches cannot be read. Every other session
+# returns at once. A grep that fails is read as a match.
+container_session_boundary() {
+  case "$(hook_host):${AGENT_GUARD_SESSION_ROLE-}" in
+    codex:*|*:review) ;;
+    *)
+      case "$HOOK_INPUT" in *'"agent_type"'*) ;; *) return 0 ;; esac
+      printf '%s' "$HOOK_INPUT" \
+        | jq -e '.agent_type | strings | ascii_downcase | contains("review")' >/dev/null 2>&1 \
+        || return 0
+      ;;
+  esac
+  cb_runtime='(^|[^[:alnum:]_.-])(docker|podman|nerdctl)(-compose)?'
+  # The subcommand follows the runtime's own options, `container` or `compose`.
+  cb_exec="$cb_runtime"'([[:space:]]+(-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:];|&]*)?|container|compose))*[[:space:]]+exec'
+  cb_held="$PROGRAM: blocked container command from a Codex or review session"
+  # A backslash at a line end continues the command on the next line.
+  cb_text=$(printf '%s\n' "$1" \
+    | awk '{ while (sub(/\\$/, " ") && (getline cb_next) > 0) $0 = $0 cb_next; print }')
+  printf '%s\n' "$cb_text" | grep -E -q -e "$cb_runtime([^[:alnum:]_.-]|\$)"
+  [ "$?" -ne 1 ] || return 0
+  cb_list=${HOME:+$HOME/.config/agent-guard/protected-containers.txt}
+  if [ -n "$cb_list" ] && { [ -e "$cb_list" ] || [ -L "$cb_list" ]; }; then
+    [ -f "$cb_list" ] && [ -r "$cb_list" ] && cb_names=$(LC_ALL=C awk '
+      { sub(/\r$/, ""); gsub(/^[ \t]+|[ \t]+$/, "") }
+      /^(#|$)/ { next }
+      { print }' "$cb_list" 2>/dev/null) || {
+      info "$cb_held: reason=bash_container_policy_unreadable; protected-containers.txt exists but is not a readable file, so the command cannot be checked against it. Ask the user to repair the file; do not retry the command in another form."
+      exit 2
+    }
+    if [ -n "$cb_names" ]; then
+      # A compose project also comes from the directory and from the session.
+      printf '%s\n%s\n%s\n' "$cb_text" "$2" "${COMPOSE_PROJECT_NAME-}" | grep -F -q -e "$cb_names"
+      if [ "$?" -ne 1 ]; then
+        info "$cb_held: reason=bash_container_protected_stack; the command names a container stack listed in protected-containers.txt, which another session owns. Ask the session that owns the stack to run the check and report the result; do not retry it in another form."
+        exit 2
+      fi
+    fi
+  fi
+  cb_lines=$(printf '%s\n' "$cb_text" | grep -E -e "$cb_exec([[:space:]]|\$)")
+  [ "$?" -ne 1 ] || return 0
+  printf '%s\n' "$cb_text" | grep -E -q \
+    -e '(^|[^[:alnum:]_-])(psql|pg_dump|pg_dumpall|pg_restore|mysql|mysqldump|mariadb|mariadb-dump|mongosh|mongo|mongodump|mongoexport|redis-cli|valkey-cli|sqlite3|clickhouse-client|clickhouse|cqlsh|sqlcmd)([^[:alnum:]_-]|$)'
+  if [ "$?" -ne 1 ]; then
+    info "$cb_held: reason=bash_container_db_client; a container exec comes with a database client, and these sessions do not query a database inside a container. Ask the session that owns the database for the rows or the schema you need; do not retry it in another form."
+    exit 2
+  fi
+  case "$cb_lines" in
+    *'$'*|*'`'*) ;;
+    *)
+      # A container ID in the place of the container name.
+      printf '%s\n' "$cb_lines" | grep -E -q \
+        -e "$cb_exec"'([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+["'"'"']?[0-9a-f]{12,64}["'"'"']?([[:space:]]|$)'
+      [ "$?" -ne 1 ] || return 0
+      ;;
+  esac
+  info "$cb_held: reason=bash_container_unresolved_target; a container exec line holds a variable, a command substitution or a container ID, so the stack it reaches cannot be read from the command. Name the container and the compose project literally to have the command checked, or ask the session that owns them to run it."
+  exit 2
+}
+
 check_bash_command() {
   input=$1
   need_cmd jq
@@ -15434,6 +15500,11 @@ check_bash_command() {
       pattern_cmd="$pattern_cmd
 $joined_cmd"
     fi
+    # A Codex or review session is also held to the container boundary. Only
+    # a command that names a container runtime pays for the check.
+    case "$pattern_cmd" in
+      *docker*|*podman*|*nerdctl*) container_session_boundary "$pattern_cmd" "$workdir" ;;
+    esac
     printf '%s\n' "$pattern_cmd" | grep -E -q -f "$patterns"
     grep_status=$?
     # Where a block is reported: the command as written, unless an exemption

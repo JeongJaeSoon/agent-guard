@@ -3781,6 +3781,8 @@ run_expect 0 "runtime environment objects and jq interpolation leave out no prot
   sh "$ROOT/tests/runtime-global-text.sh"
 run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay blocked" \
   sh "$ROOT/tests/env-lookup-allowlist.sh"
+run_expect 0 "a Codex or review session stays out of listed container stacks and database clients while a plain session keeps them" \
+  sh "$ROOT/tests/container-session-boundary.sh"
 run_expect 0 "cat/tee here-document bodies leave out no protected read" \
   sh "$ROOT/tests/heredoc-body-text.sh"
 run_expect 0 "a gh --jq value is a jq filter and does not stop a later jq rewrite; real reads stay blocked" \
