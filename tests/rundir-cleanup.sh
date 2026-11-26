@@ -98,7 +98,7 @@ start_guard() {
   rm -f "$CASE/scan-started"
   # $1 is unquoted so "busybox sh" splits into its two words.
   # shellcheck disable=SC2086
-  env HOME="$CASE/home" XDG_STATE_HOME="$3" TMPDIR="$2" AGENT_GUARD_LOG_MODE=on \
+  env HOME="$CASE/home" XDG_STATE_HOME="$3" TMPDIR="$2" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
     AGENT_GUARD_GITLEAKS_BIN="$CASE/bin/gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
     perl -e 'setpgrp(0, 0); $SIG{INT} = $SIG{QUIT} = $SIG{HUP} = $SIG{TERM} = "DEFAULT"; exec @ARGV or exit 127' \
       $1 "$GUARD" hook-pre-tool <"$CASE/payload" >"$CASE/out" 2>"$CASE/err" &
@@ -179,7 +179,7 @@ reap_run() {
   : >"$CASE/reaper-pids"
   printf '{"session_id":"rundir-reap-%s-%s","tool_name":"Read","tool_input":{"file_path":"%s/plain.txt"}}' "$$" "$n" "$CASE" \
     | { # shellcheck disable=SC2086
-        env HOME="$CASE/home" XDG_STATE_HOME="$3" TMPDIR="$2" AGENT_GUARD_LOG_MODE=on \
+        env HOME="$CASE/home" XDG_STATE_HOME="$3" TMPDIR="$2" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
           PATH="$CASE/launch-bin:$PATH" AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
           $sh_ "$GUARD" hook-pre-tool >"$CASE/reap-out" 2>"$CASE/reap-err"; }
 }
@@ -533,7 +533,7 @@ DOC_TMP="$CASE/doctor-tmp"
 fixture "$DOC_TMP"
 before=$(find "$DOC_TMP" | LC_ALL=C sort)
 for mode in on off; do
-  env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$DOC_TMP" AGENT_GUARD_LOG_MODE=$mode \
+  env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$DOC_TMP" AGENT_GUARD_LOG_MODE=$mode AGENT_GUARD_SCAN_CACHE=off \
     AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
     sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
   case $mode in
@@ -552,7 +552,7 @@ for p in $LIVE_PIDS; do kill -KILL "$p" 2>/dev/null || :; done
 LIVE_PIDS=
 # A shared parent is counted (read-only) and doctor says why it stays.
 chmod 777 "$CASE/shared-tmp"
-env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/shared-tmp" AGENT_GUARD_LOG_MODE=on \
+env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/shared-tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
   AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
   sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
 chmod 755 "$CASE/shared-tmp"
@@ -567,7 +567,7 @@ fi
 mkdir -p "$CASE/doctor-bad-state/agent-guard"
 chmod 755 "$CASE/doctor-bad-state/agent-guard"
 fixture "$CASE/doctor-bad-tmp"
-env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-bad-state" TMPDIR="$CASE/doctor-bad-tmp" AGENT_GUARD_LOG_MODE=on \
+env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-bad-state" TMPDIR="$CASE/doctor-bad-tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
   AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
   sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
 if grep -q 'nothing removes them while the private state directory fails its ownership or mode check' "$CASE/doctor-out"; then
@@ -578,6 +578,29 @@ else
 fi
 for p in $LIVE_PIDS; do kill -KILL "$p" 2>/dev/null || :; done
 LIVE_PIDS=
+# The first marker is private (0600) whatever the umask.
+mkdir -p "$CASE/mode-tmp"
+reap_run "$first_shell" "$CASE/mode-tmp" "$CASE/mode-state"
+if [ "$(ls -l "$CASE/mode-state/agent-guard/rundir-reap" 2>/dev/null | cut -c1-10)" = "-rw-------" ]; then
+  ok "the first reap marker is created with mode 0600"
+else
+  not_ok "the first reap marker is created with mode 0600"
+fi
+
+# A TMPDIR that cannot be listed is reported as such, not as clean.
+mkdir -p "$CASE/unlisted-tmp"
+stale_in "$CASE/unlisted-tmp" agent-guard-run.Un12Ls
+chmod 300 "$CASE/unlisted-tmp"
+env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/unlisted-tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
+  AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+  sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
+chmod 755 "$CASE/unlisted-tmp"
+if grep -q 'temp: could not list .* to look for stale run directories' "$CASE/doctor-out"; then
+  ok "doctor says when it cannot list the temp directory"
+else
+  not_ok "doctor says when it cannot list the temp directory"
+  grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+fi
 mkdir "$CASE/doctor-empty"
 env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/doctor-empty" \
   AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \

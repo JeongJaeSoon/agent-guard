@@ -1558,10 +1558,10 @@ rundir_reap() {
       return 0
     fi
   else
-    case $- in *C*) ag_rr_noclobber=1 ;; *) ag_rr_noclobber= ;; esac
-    set -C
+    # Mode 0600 and never an existing name, without a process.
+    private_writes_begin || return 0
     { printf '%s %s\n' "$AG_AUDIT_START" "$ag_rr_dir" >"$ag_rr_marker"; } 2>/dev/null || :
-    [ -n "$ag_rr_noclobber" ] || set +C
+    private_writes_end
     # A new marker only starts the clock (no process on a first run). A
     # directory missing from an existing one, as after its line was dropped,
     # is due.
@@ -1606,7 +1606,9 @@ rundir_parent_safe() {
 RUNDIR_STALE_FIND='u=$1 a=$2; shift 2; [ "$#" -gt 0 ] || exit 0; find "$@" -prune -type d -user "$u" -perm 700 -mmin "+$a" -print'
 
 rundir_stale() ( # DIR MODE
-  CDPATH= cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo 0; exit 0; }
+  # count prints "unreadable" when it cannot list the directory.
+  CDPATH= cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo unreadable; exit 0; }
+  [ -r . ] || { [ "$2" = remove ] || echo unreadable; exit 0; }
   [ "$2" != remove ] || rundir_parent_safe || exit 0
   {
     for ag_rs_name in agent-guard-run.*.*; do
@@ -23931,7 +23933,13 @@ doctor_rundir_report() {
   case "$AG_UID" in ''|*[!0123456789]*) return 0 ;; esac
   doctor_rundir_dir=${AGENT_GUARD_RUNDIR%/*}
   doctor_rundir_count=$(rundir_stale "$doctor_rundir_dir" count 2>/dev/null </dev/null) || doctor_rundir_count=
-  case "$doctor_rundir_count" in ''|*[!0123456789]*) return 0 ;; esac
+  case "$doctor_rundir_count" in
+    unreadable)
+      info "$PROGRAM: temp: could not list $doctor_rundir_dir to look for stale run directories"
+      return 0
+      ;;
+    ''|*[!0123456789]*) return 0 ;;
+  esac
   if [ "$doctor_rundir_count" -eq 0 ]; then
     info "$PROGRAM: temp: no stale run directories in $doctor_rundir_dir"
     return 0
@@ -24042,8 +24050,14 @@ do_update() {
 # This is the process's only EXIT trap: a command running in this shell that
 # needs its own temp directory removed sets AG_EXIT_TMP_DIR instead of
 # replacing the trap, which would skip everything else here.
-AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.$$.XXXXXX" 2>/dev/null \
-  || mktemp -d "/tmp/agent-guard-run.$$.XXXXXX" 2>/dev/null || printf '')
+# The detached reap pass writes no temp file and adds no entry where it reaps.
+case ${1:-} in
+  __reap-run-dirs) AGENT_GUARD_RUNDIR= ;;
+  *)
+    AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.$$.XXXXXX" 2>/dev/null \
+      || mktemp -d "/tmp/agent-guard-run.$$.XXXXXX" 2>/dev/null || printf '')
+    ;;
+esac
 AG_EXIT_TMP_DIR=
 # Saved once so rundir_temp_file can restore it without a process per file.
 AG_UMASK=$(umask 2>/dev/null) || AG_UMASK=
