@@ -328,3 +328,106 @@ first=$(cause)
 printf 'output validation failed\n' > "$case_dir/evidence/packaged-performance/errors.txt"
 [ "$first" != "$(cause)" ] || fail 'different tool error opens a different issue'
 printf 'ok - changed nightly failure cause gets a separate issue identity\n'
+
+# A main push reuses an ordinary PR's successful run only for the same tree,
+# one parent that the PR head contains, and the newest run of the same
+# workflow on that head. Anything else runs the workflow again.
+tested() { sh "$ROOT/.github/scripts/reuse-tested-tree.sh" ci.yml; }
+expect_tested() { # $1 expected reuse/ordinary lines, $2 description
+  tested > "$case_dir/tested" || fail "reuse-tested-tree runs: $2"
+  [ "$(grep -E '^(reuse|ordinary)=' "$case_dir/tested" | tr '\n' ' ')" = "$1" ] \
+    || fail "$2: $(tr '\n' ' ' < "$case_dir/tested")"
+}
+git checkout -q --detach "$base"
+printf 'feature\n' > feature
+git add feature
+git commit -qm feature
+feature=$(git rev-parse HEAD)
+merge=$(printf 'feature squash\n' | git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$base")
+export GITHUB_SHA="$merge" GITHUB_EVENT_NAME=push GITHUB_REF=refs/heads/main GITHUB_RUN_ID=9
+ordinary_pr() {
+  jq -n --arg head "$feature" --arg merge "$merge" \
+    '[{number:7,merged_at:"synthetic",merge_commit_sha:$merge,base:{ref:"main"},
+       head:{sha:$head,ref:"feature/x",repo:{full_name:"test/repo"}},labels:[]}]' > "$case_dir/prs.json"
+  jq -n --arg head "$feature" \
+    '{workflow_runs:[{id:5,head_sha:$head,event:"pull_request",path:".github/workflows/ci.yml",
+       head_branch:"feature/x",head_repository:{full_name:"test/repo"},status:"completed",conclusion:"success"}]}' \
+    > "$case_dir/ci.yml.json"
+}
+ordinary_pr
+expect_tested 'reuse=true ordinary=true ' 'squash merge of a passed PR head reuses its run'
+grep -Fxq "source_sha=$feature" "$case_dir/tested" || fail 'reused evidence names the PR head'
+jq '.workflow_runs += [.workflow_runs[0] | .id = 6 | .conclusion = "failure"]' "$case_dir/ci.yml.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/ci.yml.json"
+expect_tested 'reuse=false ordinary=true ' 'a newer failed run on the head is not evidence'
+for change in '.status = "in_progress"' '.path = ".github/workflows/other.yml"' '.head_branch = "fork/x"' \
+  '.head_repository.full_name = "fork/repo"' '.event = "push"' '.head_sha = "0000000000000000000000000000000000000000"'; do
+  ordinary_pr
+  jq ".workflow_runs[0] |= ($change)" "$case_dir/ci.yml.json" > "$case_dir/changed"
+  mv "$case_dir/changed" "$case_dir/ci.yml.json"
+  expect_tested 'reuse=false ordinary=true ' "run with $change is not evidence"
+done
+ordinary_pr
+jq '.[0].labels = [{name:"release"}]' "$case_dir/prs.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/prs.json"
+expect_tested 'reuse=false ordinary=false ' 'a release PR merge keeps the full matrix'
+ordinary_pr
+jq '.[0].head.ref = "release/v1.0.2"' "$case_dir/prs.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/prs.json"
+expect_tested 'reuse=false ordinary=false ' 'a release branch merge keeps the full matrix'
+ordinary_pr
+jq '. + .' "$case_dir/prs.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/prs.json"
+expect_tested 'reuse=false ordinary=false ' 'an ambiguous PR lookup keeps the full matrix'
+rm "$case_dir/prs.json"
+expect_tested 'reuse=false ordinary=false ' 'a failed PR lookup keeps the full matrix'
+ordinary_pr
+(GITHUB_EVENT_NAME=pull_request; expect_tested 'reuse=false ordinary=false ' 'a pull request never reuses') || exit 1
+(GITHUB_REF=refs/heads/other; expect_tested 'reuse=false ordinary=false ' 'a push to another branch never reuses') || exit 1
+printf 'other\n' > other
+git add other
+git commit -qm other
+merge=$(printf 'different squash\n' | git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$base")
+export GITHUB_SHA="$merge"
+ordinary_pr
+expect_tested 'reuse=false ordinary=true ' 'a different merge tree runs again'
+# Same tree on top of a parent the head does not contain: the PR run's merge
+# ref may have held another tree.
+git checkout -q --detach "$base"
+printf 'landed\n' > landed
+git add landed
+git commit -qm landed
+landed=$(git rev-parse HEAD)
+git checkout -q --detach "$base"
+printf 'landed\n' > landed
+printf 'feature\n' > feature
+git add landed feature
+git commit -qm 'feature with copy'
+feature=$(git rev-parse HEAD)
+merge=$(printf 'feature squash\n' | git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$landed")
+export GITHUB_SHA="$merge"
+ordinary_pr
+expect_tested 'reuse=false ordinary=true ' 'a parent missing from the PR head runs again'
+merge=$(printf 'two parents\n' | git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$base" -p "$landed")
+export GITHUB_SHA="$merge"
+ordinary_pr
+expect_tested 'reuse=false ordinary=true ' 'a merge with two parents runs again'
+merge=$(printf 'feature squash\n' | git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$base")
+export GITHUB_SHA="$merge"
+ordinary_pr
+expect_tested 'reuse=true ordinary=true ' 'the same head on its own base reuses its run'
+printf 'ok - main push reuses only a same-tree PR run of the same workflow\n'
+
+export GITHUB_EVENT_NAME=schedule
+nightly() { # $1 jq edit of the one schedule run
+  jq -n --arg sha "$merge" '{workflow_runs:[{id:8,head_sha:$sha,event:"schedule",path:".github/workflows/ci.yml",status:"completed",conclusion:"success"}]}' \
+    | jq ".workflow_runs[0] |= ($1)" > "$case_dir/ci.yml.json"
+}
+nightly .
+expect_tested 'reuse=true ordinary=false ' 'an unchanged main skips the nightly run'
+for change in '.id = 9' '.conclusion = "failure"' '.status = "in_progress"' '.event = "push"' \
+  '.head_sha = "0000000000000000000000000000000000000000"' '.path = ".github/workflows/other.yml"'; do
+  nightly "$change"
+  expect_tested 'reuse=false ordinary=false ' "nightly with $change runs"
+done
+printf 'ok - a nightly run is skipped only after a green nightly at the same commit\n'

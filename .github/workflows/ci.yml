@@ -6,6 +6,11 @@ on:
   push:
     branches:
       - main
+  # An ordinary merge runs Linux only, so the macOS legs run nightly on main
+  # (skipped when main has not changed since the last green nightly run), on
+  # release PRs and on manual runs.
+  schedule:
+    - cron: '41 18 * * *'
 
 # Replace only obsolete runs: of the same PR, or of an older main push. Manual
 # runs keep unique groups, so the release gate's dispatch at a release SHA is
@@ -37,18 +42,30 @@ jobs:
       checks: read
       pull-requests: read
     outputs:
-      reuse: ${{ steps.evidence.outputs.reuse }}
+      reuse: ${{ steps.release.outputs.reuse == 'true' || steps.tested.outputs.reuse == 'true' }}
+      ordinary: ${{ steps.tested.outputs.ordinary }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - id: evidence
+      - id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: sh .github/scripts/reuse-release-tree.sh >> "$GITHUB_OUTPUT"
+      # A main push of a tree its PR run already passed, or a nightly run of
+      # an unchanged main, reuses that run.
+      - id: tested
+        if: steps.release.outputs.reuse != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh .github/scripts/reuse-tested-tree.sh ci.yml >> "$GITHUB_OUTPUT"
   secret-guard:
     name: Agent Guard
+    # Agent Guard is required: it reports even when evidence lookup fails,
+    # and an empty answer selects full coverage.
+    needs: release-evidence
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -69,13 +86,14 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           HEAD_REF: ${{ github.head_ref }}
+          ORDINARY: ${{ needs.release-evidence.outputs.ordinary }}
         run: |
           if [ "$EVENT_NAME" = pull_request ]; then
             git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
           else
             : > "$RUNNER_TEMP/changed"
           fi
-          sh .github/scripts/ci-scope.sh "$EVENT_NAME" "$HEAD_REF" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"
+          sh .github/scripts/ci-scope.sh "$EVENT_NAME" "$HEAD_REF" "$ORDINARY" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"
 
       - name: Scan for secrets
         uses: ./
@@ -202,7 +220,7 @@ jobs:
             exit 1
           fi
           if [ "$REUSED" = true ] && [ "$EVIDENCE_RESULT" = success ]; then
-            echo 'Required checks passed on the identical reviewed release tree'
+            echo 'Required checks passed on the identical tested tree'
             exit 0
           fi
           if [ "$SHARDS_RESULT" != success ]; then

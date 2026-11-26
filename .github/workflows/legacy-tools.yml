@@ -32,17 +32,38 @@ on:
       - 'tests/fixtures/assignment-leftmost.json'
       - '.github/workflows/legacy-tools.yml'
   workflow_dispatch:
-# Replace only obsolete runs of the same PR. Non-PR runs have unique groups,
-# so main verification and manual checks cannot cancel each other.
+# Replace only obsolete runs of the same PR or of an older main push. Manual
+# runs have unique groups.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 permissions:
   contents: read
 jobs:
+  evidence:
+    # A main push skips the jobs its PR run already passed on the same tree.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      reuse: ${{ steps.tested.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: tested
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh .github/scripts/reuse-tested-tree.sh legacy-tools.yml >> "$GITHUB_OUTPUT"
   contracts:
     name: Legacy jq and awk contracts
+    needs: evidence
+    if: ${{ !cancelled() && needs.evidence.outputs.reuse != 'true' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
@@ -74,6 +95,8 @@ jobs:
     # Separate job: installing gawk repoints the awk alternative, which would
     # change the awk the contracts job above runs on.
     name: Same assignments on mawk, gawk and busybox awk
+    needs: evidence
+    if: ${{ !cancelled() && needs.evidence.outputs.reuse != 'true' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
@@ -107,6 +130,8 @@ jobs:
     # minutes on a slow runner and the job was cancelled. Same limit, one
     # runner each.
     name: Key-name masking hooks on mawk
+    needs: evidence
+    if: ${{ !cancelled() && needs.evidence.outputs.reuse != 'true' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:

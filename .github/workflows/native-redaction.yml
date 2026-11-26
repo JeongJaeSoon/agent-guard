@@ -32,8 +32,31 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
+  evidence:
+    # A main push skips the contracts its PR run already passed on the same
+    # tree; the macOS developer tools job never runs on pull requests.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      reuse: ${{ steps.tested.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: tested
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh .github/scripts/reuse-tested-tree.sh native-redaction.yml >> "$GITHUB_OUTPUT"
   contracts:
     name: Native redactor contracts
+    needs: evidence
+    # A failed lookup leaves reuse empty and runs the contracts.
+    if: ${{ !cancelled() && needs.evidence.outputs.reuse != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
