@@ -6,7 +6,10 @@
 # operands, input redirects, --rawfile, --slurpfile and -f paths stay in the
 # protected-path scan. A row may set path_prefix, a relative PATH entry put
 # in front of PATH for that row.
-# Each fixture runs through both hosts' native event shapes.
+# Every row runs in Claude's native event shape. The host changes the block
+# message and the output envelope, never the decision, and no row here depends
+# on where the event carries the working directory. So only the rows marked
+# "both_hosts", one that passes and one that blocks, also run in Codex's shape.
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD=${AGENT_GUARD_TEST_BINARY:-$ROOT/plugins/agent-guard/bin/agent-guard}
@@ -22,12 +25,24 @@ jq -e 'type == "array" and length > 0' "$FIXTURE" >/dev/null || {
   printf 'not ok - %s is not a non-empty array\n' "$FIXTURE"
   exit 1
 }
+jq -e 'any(.[]; .both_hosts == true and .expected_status == 0)
+       and any(.[]; .both_hosts == true and .expected_status == 2)
+       and all(.[]; (.both_hosts // false) | type == "boolean")' "$FIXTURE" >/dev/null || {
+  printf 'not ok - %s needs a both_hosts row that passes and one that blocks\n' "$FIXTURE"
+  exit 1
+}
 jq -c '.[]' "$FIXTURE" >"$CASE_ROOT/cases" || exit 1
 while IFS= read -r row; do
   expected=$(printf '%s' "$row" | jq -r '.expected_status')
   prefix=$(printf '%s' "$row" | jq -r '.path_prefix // empty')
   name=$(printf '%s' "$row" | jq -r '.id + " (" + .classification + "): " + .description')
-  for host in claude codex; do
+  # An empty host list would skip the row without a failure.
+  hosts=$(printf '%s' "$row" | jq -r 'if .both_hosts == true then "claude codex" else "claude" end') \
+    && [ -n "$hosts" ] || {
+      printf 'not ok - %s: cannot read which hosts run the row\n' "$name"
+      exit 1
+    }
+  for host in $hosts; do
     case "$host" in
       codex) shape='{tool_name:"Bash",tool_input:{command:.command,workdir:$d}}' ;;
       *) shape='{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:.command},cwd:$d}' ;;
