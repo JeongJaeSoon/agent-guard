@@ -691,7 +691,7 @@ Other settings:
 | --- | --- |
 | `AGENT_GUARD_MASK_DENY_VALUES` | A file of extra deny-value rules for `mask` mode, used together with `$HOME/.config/agent-guard/mask-deny-values.txt`. |
 | `AGENT_GUARD_SESSION_ROLE` | Set to `review` in the environment of a review session to hold it to the container boundary ([Containers other sessions own](#containers-other-sessions-own)). Unset or any other value: no effect. |
-| `AGENT_GUARD_COMMAND_WRAPPING` | `on` (default). `off`, `OFF`, `0`, `false`, `FALSE`, `no` or `NO` disables shell command wrapping for the current process. For `agent-guard update` and the bootstrap installer, a non-empty value overrides the choice recorded in the shell rc: one of those spellings installs with wrapping off, anything else with wrapping on. |
+| `AGENT_GUARD_COMMAND_WRAPPING` | `on` (default). The automatic wrappers of the shell integration act only inside Claude Code; `agx` works anywhere. `off`, `OFF`, `0`, `false`, `FALSE`, `no` or `NO` disables that wrapping for the current process. For `agent-guard update` and the bootstrap installer, a non-empty value overrides the choice recorded in the shell rc: one of those spellings installs with wrapping off, anything else with wrapping on. |
 | `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` | Positive integer `>= 10485760`; default `10485760` (10 MiB, split into thirds per producer, so `scan-staged` and each `scan-working-tree` component get 3495253 bytes by default). It can only raise the budget: smaller, non-numeric, or overlong (19+ digit) values keep the default. A larger budget scans more input; it never excludes anything from scanning. |
 | `AGENT_GUARD_RELEASE_CHECK` | `on` (default) or `off`; `doctor`, `plugin status`, and the `plugin update` no-op skip the latest-release lookup when off. |
 
@@ -702,7 +702,7 @@ PII settings, used with [PII handling](#pii-handling):
 | `AGENT_GUARD_PII_PROVIDER` | `regex` (default), `http`, or `pleno`. |
 | `AGENT_GUARD_PII_REDACT_URL` | Required user-controlled endpoint for the remote PII providers. |
 | `AGENT_GUARD_PII_SKIP` | Local-regex opt-out for `EMAIL`, `PHONE`, and `IP_ADDRESS` only. |
-| `AGENT_GUARD_PII_LANGUAGE` / `AGENT_GUARD_PII_TIMEOUT_SECONDS` | Provider language and positive timeout control (default `30` seconds). A hook request to the provider waits at most 5 seconds, whatever the value; `pii-filter` run directly uses the value. |
+| `AGENT_GUARD_PII_LANGUAGE` / `AGENT_GUARD_PII_TIMEOUT_SECONDS` | Provider language and positive timeout control (default `30` seconds). A hook request to the provider caps this transfer timeout at 5 seconds, whatever the value; `pii-filter` run directly uses the value. |
 
 ### Compatibility and hardening switches
 
