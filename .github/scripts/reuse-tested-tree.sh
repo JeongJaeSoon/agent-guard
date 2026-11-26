@@ -5,7 +5,8 @@
 #   sh .github/scripts/reuse-tested-tree.sh WORKFLOW_FILE
 #
 # A push to main finds the one PR squash-merged into it and the newest
-# pull_request run of WORKFLOW_FILE at that PR's head. It reuses that run when
+# pull_request run of WORKFLOW_FILE at that PR's head (by start time, so a
+# re-run counts as new). It reuses that run when
 # the run succeeded and its tested-tree artifact (the tree of the merge commit
 # it checked out, recorded only when its suites ran) equals this commit's
 # tree. ordinary=true marks a merge of a non-release PR; release merges keep
@@ -45,7 +46,7 @@ pr_tree_passed() {
   run=$(jq -r --arg sha "$head" --arg ref "$ref" --arg repo "$repo" --arg path ".github/workflows/$workflow" '
     [.workflow_runs[] | select(.head_sha == $sha and .event == "pull_request" and .path == $path
       and .head_branch == $ref and .head_repository.full_name == $repo)]
-    | max_by(.id) | if . != null and .status == "completed" and .conclusion == "success" then .id else "none" end' "$work/runs") || return 2
+    | max_by([.run_started_at, .id]) | if . != null and .status == "completed" and .conclusion == "success" then .id else "none" end' "$work/runs") || return 2
   [ "$run" != none ] || return 1
   case "$run" in *[!0-9]*|'') return 2 ;; esac
   gh api "repos/$repo/actions/runs/$run/artifacts?name=tested-tree" > "$work/artifacts" || return 2
@@ -53,6 +54,7 @@ pr_tree_passed() {
   found=$(jq -r '[.artifacts[] | select(.name == "tested-tree" and .expired == false)] | length == 1' "$work/artifacts") || return 2
   [ "$found" = true ] || return 1
   gh run download "$run" --repo "$repo" --name tested-tree --dir "$work/tested" || return 2
+  [ "$(grep -c '' "$work/tested/tree")" = 1 ] || return 2
   recorded=$(cat "$work/tested/tree") || return 2
   printf '%s\n' "$recorded" | grep -Eqx '[0-9a-f]{40}' || return 2
   [ "$recorded" = "$tree" ] || return 1
@@ -63,11 +65,11 @@ schedule_passed() {
   [ "${GITHUB_RUN_ATTEMPT:-1}" = 1 ] || return 1
   gh api "repos/$repo/actions/workflows/$workflow/runs?head_sha=$sha&event=schedule&per_page=100" > "$work/runs" || return 2
   jq -e '.workflow_runs | type == "array"' "$work/runs" > /dev/null || return 2
-  # The newest earlier nightly decides: a later failure is never hidden by an
-  # older success at the same commit.
+  # The most recently started earlier nightly decides (a re-run keeps its id
+  # but starts again): a later failure is never hidden by an older success.
   passed=$(jq -r --arg sha "$sha" --arg path ".github/workflows/$workflow" --argjson self "${GITHUB_RUN_ID:?}" '
     [.workflow_runs[] | select(.head_sha == $sha and .event == "schedule" and .path == $path and .id != $self)]
-    | max_by(.id) | . != null and .status == "completed" and .conclusion == "success"' "$work/runs") || return 2
+    | max_by([.run_started_at, .id]) | . != null and .status == "completed" and .conclusion == "success"' "$work/runs") || return 2
   [ "$passed" = true ] || return 1
   printf 'source_sha=%s\n' "$sha"
 }

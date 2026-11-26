@@ -348,14 +348,14 @@ git add feature
 git commit -qm feature
 feature=$(git rev-parse HEAD)
 merge=$(printf 'feature squash\n' | git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$base")
-export GITHUB_SHA="$merge" GITHUB_EVENT_NAME=push GITHUB_REF=refs/heads/main GITHUB_RUN_ID=9
+export GITHUB_SHA="$merge" GITHUB_EVENT_NAME=push GITHUB_REF=refs/heads/main GITHUB_RUN_ID=9 GITHUB_RUN_ATTEMPT=1
 ordinary_pr() { # $1 the tree the PR run recorded
   jq -n --arg head "$feature" --arg merge "$merge" \
     '[{number:7,merged_at:"synthetic",merge_commit_sha:$merge,base:{ref:"main"},
        head:{sha:$head,ref:"feature/x",repo:{full_name:"test/repo"}},labels:[]}]' > "$case_dir/prs.json"
   jq -n --arg head "$feature" \
     '{workflow_runs:[{id:5,head_sha:$head,event:"pull_request",path:".github/workflows/ci.yml",
-       head_branch:"feature/x",head_repository:{full_name:"test/repo"},status:"completed",conclusion:"success"}]}' \
+       head_branch:"feature/x",head_repository:{full_name:"test/repo"},run_started_at:"2026-11-20T00:00:00Z",status:"completed",conclusion:"success"}]}' \
     > "$case_dir/ci.yml.json"
   printf '{"artifacts":[{"name":"tested-tree","expired":false}]}\n' > "$case_dir/artifacts.json"
   mkdir -p "$case_dir/evidence/tested-tree"
@@ -369,8 +369,12 @@ grep -Fxq 'source_run=5' "$case_dir/tested" || fail 'reused evidence names the P
 ordinary_pr "$(git rev-parse "$base^{tree}")"
 expect_tested 'reuse=false ordinary=true ' 'a run that tested another tree runs again'
 ordinary_pr
-edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 6 | .conclusion = "failure"]'
+edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 6 | .run_started_at = "2026-11-21T00:00:00Z" | .conclusion = "failure"]'
 expect_tested 'reuse=false ordinary=true ' 'a newer failed run on the head is not evidence'
+# An older run re-run later and failed keeps its id but starts again.
+ordinary_pr
+edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 4 | .run_started_at = "2026-11-21T00:00:00Z" | .conclusion = "failure"]'
+expect_tested 'reuse=false ordinary=true ' 'a re-run that failed later is not hidden by a newer id'
 for change in '.status = "in_progress"' '.path = ".github/workflows/other.yml"' '.head_branch = "fork/x"' \
   '.head_repository.full_name = "fork/repo"' '.event = "push"' '.head_sha = "0000000000000000000000000000000000000000"'; do
   ordinary_pr
@@ -426,13 +430,16 @@ ordinary_pr
 printf 'not a tree\n' > "$case_dir/evidence/tested-tree/tree"
 expect_tested 'reuse=false ordinary=false ' 'an unreadable tree record keeps the full matrix'
 ordinary_pr
+printf '%s\nextra\n' "$(git rev-parse "$merge^{tree}")" > "$case_dir/evidence/tested-tree/tree"
+expect_tested 'reuse=false ordinary=false ' 'a tree record with extra lines keeps the full matrix'
+ordinary_pr
 (GITHUB_EVENT_NAME=pull_request; expect_tested 'reuse=false ordinary=false ' 'a pull request never reuses') || exit 1
 (GITHUB_REF=refs/heads/other; expect_tested 'reuse=false ordinary=false ' 'a push to another branch never reuses') || exit 1
 printf 'ok - main push reuses only a passed PR run that recorded the same tree\n'
 
 export GITHUB_EVENT_NAME=schedule
 nightly() { # $1 jq edit of the one schedule run
-  jq -n --arg sha "$merge" '{workflow_runs:[{id:8,head_sha:$sha,event:"schedule",path:".github/workflows/ci.yml",status:"completed",conclusion:"success"}]}' \
+  jq -n --arg sha "$merge" '{workflow_runs:[{id:8,head_sha:$sha,event:"schedule",path:".github/workflows/ci.yml",run_started_at:"2026-11-20T00:00:00Z",status:"completed",conclusion:"success"}]}' \
     | jq ".workflow_runs[0] |= ($1)" > "$case_dir/ci.yml.json"
 }
 nightly .
@@ -441,11 +448,15 @@ expect_tested 'reuse=true ordinary=false ' 'an unchanged main skips the nightly 
 printf '{"workflow_runs":[42]}\n' > "$case_dir/ci.yml.json"
 expect_tested 'reuse=false ordinary=false ' 'a malformed nightly entry runs'
 nightly '.'
-edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 10 | .conclusion = "failure"]'
+edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 10 | .run_started_at = "2026-11-21T00:00:00Z" | .conclusion = "failure"]'
 expect_tested 'reuse=false ordinary=false ' 'a later failed nightly at the same commit runs again'
 nightly '.'
-edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 4 | .conclusion = "failure"]'
+edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 4 | .run_started_at = "2026-11-19T00:00:00Z" | .conclusion = "failure"]'
 expect_tested 'reuse=true ordinary=false ' 'an older failure before the green nightly does not count'
+# Nightly A passed, B reused it, then A was re-run and failed.
+nightly '.'
+edit_fixture ci.yml.json '.workflow_runs = [(.workflow_runs[0] | .id = 7 | .run_started_at = "2026-11-22T00:00:00Z" | .conclusion = "failure"), (.workflow_runs[0] | .id = 8 | .run_started_at = "2026-11-21T00:00:00Z")]'
+expect_tested 'reuse=false ordinary=false ' 'a re-run nightly that failed after a reusing nightly runs again'
 for change in '.id = 9' '.conclusion = "failure"' '.status = "in_progress"' '.event = "push"' \
   '.head_sha = "0000000000000000000000000000000000000000"' '.path = ".github/workflows/other.yml"'; do
   nightly "$change"
