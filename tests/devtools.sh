@@ -94,6 +94,59 @@ for bad in '--arm warm-helper --out latency-bad.json' '--arm no-such-arm --out l
   fi
   test ! -e "$CASE/latency-bad.json"
 done
+# CLI differential: a build compared with itself has no difference. A build
+# whose message changed differs in output only, one whose deny list changed
+# differs in decision, exit code and audit state, and no report holds the
+# text of an input or an output.
+GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
+MOCK="$ROOT/tests/fixtures/mock-gitleaks"
+"$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --out "$CASE/parity-same.json" >"$CASE/parity-same-summary.json"
+jq -e --slurpfile corpus tests/fixtures/cli-differential.json '.differences == 0 and (.cases | length) == ($corpus[0] | length)
+  and ([.cases[] | select(.equal | not)] | length) == 0
+  and ([.cases[].steps[] | select(.status[0] != .status[1] or .decision[0] != .decision[1] or (.state.equal | not))] | length) == 0
+  and ([.cases[].steps[].decision[0]] | unique | (index("block") != null and index("allow") != null))' "$CASE/parity-same.json" >/dev/null
+jq -e '.differences == 0 and (has("cases") | not)' "$CASE/parity-same-summary.json" >/dev/null
+"$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --candidate-shell /bin/sh --scanner "$MOCK" \
+  --case pre-bash-protected-path --case post-bash-key-block --entry direct --out "$CASE/parity-shell.json" >/dev/null
+jq -e '.differences == 0 and (.cases | length) == 2' "$CASE/parity-shell.json" >/dev/null
+"$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --entry manifest \
+  --case pre-bash-protected-path --case codex-post-bash-key-block --case cli-version --out "$CASE/parity-manifest.json" >/dev/null
+jq -e '.differences == 0 and .entry == "manifest" and (.cases | length) == 3' "$CASE/parity-manifest.json" >/dev/null
+mkdir "$CASE/message" "$CASE/decision"
+cp -R plugins/agent-guard "$CASE/message/agent-guard"
+cp -R plugins/agent-guard "$CASE/decision/agent-guard"
+sed 's/blocked shell command referencing a deny-listed path/blocked shell command naming a deny-listed path/' "$GUARD" >"$CASE/message/agent-guard/bin/agent-guard"
+if cmp -s "$GUARD" "$CASE/message/agent-guard/bin/agent-guard"; then
+  echo 'the message mutation changed nothing' >&2; exit 1
+fi
+: >"$CASE/decision/agent-guard/config/deny-read-paths.txt"
+if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$CASE/message/agent-guard/bin/agent-guard" --scanner "$MOCK" \
+    --case pre-bash-protected-path --case pre-bash-clean --out "$CASE/parity-message.json" >"$CASE/parity-message-summary.json" 2>/dev/null; then
+  echo 'cli-differential accepted a changed message' >&2; exit 1
+fi
+jq -e '.differences == 1 and ([.cases[] | select(.equal | not) | .name] == ["pre-bash-protected-path"])
+  and (.cases[] | select(.name == "pre-bash-protected-path") | .steps[0]
+    | (.stderr.equal | not) and .stderr.first_difference > 0 and .stdout.equal and .state.equal
+      and .status == [2, 2] and .decision == ["block", "block"])' "$CASE/parity-message.json" >/dev/null
+if grep -q 'deny-listed' "$CASE/parity-message.json" "$CASE/parity-message-summary.json"; then
+  echo 'a differential report holds output text' >&2; exit 1
+fi
+if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$CASE/decision/agent-guard/bin/agent-guard" --scanner "$MOCK" \
+    --case pre-bash-protected-path --case pre-read-protected-path --case pre-bash-clean --out "$CASE/parity-decision.json" >/dev/null 2>&1; then
+  echo 'cli-differential accepted a changed decision' >&2; exit 1
+fi
+jq -e '.differences == 2 and (.cases[] | select(.name == "pre-bash-protected-path") | .steps[0]
+    | .status == [2, 0] and .decision == ["block", "allow"] and (.state.equal | not))
+  and (.cases[] | select(.name == "pre-bash-clean") | .equal)' "$CASE/parity-decision.json" >/dev/null
+# A corpus with an unknown placeholder or without steps is refused.
+printf '%s\n' '[{"name":"bad","steps":[{"args":["version"],"stdin":"{{NO_SUCH}}"}]}]' >"$CASE/bad-corpus.json"
+printf '%s\n' '[{"name":"empty","steps":[]}]' >"$CASE/empty-corpus.json"
+for bad in bad-corpus.json empty-corpus.json; do
+  if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --corpus "$CASE/$bad" --out "$CASE/parity-bad.json" >/dev/null 2>&1; then
+    echo "cli-differential accepted $bad" >&2; exit 1
+  fi
+  test ! -e "$CASE/parity-bad.json"
+done
 # A repeated option keeps its last value.
 test ! -e "$CASE/ignored-out"
 printf 'Developer tools: option parsing, resource status, source-location and failed-partition contracts passed\n'

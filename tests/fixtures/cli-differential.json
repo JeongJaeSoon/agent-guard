@@ -1,0 +1,1524 @@
+[
+ {
+  "name": "pre-bash-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "ls -la src"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-bash-pipeline",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "cd src && grep -n 'TODO' lib.js | head -n 5; echo done"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-bash-token",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "echo {{TOKEN}}"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-bash-key-block",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "printf '%s' '{{KEY_BLOCK}}'"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-bash-protected-path",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "cat .env"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-bash-environment-dump",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "printenv"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-bash-git-commit",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "git commit -m \"update notes\""
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-bash-git-commit-staged-token",
+  "files": {
+   "config.txt": "value = \"{{TOKEN}}\"\n"
+  },
+  "stage": true,
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "git commit -m \"add config\""
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-bash-git-commit-staged-key",
+  "files": {
+   "deploy.txt": "{{KEY_BLOCK}}"
+  },
+  "stage": true,
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "git commit -m \"add key\""
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-bash-git-push",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "git push origin main"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-bash-unresolved-command",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "for t in git jq; do $t --version; done"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-bash-heredoc",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "cat > notes.txt <<'EOF'\nplain note\nEOF"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-write-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Write",
+     "tool_input": {
+      "file_path": "{{REPO}}/notes.md",
+      "content": "note line 1\nnote line 2\n"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-write-token",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Write",
+     "tool_input": {
+      "file_path": "{{REPO}}/conf.txt",
+      "content": "value = \"{{TOKEN}}\"\n"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-write-key-block",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Write",
+     "tool_input": {
+      "file_path": "{{REPO}}/deploy.txt",
+      "content": "{{KEY_BLOCK}}"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-write-protected-path",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Write",
+     "tool_input": {
+      "file_path": "{{REPO}}/.env",
+      "content": "MODE=dev\n"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-edit-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Edit",
+     "tool_input": {
+      "file_path": "{{REPO}}/src/lib.js",
+      "old_string": "return x + 1;",
+      "new_string": "return x + 2;"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-edit-token",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Edit",
+     "tool_input": {
+      "file_path": "{{REPO}}/src/lib.js",
+      "old_string": "return x + 1;",
+      "new_string": "return \"{{TOKEN}}\";"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-multiedit-key-block",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "MultiEdit",
+     "tool_input": {
+      "file_path": "{{REPO}}/src/lib.js",
+      "edits": [
+       {
+        "old_string": "a",
+        "new_string": "one"
+       },
+       {
+        "old_string": "b",
+        "new_string": "{{KEY_BLOCK}}"
+       }
+      ]
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-notebookedit-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "NotebookEdit",
+     "tool_input": {
+      "notebook_path": "{{REPO}}/n.ipynb",
+      "new_source": "print(1)"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-read-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Read",
+     "tool_input": {
+      "file_path": "{{REPO}}/src/lib.js"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-read-protected-path",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Read",
+     "tool_input": {
+      "file_path": "{{REPO}}/.env"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-read-example-file",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Read",
+     "tool_input": {
+      "file_path": "{{REPO}}/.env.example"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-grep",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Grep",
+     "tool_input": {
+      "pattern": "function",
+      "path": "{{REPO}}/src"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-glob",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Glob",
+     "tool_input": {
+      "pattern": "**/*.js",
+      "path": "{{REPO}}"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-webfetch-token",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "WebFetch",
+     "tool_input": {
+      "url": "https://example.invalid/docs",
+      "prompt": "use {{TOKEN}}"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-websearch-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "WebSearch",
+     "tool_input": {
+      "query": "posix shell read builtin"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-agent-key-block",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Agent",
+     "tool_input": {
+      "description": "review",
+      "prompt": "check this: {{KEY_BLOCK}}"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-mcp-token",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "mcp__notes__save",
+     "tool_input": {
+      "title": "draft",
+      "body": {
+       "text": "value {{TOKEN}}"
+      }
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-unknown-tool",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "future_tool",
+     "tool_input": {}
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-unknown-event",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "SomethingNew",
+     "x": 1
+    }
+   }
+  ]
+ },
+ {
+  "name": "pre-malformed-json",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "stdin": "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":"
+   }
+  ]
+ },
+ {
+  "name": "pre-empty-input",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "stdin": ""
+   }
+  ]
+ },
+ {
+  "name": "post-bash-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make test"
+     },
+     "tool_response": {
+      "stdout": "ordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\nordinary status: build passed\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-bash-assignment",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make show"
+     },
+     "tool_response": {
+      "stdout": "build passed\nAPI_KEY={{HEX}}\ndone\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-bash-token",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make show"
+     },
+     "tool_response": {
+      "stdout": "build passed\n{{TOKEN}}\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-bash-key-block",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make show"
+     },
+     "tool_response": {
+      "stdout": "{{KEY_BLOCK}}",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-bash-changed-tree",
+  "files": {
+   "src/new.js": "export const added = 1;\n"
+  },
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make build"
+     },
+     "tool_response": {
+      "stdout": "built\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-bash-changed-tree-key",
+  "files": {
+   "deploy.txt": "{{KEY_BLOCK}}"
+  },
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make build"
+     },
+     "tool_response": {
+      "stdout": "built\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-read-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Read",
+     "tool_input": {
+      "file_path": "{{REPO}}/src/lib.js"
+     },
+     "tool_response": {
+      "type": "text",
+      "file": {
+       "filePath": "{{REPO}}/src/lib.js",
+       "content": "export function f0(x) { return x; }\n",
+       "numLines": 1,
+       "startLine": 1,
+       "totalLines": 1
+      }
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-read-key-block",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Read",
+     "tool_input": {
+      "file_path": "{{REPO}}/deploy.txt"
+     },
+     "tool_response": {
+      "type": "text",
+      "file": {
+       "filePath": "{{REPO}}/deploy.txt",
+       "content": "{{KEY_BLOCK}}",
+       "numLines": 6,
+       "startLine": 1,
+       "totalLines": 6
+      }
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-write-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Write",
+     "tool_input": {
+      "file_path": "{{REPO}}/notes.md",
+      "content": "note\n"
+     },
+     "tool_response": {
+      "type": "create",
+      "filePath": "{{REPO}}/notes.md",
+      "content": "note\n"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-mcp-nested-token",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "mcp__notes__read",
+     "tool_input": {
+      "id": 7
+     },
+     "tool_response": {
+      "items": [
+       {
+        "text": "plain"
+       },
+       {
+        "text": "value {{TOKEN}}",
+        "meta": {
+         "n": 1
+        }
+       }
+      ],
+      "count": 2
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-mcp-text-assignment",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "mcp__notes__read",
+     "tool_input": {
+      "id": 8
+     },
+     "tool_response": "status ok\nAPI_KEY={{HEX}}\n"
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-failure-key-block",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool-failure"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUseFailure",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make deploy"
+     },
+     "error": "deploy failed\n{{KEY_BLOCK}}"
+    }
+   }
+  ]
+ },
+ {
+  "name": "post-failure-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool-failure"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUseFailure",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make deploy"
+     },
+     "error": "deploy failed: exit status 1"
+    }
+   }
+  ]
+ },
+ {
+  "name": "prompt-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-user-prompt"
+    ],
+    "input": {
+     "hook_event_name": "UserPromptSubmit",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "prompt": "summarize the build log"
+    }
+   }
+  ]
+ },
+ {
+  "name": "prompt-token",
+  "steps": [
+   {
+    "args": [
+     "hook-user-prompt"
+    ],
+    "input": {
+     "hook_event_name": "UserPromptSubmit",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "prompt": "use {{TOKEN}} for the request"
+    }
+   }
+  ]
+ },
+ {
+  "name": "prompt-key-block",
+  "steps": [
+   {
+    "args": [
+     "hook-user-prompt"
+    ],
+    "input": {
+     "hook_event_name": "UserPromptSubmit",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "prompt": "what is this?\n{{KEY_BLOCK}}"
+    }
+   }
+  ]
+ },
+ {
+  "name": "prompt-long",
+  "steps": [
+   {
+    "args": [
+     "hook-user-prompt"
+    ],
+    "input": {
+     "hook_event_name": "UserPromptSubmit",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "prompt": "The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. The build finished and the report lists ordinary warnings about unused imports. "
+    }
+   }
+  ]
+ },
+ {
+  "name": "sequence-block-then-prompt-then-stop",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Write",
+     "tool_input": {
+      "file_path": "{{REPO}}/deploy.txt",
+      "content": "{{KEY_BLOCK}}"
+     }
+    }
+   },
+   {
+    "args": [
+     "hook-user-prompt"
+    ],
+    "input": {
+     "hook_event_name": "UserPromptSubmit",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "prompt": "continue"
+    }
+   },
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "ls -la src"
+     }
+    }
+   },
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "ls -la src"
+     }
+    }
+   },
+   {
+    "args": [
+     "hook-stop"
+    ],
+    "input": {
+     "hook_event_name": "Stop",
+     "session_id": "parity",
+     "cwd": "{{REPO}}"
+    }
+   }
+  ]
+ },
+ {
+  "name": "stop-clean-tree",
+  "steps": [
+   {
+    "args": [
+     "hook-stop"
+    ],
+    "input": {
+     "hook_event_name": "Stop",
+     "session_id": "parity",
+     "cwd": "{{REPO}}"
+    }
+   }
+  ]
+ },
+ {
+  "name": "stop-changed-tree-key",
+  "files": {
+   "deploy.txt": "{{KEY_BLOCK}}"
+  },
+  "steps": [
+   {
+    "args": [
+     "hook-stop"
+    ],
+    "input": {
+     "hook_event_name": "Stop",
+     "session_id": "parity",
+     "cwd": "{{REPO}}"
+    }
+   }
+  ]
+ },
+ {
+  "name": "session-start",
+  "steps": [
+   {
+    "args": [
+     "hook-session-start"
+    ],
+    "input": {
+     "hook_event_name": "SessionStart",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "source": "startup"
+    }
+   }
+  ]
+ },
+ {
+  "name": "codex-pre-bash-clean",
+  "host": "codex",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "ls -la src"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "codex-pre-bash-key-block",
+  "host": "codex",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "printf '%s' '{{KEY_BLOCK}}'"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "codex-pre-apply-patch-key",
+  "host": "codex",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "apply_patch",
+     "tool_input": {
+      "patch": "*** Begin Patch\n*** Add File: deploy.txt\n+{{KEY_BLOCK}}*** End Patch"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "codex-post-bash-assignment",
+  "host": "codex",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make show"
+     },
+     "tool_response": {
+      "stdout": "build passed\nAPI_KEY={{HEX}}\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "codex-post-bash-key-block",
+  "host": "codex",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make show"
+     },
+     "tool_response": {
+      "stdout": "{{KEY_BLOCK}}",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "codex-prompt-key-block",
+  "host": "codex",
+  "steps": [
+   {
+    "args": [
+     "hook-user-prompt"
+    ],
+    "input": {
+     "hook_event_name": "UserPromptSubmit",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "prompt": "what is this?\n{{KEY_BLOCK}}"
+    }
+   }
+  ]
+ },
+ {
+  "name": "codex-stop",
+  "host": "codex",
+  "steps": [
+   {
+    "args": [
+     "hook-stop"
+    ],
+    "input": {
+     "hook_event_name": "Stop",
+     "session_id": "parity",
+     "cwd": "{{REPO}}"
+    }
+   }
+  ]
+ },
+ {
+  "name": "scanner-missing-default",
+  "env": {
+   "AGENT_GUARD_GITLEAKS_BIN": "/nonexistent/gitleaks"
+  },
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "ls -la src"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "scanner-missing-open",
+  "env": {
+   "AGENT_GUARD_GITLEAKS_BIN": "/nonexistent/gitleaks",
+   "AGENT_GUARD_INFRA_FAILURE_MODE": "open"
+  },
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "ls -la src"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "scanner-missing-post-closed",
+  "env": {
+   "AGENT_GUARD_GITLEAKS_BIN": "/nonexistent/gitleaks",
+   "AGENT_GUARD_INFRA_FAILURE_MODE": "closed"
+  },
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make test"
+     },
+     "tool_response": {
+      "stdout": "build passed\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "log-off",
+  "env": {
+   "AGENT_GUARD_LOG_MODE": "off"
+  },
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "ls -la src"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "output-redact-off",
+  "env": {
+   "AGENT_GUARD_OUTPUT_REDACT": "off"
+  },
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make show"
+     },
+     "tool_response": {
+      "stdout": "API_KEY={{HEX}}\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "cli-version",
+  "steps": [
+   {
+    "args": [
+     "version"
+    ],
+    "stdin": ""
+   }
+  ]
+ },
+ {
+  "name": "cli-exec-clean",
+  "steps": [
+   {
+    "args": [
+     "exec",
+     "--",
+     "cat",
+     "README.md"
+    ],
+    "stdin": ""
+   }
+  ]
+ },
+ {
+  "name": "cli-exec-assignment",
+  "files": {
+   "out.txt": "build passed\nAPI_KEY={{HEX}}\n"
+  },
+  "steps": [
+   {
+    "args": [
+     "exec",
+     "--",
+     "cat",
+     "out.txt"
+    ],
+    "stdin": ""
+   }
+  ]
+ },
+ {
+  "name": "cli-exec-exit-status",
+  "steps": [
+   {
+    "args": [
+     "exec",
+     "--",
+     "sh",
+     "-c",
+     "echo partial; exit 7"
+    ],
+    "stdin": ""
+   }
+  ]
+ },
+ {
+  "name": "cli-scan-staged-clean",
+  "files": {
+   "notes.md": "plain\n"
+  },
+  "stage": true,
+  "steps": [
+   {
+    "args": [
+     "scan-staged"
+    ],
+    "stdin": ""
+   }
+  ]
+ },
+ {
+  "name": "cli-scan-staged-key",
+  "files": {
+   "deploy.txt": "{{KEY_BLOCK}}"
+  },
+  "stage": true,
+  "steps": [
+   {
+    "args": [
+     "scan-staged"
+    ],
+    "stdin": ""
+   }
+  ]
+ },
+ {
+  "name": "cli-scan-path",
+  "steps": [
+   {
+    "args": [
+     "scan-path",
+     "--",
+     "."
+    ],
+    "stdin": ""
+   }
+  ]
+ },
+ {
+  "name": "cli-unknown-command",
+  "steps": [
+   {
+    "args": [
+     "no-such-command"
+    ],
+    "stdin": ""
+   }
+  ]
+ }
+]
