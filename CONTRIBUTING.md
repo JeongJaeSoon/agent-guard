@@ -28,13 +28,15 @@ security tiers or test-pyramid layers.
 
 ## Test-only environment variables
 
-The hook launcher and the CLI read these so that tests can isolate the
-deduplication of warning notices. They are not user settings.
+The hook launcher and the CLI read these so that tests can isolate warning
+markers. They are not user settings. The CLI also keys the recovery notice it
+queues for a blocked injected prompt on both, so a test of that recovery keeps
+both the same across its hook calls.
 
 | Variable | Use |
 | --- | --- |
 | `AGENT_GUARD_SESSION_ID` | Replaces the payload's `session_id` as the key that deduplicates notices |
-| `AGENT_GUARD_WARNING_DIR` | Directory of the notice markers (default `${TMPDIR:-/tmp}/agent-guard-warnings-<uid>`) |
+| `AGENT_GUARD_WARNING_DIR` | Directory of the notice markers and queued recovery notices (default `${TMPDIR:-/tmp}/agent-guard-warnings-<uid>`) |
 
 ## Direct contract inventory
 

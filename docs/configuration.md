@@ -670,7 +670,7 @@ Hook modes:
 
 | Variable | Default / use |
 | --- | --- |
-| `AGENT_GUARD_INFRA_FAILURE_MODE` | Hook behavior when a dependency, policy or scanner fails: unset (default), `open` or `closed`. Unset is `closed` for a secret scan that did not run and `open` for every other infrastructure failure; `SessionStart` only reports degraded protection in every mode, and `PostToolUseFailure` cannot block, so it reports the unchecked output instead ([Infrastructure policy](#infrastructure-policy)). The shell integration (wrapped commands and `agx`) reads it only when it cannot locate the CLI or `agent-guard check` fails: `closed` then refuses the command, and otherwise it runs unmasked. |
+| `AGENT_GUARD_INFRA_FAILURE_MODE` | Hook behavior when a dependency, policy or scanner fails: unset (default), `open` or `closed`. Unset is `closed` for a secret scan that did not run and `open` for every other infrastructure failure. Not every event can or does block, and the plugin hook launcher has its own startup rules: see [Infrastructure policy](#infrastructure-policy) and [Integrations](integrations.md). The shell integration (wrapped commands and `agx`) reads it only when it cannot locate the CLI or `agent-guard check` fails: `closed` then refuses the command, and otherwise it runs unmasked. |
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block` (default), `warn`, `off`, or the currently blocking `mask` fallback. |
 | `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
 | `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
@@ -761,7 +761,7 @@ do not recognize, and an empty value is not always the same as unset.
 
 | Setting | Recognized values | Any other value |
 | --- | --- | --- |
-| `AGENT_GUARD_INFRA_FAILURE_MODE` | `open`, `closed` | Read as unset, as an empty value is: a secret scan that did not run blocks (`PostToolUseFailure` only reports it), other infrastructure failures continue |
+| `AGENT_GUARD_INFRA_FAILURE_MODE` | `open`, `closed` | Read as unset, as an empty value is ([Infrastructure policy](#infrastructure-policy)) |
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block`, `warn`, `off`, `mask`; empty is `block` | Error: the prompt is blocked with exit status 2 |
 | `AGENT_GUARD_PII_HOOK_MODE` | `off`, `block`, `mask`; empty is `off` | Error: the affected hook exits with status 2 |
 | `AGENT_GUARD_PII_PROVIDER` | `regex`, `http`, `pleno`; empty is `regex` | Error where the provider is called ([PII handling](#pii-handling)) |
