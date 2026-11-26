@@ -11,7 +11,7 @@ use std::path::Path;
 const UNSTABLE: &[&str] = &[
     "audit events: run_id, time and duration_seconds, and the event file's name",
     "the CLI's cache files in the state directory (gitleaks-probe, gitleaks-clean, deny-path-regex, gitleaks-helper): content, and in their names every run of digits and every run of 8 or more hexadecimal characters (times, file identities, hashes)",
-    "inside the repository's .git: content of the index, the logs and the objects (the index and logs hold times; an object is named by its content)",
+    "inside the repository's .git: content of the logs and the objects (the logs hold times; an object is named by its content), and the index beyond what git ls-files --stage -v lists (file times and sizes)",
     "the warning directory: the user number in its name, and a line of digits only in a marker (the time it was written)",
     "each side's own plugin root in output, read as one placeholder",
 ];
@@ -85,9 +85,10 @@ fn stable_name(path: &str) -> String {
     out
 }
 
-/// Every entry under the repository, home, state and temporary directories.
-/// A directory is an entry of its own (named with a trailing slash): an
-/// empty one can be state. Anything that cannot be read fails the
+/// Every entry of the sandbox but the scanner directory: the repository,
+/// home, state and temporary directories and anything left beside them. A
+/// directory is an entry of its own (named with a trailing slash): an empty
+/// one can be state, and so can its permissions. Anything that cannot be read fails the
 /// comparison; only an entry that vanished meanwhile is skipped.
 fn tree(base: &Path) -> Result<BTreeMap<String, Entry>> {
     use std::os::unix::fs::PermissionsExt;
@@ -104,7 +105,17 @@ fn tree(base: &Path) -> Result<BTreeMap<String, Entry>> {
         };
         for entry in entries {
             let Some(entry) = gone(entry)? else { continue };
-            let name = format!("{prefix}/{}", entry.file_name().to_string_lossy());
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            // The scanner directory both sides share is watched apart.
+            if prefix.is_empty() && file_name == "bin" {
+                continue;
+            }
+            let name = if prefix.is_empty() {
+                file_name.to_string()
+            } else {
+                format!("{prefix}/{file_name}")
+            };
             let Some(meta) = gone(std::fs::symlink_metadata(entry.path()))? else {
                 continue;
             };
@@ -131,23 +142,7 @@ fn tree(base: &Path) -> Result<BTreeMap<String, Entry>> {
         Ok(())
     }
     let mut out = BTreeMap::new();
-    for name in ["repo", "home", "s", "t"] {
-        // The four directories are entries too: one that was removed, made a
-        // link or given other permissions is a change.
-        let path = base.join(name);
-        let Some(meta) = gone(std::fs::symlink_metadata(&path))? else {
-            continue;
-        };
-        if meta.file_type().is_dir() {
-            out.insert(
-                format!("{name}/"),
-                (meta.permissions().mode() & 0o7777, Vec::new()),
-            );
-            walk(&path, name, &mut out)?;
-        } else {
-            out.insert(name.to_owned(), (0, b"not a directory".to_vec()));
-        }
-    }
+    walk(base, "", &mut out)?;
     Ok(out)
 }
 
@@ -180,8 +175,8 @@ fn change(path: &str, entry: &Entry) -> Change {
         "s/agent-guard/deny-path-regex-",
         "s/agent-guard/gitleaks-helper/",
     ];
-    // The index and the logs hold times; an object is named by its content.
-    const GIT_VOLATILE: [&str; 3] = ["repo/.git/index", "repo/.git/logs/", "repo/.git/objects/"];
+    // The logs hold times; an object is named by its content.
+    const GIT_VOLATILE: [&str; 2] = ["repo/.git/logs/", "repo/.git/objects/"];
     let (mode, bytes) = (entry.0, entry.1.as_slice());
     let directory = path.ends_with('/');
     let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
@@ -248,11 +243,42 @@ fn change(path: &str, entry: &Entry) -> Change {
                 ("t", true) => "temporary-directory",
                 ("t", false) => "temporary-file",
                 ("repo", _) => "repository-file",
-                _ => "home-file",
+                ("home", _) => "home-file",
+                _ => "sandbox-file",
             };
             (label, path.to_owned(), bytes.to_vec())
         };
     (label, name, mode, bytes)
+}
+
+/// The sandbox as a step leaves it. The index is read as Git lists it: its
+/// bytes hold file times, its entries (mode, object, stage, flags) do not.
+fn snapshot(sandbox: &Sandbox) -> Result<BTreeMap<String, Entry>> {
+    let mut entries = tree(&sandbox.base)?;
+    if let Some(index) = entries.get_mut("repo/.git/index") {
+        let command = ["git", "-C", &sandbox.repo, "ls-files", "--stage", "-v"].map(String::from);
+        let mut env = sandbox.env();
+        env.insert("GIT_OPTIONAL_LOCKS".into(), "0".into());
+        let (_, out) = invoke_isolated(&command, b"", &env, None, 30.0)?;
+        index.1 = [format!("{}\n", out.status).into_bytes(), out.stdout].concat();
+    }
+    Ok(entries)
+}
+
+/// Remove whatever a side left in the sandbox beside the scanner directory.
+fn clear(base: &Path) -> Result<()> {
+    for entry in std::fs::read_dir(base)? {
+        let entry = entry?;
+        if entry.file_name() == "bin" {
+            continue;
+        }
+        if entry.file_type()?.is_dir() {
+            remove_tree(&entry.path())?;
+        } else {
+            std::fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
 }
 
 /// What one step changed, in a fixed order.
@@ -378,10 +404,40 @@ fn compared(a: &[u8], b: &[u8]) -> Value {
     json!({"equal": a == b, "bytes": [a.len(), b.len()], "first_difference": first})
 }
 
+const CORPUS: &str = "tests/fixtures/cli-differential.json";
+
 /// The report of a comparison that could not start or finish says so; an
 /// earlier report at the same path never outlives a failed run.
 pub fn differential(args: &Args) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
     let out_path = std::path::PathBuf::from(args.get("--out")?);
+    // The report never replaces a file the comparison reads.
+    let identity = |path: &Path| std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()));
+    if let Some(out) = identity(&out_path) {
+        let mut inputs: Vec<String> = [
+            "--baseline",
+            "--candidate",
+            "--scanner",
+            "--corpus",
+            "--baseline-shell",
+            "--candidate-shell",
+        ]
+        .iter()
+        .filter_map(|option| args.get(option).ok())
+        .collect();
+        inputs.extend(
+            root()
+                .ok()
+                .map(|root| root.join(CORPUS).display().to_string()),
+        );
+        inputs.extend(version(&["sh", "-c", "command -v gitleaks"]).ok());
+        ensure(
+            !inputs
+                .iter()
+                .any(|input| identity(Path::new(input)) == Some(out)),
+            "--out names a file the comparison reads",
+        )?;
+    }
     match std::fs::remove_file(&out_path) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
         _ => {}
@@ -449,10 +505,7 @@ fn compare(args: &Args, out_path: &Path) -> Result<()> {
     ))?;
     let corpus_path = match args.get("--corpus") {
         Ok(path) => path,
-        Err(_) => root()?
-            .join("tests/fixtures/cli-differential.json")
-            .display()
-            .to_string(),
+        Err(_) => root()?.join(CORPUS).display().to_string(),
     };
     let corpus = read_json(&corpus_path)?;
     let selected = args.all("--case");
@@ -464,6 +517,9 @@ fn compare(args: &Args, out_path: &Path) -> Result<()> {
     std::fs::create_dir(&bin)?;
     std::fs::copy(&scanner, bin.join("gitleaks"))?;
     let installed = scanner_directory(&bin)?;
+    // Asked before any step: a side may leave no repository to ask from.
+    let scanner_version =
+        sandbox.version(&[&bin.join("gitleaks").display().to_string(), "version"])?;
     let digest = |label: &str| format!("{:x}", Sha256::digest(label));
     let vars = [
         ("{{REPO}}", sandbox.repo.clone()),
@@ -528,6 +584,7 @@ fn compare(args: &Args, out_path: &Path) -> Result<()> {
     }
     ensure(!cases.is_empty(), "the corpus has no case")?;
     let run_case = |case: &Value, side: &Side| -> Result<Vec<Outcome>> {
+        clear(&sandbox.base)?;
         sandbox.reset()?;
         let repo = Path::new(&sandbox.repo);
         if let Some(files) = case["files"].as_object() {
@@ -578,9 +635,9 @@ fn compare(args: &Args, out_path: &Path) -> Result<()> {
                 Some(text) => text.as_bytes().to_vec(),
                 None => serde_json::to_vec(&step["input"])?,
             };
-            let before = tree(&sandbox.base)?;
+            let before = snapshot(&sandbox)?;
             let (_, out) = invoke_isolated(&command, &input, &env, Some(repo), timeout)?;
-            let state = transition(&before, &tree(&sandbox.base)?);
+            let state = transition(&before, &snapshot(&sandbox)?);
             // The scanner is shared by both sides and every case.
             ensure(
                 scanner_directory(&bin)? == installed,
@@ -703,7 +760,7 @@ fn compare(args: &Args, out_path: &Path) -> Result<()> {
         "entry": entry,
         "baseline": describe(&sides[0])?,
         "candidate": describe(&sides[1])?,
-        "scanner_version": sandbox.version(&[&bin.join("gitleaks").display().to_string(), "version"])?,
+        "scanner_version": scanner_version,
         "scanner_sha256": hash(bin.join("gitleaks"))?,
         "corpus_sha256": hash(&corpus_path)?,
         "compared": "exit status, decision, standard output and standard error byte for byte, audit events and the files each step left",
@@ -900,7 +957,9 @@ mod tests {
             ("t/agent-guard-warnings-501/blocked-injection-1", true),
             ("home/left-behind", true),
             ("repo/notes.md", true),
-            ("repo/.git/index", false),
+            // The index arrives here as Git lists it, without file times.
+            ("repo/.git/index", true),
+            ("left-behind", true),
             ("repo/.git/logs/HEAD", false),
             ("repo/.git/objects/ab/cdef", false),
             ("repo/.git/HEAD", true),

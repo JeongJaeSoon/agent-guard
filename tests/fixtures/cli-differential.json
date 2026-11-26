@@ -677,7 +677,7 @@
       "command": "make show"
      },
      "tool_response": {
-      "stdout": "build passed\nAPI_KEY=[REDACTED]done\n",
+      "stdout": "build passed\nAPI_KEY={{HEX}}\ndone\n",
       "stderr": "",
       "interrupted": false
      }
@@ -918,7 +918,7 @@
      "tool_input": {
       "id": 8
      },
-     "tool_response": "status ok\nAPI_KEY=[REDACTED]"
+     "tool_response": "status ok\nAPI_KEY={{HEX}}"
     }
    }
   ]
@@ -1222,7 +1222,7 @@
       "command": "make show"
      },
      "tool_response": {
-      "stdout": "build passed\nAPI_KEY=[REDACTED]",
+      "stdout": "build passed\nAPI_KEY={{HEX}}",
       "stderr": "",
       "interrupted": false
      }
@@ -1419,7 +1419,7 @@
       "command": "make show"
      },
      "tool_response": {
-      "stdout": "API_KEY=[REDACTED]",
+      "stdout": "build passed\nAPI_KEY={{HEX}}\ndone\n",
       "stderr": "",
       "interrupted": false
      }
@@ -1455,7 +1455,7 @@
  {
   "name": "cli-exec-assignment",
   "files": {
-   "out.txt": "build passed\nAPI_KEY=[REDACTED]"
+   "out.txt": "build passed\nAPI_KEY={{HEX}}"
   },
   "steps": [
    {
@@ -1727,7 +1727,7 @@
       "command": "make show"
      },
      "tool_response": {
-      "stdout": "결과 😀\nAPI_KEY=[REDACTED]\n完了\n",
+      "stdout": "결과 😀\nAPI_KEY={{HEX}}\n完了\n",
       "stderr": "",
       "interrupted": false
      }
@@ -1855,7 +1855,7 @@
      "hook_event_name": "UserPromptSubmit",
      "session_id": "parity",
      "cwd": "{{REPO}}",
-     "prompt": "설정은 API_KEY=[REDACTED] 입니다"
+     "prompt": "설정은 API_KEY={{HEX}} 입니다"
     }
    }
   ]
@@ -1863,7 +1863,7 @@
  {
   "name": "unicode-exec-assignment",
   "files": {
-   "출력.txt": "결과 😀\nAPI_KEY=[REDACTED]\n"
+   "출력.txt": "결과 😀\nAPI_KEY={{HEX}}\n"
   },
   "steps": [
    {
@@ -1894,7 +1894,7 @@
       "command": "make show"
      },
      "tool_response": {
-      "stdout": "결과\nAPI_KEY=[REDACTED]\n",
+      "stdout": "결과\nAPI_KEY={{HEX}}\n",
       "stderr": "",
       "interrupted": false
      }

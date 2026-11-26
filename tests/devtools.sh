@@ -367,6 +367,34 @@ mutant stamp-one 'echo 1 >"$TMPDIR/stamp"'
 mutant stamp-two 'echo 2 >"$TMPDIR/stamp"'
 differs stamp-one stamp-two
 jq -e '.differences == 1 and (.cases[0].steps[0].state | (.equal | not) and .changes.baseline == .changes.candidate)' "$CASE/parity-stamp-two.json" >/dev/null
+# The report cannot replace a file the comparison reads.
+cp tests/fixtures/cli-differential.json "$CASE/aliased.json"
+if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --corpus "$CASE/aliased.json" \
+    --case pre-read-clean --out "$CASE/aliased.json" >/dev/null 2>&1; then
+  echo 'cli-differential wrote its report over its corpus' >&2; exit 1
+fi
+cmp -s tests/fixtures/cli-differential.json "$CASE/aliased.json"
+# Whatever a step leaves in the sandbox counts, beside the four directories too.
+mutant beside ': >"$HOME/../left-behind"'
+differs plain beside
+jq -e '.complete and .differences == 1' "$CASE/parity-beside.json" >/dev/null
+# The staged mode and the flags of an index entry are state.
+mutant staged-mode 'git update-index --chmod=+x README.md'
+mutant staged-flag 'git update-index --assume-unchanged README.md'
+differs staged-mode staged-flag
+jq -e '.complete and .differences == 1 and (.cases[0].steps[0].state.equal | not)' "$CASE/parity-staged-flag.json" >/dev/null
+# A side that removes the repository is a difference, not a run that failed.
+mutant no-repo 'rm -rf "$HOME/../repo"'
+differs plain no-repo
+jq -e '.complete and .differences == 1' "$CASE/parity-no-repo.json" >/dev/null
+# The corpus holds no value that is already masked: the default mode rewrites
+# the output of this case, and with redaction off the same output passes.
+if grep -qF 'REDACTED' tests/fixtures/cli-differential.json; then
+  echo 'the differential corpus holds a masked value' >&2; exit 1
+fi
+"$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --case post-bash-assignment --case output-redact-off \
+  --out "$CASE/parity-redact.json" >/dev/null 2>&1
+jq -e '.differences == 0 and ([.cases[].steps[0].stdout.bytes[0]] | .[0] > 0 and .[0] != .[1])' "$CASE/parity-redact.json" >/dev/null
 # A repeated option keeps its last value.
 test ! -e "$CASE/ignored-out"
 printf 'Developer tools: option parsing, resource status, source-location and failed-partition contracts passed\n'

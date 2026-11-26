@@ -181,20 +181,23 @@ written, and the files left behind. `--baseline-shell` and
 What two runs of one build may differ in is not compared and is listed in the
 report as `not_compared`: the time, run identifier and duration of an audit
 event, the content of the CLI's cache files and the times and hashes in their
-names, the times Git keeps in its index and logs, and the time a warning
-marker holds. Every other file is compared by name, permission bits and
-content. A new entry there needs a reason; a difference is otherwise a bug in
+names, the times Git keeps in its logs and beside its index entries (the
+index is compared as `git ls-files --stage -v` lists it), and the time a
+warning marker holds. Every other entry of the sandbox is compared by name,
+permission bits and content. A new entry there needs a reason; a difference is otherwise a bug in
 the change.
 
 The report holds case names, sizes, equality, the first differing offset and
 a count of what each step left by kind (audit event, cache, state file,
-temporary file, home file, repository file), never the text of an input or
+temporary file, home file, repository file, other sandbox file), never the
+text of an input or
 an output and never a file name, which can hold a session identifier. So the
 same command is safe on a corpus that is not synthetic. `--names` prints the
 names of the entries that differ to standard error, for a synthetic corpus.
 A comparison that cannot finish (a timeout, state it cannot read, a build
 that wrote to the scanner directory both sides share) replaces any earlier
-report with one that says `complete: false`. A corpus is trusted input: a
+report with one that says `complete: false`; `--out` may not name a file
+the comparison reads. A corpus is trusted input: a
 step can be `exec`, which runs a command. Its `env` may set only
 `AGENT_GUARD_` variables, and no value may be a path other than one under
 `/nonexistent/`. Corpus strings may use `{{REPO}}`, `{{TOKEN}}`,
