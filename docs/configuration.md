@@ -612,8 +612,9 @@ check applies to a Bash command only in:
 
 `AGENT_GUARD_SESSION_ROLE` accepts only `review`; unset or empty means no
 effect. Any other value, such as `Review` or `reveiw`, is an error that fails
-closed: every `docker`, `podman` or `nerdctl` command is refused
-(`reason=bash_container_session_role_invalid`) whatever the agent type, and
+closed: when the Bash hook reaches the container check, it refuses every
+command that names `docker`, `podman` or `nerdctl`, even as a plain word or a
+path (`reason=bash_container_session_role_invalid`), whatever the agent type, and
 `agent-guard doctor` reports it and exits non-zero. The message names the
 variable and the accepted values, never the value. Fix or unset the variable.
 
