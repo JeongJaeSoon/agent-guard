@@ -10,7 +10,9 @@
 #   AGENT_GUARD_HOME      install destination (default: $HOME/.agent-guard).
 #   AGENT_GUARD_BIN_DIR   directory the agent-guard symlink lives in (default:
 #                         $HOME/.local/bin).
-#   AGENT_GUARD_REPO      override the source repo (default: JeongJaeSoon/agent-guard).
+#   AGENT_GUARD_REPO      test seam, with AG_PLUGIN_TEST_MODE=1: the source repo
+#                         (default: JeongJaeSoon/agent-guard). Fork installs are
+#                         not supported; outside tests it is deprecated.
 #   AGENT_GUARD_COMMAND_WRAPPING
 #                         command wrapping is installed on by default. Set to
 #                         off, false, no, or 0 for a persistent opt-out. When
@@ -28,6 +30,11 @@ prog=agent-guard-bootstrap
 
 info() { printf '%s\n' "$*" >&2; }
 die()  { info "$prog: $*"; exit 2; }
+
+# The warning names the setting, never its value.
+if [ -n "${AGENT_GUARD_REPO:-}" ] && [ "${AG_PLUGIN_TEST_MODE:-0}" != 1 ]; then
+  info "$prog: AGENT_GUARD_REPO is deprecated outside tests (AG_PLUGIN_TEST_MODE=1): it is still used now, but a later release ignores it and installs from the project repository. Fork installs are not supported; agent-guard update already uses the project repository."
+fi
 
 require() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
