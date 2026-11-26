@@ -6,10 +6,12 @@ use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 static GROUPS: [AtomicI32; 128] = [const { AtomicI32::new(0) }; 128];
-extern "C" fn interrupted(signal: i32) {
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+static INTERRUPT_PIPE: AtomicI32 = AtomicI32::new(-1);
+fn kill_groups() {
     for slot in &GROUPS {
         let pid = slot.load(Ordering::Relaxed);
         if pid > 0 {
@@ -18,9 +20,48 @@ extern "C" fn interrupted(signal: i32) {
             }
         }
     }
+}
+extern "C" fn interrupted(signal: i32) {
+    INTERRUPTED.store(true, Ordering::Relaxed);
+    kill_groups();
+    // With a directory to remove, only wake its thread: removing files is
+    // not safe in a signal handler. That thread ends the process.
+    let pipe = INTERRUPT_PIPE.load(Ordering::Relaxed);
+    let byte = signal as u8;
+    if pipe >= 0 && unsafe { libc::write(pipe, (&raw const byte).cast(), 1) } == 1 {
+        return;
+    }
     unsafe {
         libc::_exit(128 + signal);
     }
+}
+/// Remove a temporary directory when SIGINT or SIGTERM ends the run, which a
+/// destructor would not: the handler leaves through _exit.
+pub fn remove_on_interrupt(path: PathBuf) -> Result<()> {
+    let mut pipe = [0; 2];
+    ensure(
+        unsafe { libc::pipe(pipe.as_mut_ptr()) } == 0
+            && pipe
+                .iter()
+                .all(|fd| unsafe { libc::fcntl(*fd, libc::F_SETFD, libc::FD_CLOEXEC) } == 0),
+        "could not prepare interrupt cleanup",
+    )?;
+    std::thread::spawn(move || {
+        let mut byte = 0u8;
+        if unsafe { libc::read(pipe[0], (&raw mut byte).cast(), 1) } == 1 {
+            // A child started as the signal arrived may still be writing.
+            for _ in 0..40 {
+                kill_groups();
+                if std::fs::remove_dir_all(&path).is_ok() || !path.exists() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            unsafe { libc::_exit(128 + i32::from(byte)) };
+        }
+    });
+    INTERRUPT_PIPE.store(pipe[1], Ordering::Relaxed);
+    Ok(())
 }
 pub fn install_interrupt_cleanup() {
     unsafe {
@@ -243,12 +284,39 @@ pub fn invoke(
     cwd: Option<&Path>,
     timeout: f64,
 ) -> Result<(f64, Output)> {
+    run(command, input, env, cwd, timeout, true)
+}
+/// Like invoke, but the child sees env alone: nothing of the caller's session.
+pub fn invoke_isolated(
+    command: &[String],
+    input: &[u8],
+    env: &Env,
+    cwd: Option<&Path>,
+    timeout: f64,
+) -> Result<(f64, Output)> {
+    run(command, input, env, cwd, timeout, false)
+}
+fn run(
+    command: &[String],
+    input: &[u8],
+    env: &Env,
+    cwd: Option<&Path>,
+    timeout: f64,
+    inherit: bool,
+) -> Result<(f64, Output)> {
     ensure(
         !command.is_empty() && timeout.is_finite() && timeout > 0.0,
         "invalid command/timeout",
     )?;
+    while INTERRUPTED.load(Ordering::Relaxed) {
+        // The cleanup thread is about to end the process; start nothing new.
+        std::thread::park();
+    }
     let start = Instant::now();
     let mut builder = Command::new(&command[0]);
+    if !inherit {
+        builder.env_clear();
+    }
     builder
         .args(&command[1..])
         .envs(env)

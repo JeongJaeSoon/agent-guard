@@ -4,7 +4,9 @@
 # podman, nerdctl and their compose forms): no command that names a stack
 # listed in protected-containers.txt, no database client through a container
 # exec, and no container exec whose target cannot be read from the command
-# text. A plain Claude session keeps every one of these commands.
+# text. A plain Claude session keeps every one of these commands. A role
+# value other than review is a typo, not a plain session: it refuses every
+# container runtime command, and doctor reports it.
 #
 # Ground truth: each row also runs for real against a stub runtime that only
 # records its arguments, standard input, directory and compose project. What
@@ -67,14 +69,19 @@ ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$1"; }
 bad() { fail=$((fail + 1)); printf 'not ok - %s\n' "$1"; }
 
 hook() { # $1 session kind, $2 command, $3 directory; sets status, stderr in $CASE/err
-  h_role= h_agent= h_project=
+  h_role= h_agent= h_project= h_empty=
   case $1 in
     review-env) h_role=review ;;
     review-project) h_role=review h_project=$STACK ;;
     review-agent) h_agent=code-reviewer ;;
     plain) ;;
     plain-agent) h_agent=Explore ;;
-    plain-role) h_role=build ;;
+    typo-case) h_role=Review ;;
+    typo-spelling) h_role=reveiw ;;
+    typo-agent) h_role=reveiw h_agent=code-reviewer ;;
+    other-role) h_role=build ;;
+    empty-role) h_empty=1 ;;
+    empty-role-agent) h_empty=1 h_agent=code-reviewer ;;
     *) printf 'unknown session kind %s\n' "$1" >&2; exit 1 ;;
   esac
   jq -nc --arg c "$2" --arg d "$3" --arg a "$h_agent" '
@@ -82,7 +89,8 @@ hook() { # $1 session kind, $2 command, $3 directory; sets status, stderr in $CA
      tool_input: {command: $c}, cwd: $d}
     + (if $a == "" then {} else {agent_id: "agent-1", agent_type: $a} end)' \
     | env HOME="$POLICY_HOME" AGENT_GUARD_HOOK_HOST=claude \
-        ${h_role:+AGENT_GUARD_SESSION_ROLE="$h_role"} ${h_project:+COMPOSE_PROJECT_NAME="$h_project"} \
+        ${h_empty:+AGENT_GUARD_SESSION_ROLE=} ${h_role:+AGENT_GUARD_SESSION_ROLE="$h_role"} \
+        ${h_project:+COMPOSE_PROJECT_NAME="$h_project"} \
         "$BIN" hook-pre-tool >/dev/null 2>"$CASE/err"
   status=$?
 }
@@ -304,8 +312,8 @@ POLICY_HOME=$UNLISTED
 free review-env skip "docker exec $DB ls /"
 POLICY_HOME=$LISTED
 
-# Session kinds that are not restricted: another agent type, another role.
-for kind in plain-agent plain-role; do
+# Session kinds that are not restricted: another agent type, an empty role.
+for kind in plain-agent empty-role; do
   free "$kind" stack "docker exec $DB ls /"
   free "$kind" db "docker exec other-db-1 psql -U app -c 'select 1'"
   free "$kind" stack 'docker exec $TARGET ls'
@@ -313,6 +321,71 @@ done
 POLICY_HOME=$BROKEN
 free plain skip 'docker ps'
 POLICY_HOME=$LISTED
+# An empty role leaves the agent type check as it was.
+held empty-role-agent bash_container_protected_stack stack "docker exec $DB ls /"
+
+# A role other than review, a case or spelling typo included, refuses every
+# container runtime command, whatever it names and whatever the agent type,
+# and nothing else.
+for kind in typo-case typo-spelling typo-agent other-role; do
+  held "$kind" bash_container_session_role_invalid stack "docker exec $DB ls /"
+  held "$kind" bash_container_session_role_invalid db "docker exec other-db-1 psql -l"
+  held "$kind" bash_container_session_role_invalid none 'docker ps'
+  free "$kind" none 'ls -la'
+  free "$kind" none 'grep -c "docker exec other-db-1 psql" README.md'
+done
+# Decided trade-off: the refusal reads the same runtime words the review
+# boundary looks at, so it is never weaker than a correct review session, and
+# it also refuses a runtime name that is only a word or a path.
+held typo-spelling bash_container_session_role_invalid none 'echo docker'
+held typo-spelling bash_container_session_role_invalid none 'git status -- deploy/docker/compose.yml'
+POLICY_HOME=$UNLISTED
+held typo-spelling bash_container_session_role_invalid none 'docker ps'
+POLICY_HOME=$LISTED
+# The message names the variable and the accepted values, never the value.
+hook typo-spelling 'docker ps' "$W"
+if grep -Fq 'AGENT_GUARD_SESSION_ROLE' "$CASE/err" && grep -Fq 'accepted values: review' "$CASE/err" \
+   && grep -Fq 'the cause is the session' "$CASE/err" && grep -Fq 'unsets it' "$CASE/err" \
+   && ! grep -Fq reveiw "$CASE/err"; then
+  ok "the refusal names AGENT_GUARD_SESSION_ROLE and its accepted values, not the value"
+else
+  bad "the refusal should name AGENT_GUARD_SESSION_ROLE and its accepted values, not the value"
+  sed 's/^/  stderr: /' "$CASE/err"
+fi
+
+# doctor reports a role it does not accept, fails for it, and keeps its status
+# and output otherwise.
+doctor_run() { # $1 role (unset when empty); sets d_status, output in $CASE/doctor
+  env HOME="$CASE/run-home" AGENT_GUARD_CODEX_TRUST_CHECK=off \
+    ${1:+AGENT_GUARD_SESSION_ROLE="$1"} "$BIN" doctor >"$CASE/doctor" 2>&1
+  d_status=$?
+}
+doctor_run ''
+d_base=$d_status
+if ! grep -Fq AGENT_GUARD_SESSION_ROLE "$CASE/doctor"; then
+  ok "doctor without a role says nothing about it"
+else
+  bad "doctor without a role mentions it"
+  sed 's/^/  doctor: /' "$CASE/doctor"
+fi
+doctor_run review
+if [ "$d_status" -eq "$d_base" ] && ! grep -Fq AGENT_GUARD_SESSION_ROLE "$CASE/doctor"; then
+  ok "doctor accepts AGENT_GUARD_SESSION_ROLE=review"
+else
+  bad "doctor with the review role: status $d_status, base $d_base"
+  sed 's/^/  doctor: /' "$CASE/doctor"
+fi
+for d_role in reveiw Review; do
+  doctor_run "$d_role"
+  if [ "$d_status" -ne 0 ] \
+     && grep -F AGENT_GUARD_SESSION_ROLE "$CASE/doctor" | grep -Fq 'accepted values: review' \
+     && ! grep -Fq "$d_role" "$CASE/doctor"; then
+    ok "doctor fails for a role it does not accept and names the variable, not the value"
+  else
+    bad "doctor should fail for an unaccepted role (status $d_status)"
+    sed 's/^/  doctor: /' "$CASE/doctor"
+  fi
+done
 
 # The stub must have seen the rows: a harness that runs nothing would agree
 # with every "none".

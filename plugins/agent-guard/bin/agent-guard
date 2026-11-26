@@ -250,6 +250,8 @@ fi
 DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash-patterns.txt"}
 GITLEAKS_PRIVATE_BIN_DIR=${AGENT_GUARD_GITLEAKS_BIN_DIR:-${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}}
 LIVE_PRE_TOOL_PROBE=AGENT_GUARD_LIVE_PRE_TOOL_PROBE
+# Never holds the value: a typo may be anything the user pasted.
+SESSION_ROLE_INVALID='AGENT_GUARD_SESSION_ROLE is set to a value that is not accepted (accepted values: review, or unset or empty for no effect)'
 LIVE_POST_TOOL_PROBE=AGENT_GUARD_LIVE_POST_TOOL_PROBE
 LIVE_POST_TOOL_REPLACEMENT_PREFIX='[REDACTED] agent-guard live probe run_id='
 # Delimiters of the rc block `setup-shell` manages. `hook-session-start` reads
@@ -15405,7 +15407,9 @@ bash_file_write_env_names() {
 }
 
 # A session started with AGENT_GUARD_SESSION_ROLE=review and a Claude agent
-# whose type names a review do not own the containers on this machine. For
+# whose type names a review do not own the containers on this machine. Any
+# other non-empty role is a typo that fails closed: every container runtime
+# command is refused. For
 # them, command text $1 (as the deny patterns read it) run in
 # directory $2 returns 2, with the reason in cb_message, when a container
 # runtime command names a stack listed in protected-containers.txt, when a
@@ -15414,7 +15418,7 @@ bash_file_write_env_names() {
 # reaches cannot be read. Every other session returns 0 at once. A grep that
 # fails is read as a match.
 container_session_boundary() {
-  if [ "${AGENT_GUARD_SESSION_ROLE-}" != review ]; then
+  if [ -z "${AGENT_GUARD_SESSION_ROLE-}" ]; then
     case "$HOOK_INPUT" in *'"agent_type"'*) ;; *) return 0 ;; esac
     printf '%s' "$HOOK_INPUT" \
       | jq -e '.agent_type | strings | ascii_downcase | contains("review")' >/dev/null 2>&1 \
@@ -15438,6 +15442,10 @@ container_session_boundary() {
     | awk '{ while (sub(/\\$/, " ") && (getline cb_next) > 0) $0 = $0 cb_next; print }')
   printf '%s\n' "$cb_text" | grep -E -q -e "$cb_runtime(-compose)?([^[:alnum:]_.-]|\$)"
   [ "$?" -ne 1 ] || return 0
+  if [ "${AGENT_GUARD_SESSION_ROLE-}" != review ] && [ -n "${AGENT_GUARD_SESSION_ROLE-}" ]; then
+    cb_message="$PROGRAM: blocked container command: reason=bash_container_session_role_invalid; the cause is the session's environment, not this command: $SESSION_ROLE_INVALID, so every command that names docker, podman or nerdctl is refused, even as a plain word or a path. To fix it, the user sets AGENT_GUARD_SESSION_ROLE=review or unsets it and restarts the session; do not retry the command in another form."
+    return 2
+  fi
   cb_list=${HOME:+$HOME/.config/agent-guard/protected-containers.txt}
   if [ -n "$cb_list" ] && { [ -e "$cb_list" ] || [ -L "$cb_list" ]; }; then
     [ -f "$cb_list" ] && [ -r "$cb_list" ] && cb_names=$(LC_ALL=C awk '
@@ -23789,6 +23797,13 @@ doctor_shell_integration_report() {
 do_doctor() {
   do_setup "$@"
   doctor_status=$?
+  case ${AGENT_GUARD_SESSION_ROLE-} in
+    ''|review) ;;
+    *)
+      info "$PROGRAM: session role: $SESSION_ROLE_INVALID. When the Bash hook reaches the container check, it refuses every command that names a container runtime. Set AGENT_GUARD_SESSION_ROLE=review or unset it"
+      [ "$doctor_status" -ne 0 ] || doctor_status=1
+      ;;
+  esac
   doctor_shell_integration_report
   if command -v codex >/dev/null 2>&1; then
     doctor_here=$(pwd -P 2>/dev/null) || doctor_here=$PWD
