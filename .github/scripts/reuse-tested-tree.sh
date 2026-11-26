@@ -38,19 +38,24 @@ pr_tree_passed() {
   ref=$(jq -er '.head.ref' "$work/pr") || return 2
   tree=$(git rev-parse --verify "$sha^{tree}") || return 2
   gh api "repos/$repo/actions/workflows/$workflow/runs?head_sha=$head&event=pull_request&per_page=100" > "$work/runs" || return 2
+  jq -e '.workflow_runs | type == "array"' "$work/runs" > /dev/null || return 2
   run=$(jq -er --arg sha "$head" --arg ref "$ref" --arg repo "$repo" --arg path ".github/workflows/$workflow" '
     [.workflow_runs[] | select(.head_sha == $sha and .event == "pull_request" and .path == $path
       and .head_branch == $ref and .head_repository.full_name == $repo)]
     | max_by(.id) | select(.status == "completed" and .conclusion == "success") | .id | tostring' "$work/runs") || return 1
   case "$run" in *[!0-9]*|'') return 2 ;; esac
   gh api "repos/$repo/actions/runs/$run/artifacts?name=tested-tree" > "$work/artifacts" || return 2
+  jq -e '.artifacts | type == "array"' "$work/artifacts" > /dev/null || return 2
   jq -e '[.artifacts[] | select(.name == "tested-tree" and .expired == false)] | length == 1' "$work/artifacts" > /dev/null || return 1
   gh run download "$run" --repo "$repo" --name tested-tree --dir "$work/tested" || return 2
-  [ "$(cat "$work/tested/tree")" = "$tree" ] || return 1
+  recorded=$(cat "$work/tested/tree") || return 2
+  printf '%s\n' "$recorded" | grep -Eqx '[0-9a-f]{40}' || return 2
+  [ "$recorded" = "$tree" ] || return 1
   printf 'source_sha=%s\nsource_run=%s\n' "$head" "$run"
 }
 schedule_passed() {
   gh api "repos/$repo/actions/workflows/$workflow/runs?head_sha=$sha&event=schedule&per_page=100" > "$work/runs" || return 2
+  jq -e '.workflow_runs | type == "array"' "$work/runs" > /dev/null || return 2
   jq -e --arg sha "$sha" --arg path ".github/workflows/$workflow" --argjson self "${GITHUB_RUN_ID:?}" '
     any(.workflow_runs[]; .head_sha == $sha and .event == "schedule" and .path == $path
       and .id != $self and .status == "completed" and .conclusion == "success")' "$work/runs" > /dev/null || return 1

@@ -406,6 +406,16 @@ ordinary_pr
 rm "$case_dir/evidence/tested-tree/tree"
 expect_tested 'reuse=false ordinary=false ' 'a failed artifact download keeps the full matrix'
 grep -Fq 'Tested-tree evidence unavailable' "$case_dir/tested.err" || fail 'a failed lookup is visible'
+# Unreadable evidence is a failed lookup, not a valid mismatch.
+ordinary_pr
+printf 'not json\n' > "$case_dir/ci.yml.json"
+expect_tested 'reuse=false ordinary=false ' 'malformed run JSON keeps the full matrix'
+ordinary_pr
+printf '{"message":"rate limited"}\n' > "$case_dir/artifacts.json"
+expect_tested 'reuse=false ordinary=false ' 'artifact JSON without a list keeps the full matrix'
+ordinary_pr
+printf 'not a tree\n' > "$case_dir/evidence/tested-tree/tree"
+expect_tested 'reuse=false ordinary=false ' 'an unreadable tree record keeps the full matrix'
 ordinary_pr
 (GITHUB_EVENT_NAME=pull_request; expect_tested 'reuse=false ordinary=false ' 'a pull request never reuses') || exit 1
 (GITHUB_REF=refs/heads/other; expect_tested 'reuse=false ordinary=false ' 'a push to another branch never reuses') || exit 1
@@ -425,5 +435,9 @@ for change in '.id = 9' '.conclusion = "failure"' '.status = "in_progress"' '.ev
 done
 : > "$case_dir/workflow-api-error"
 expect_tested 'reuse=false ordinary=false ' 'a failed nightly lookup runs'
+rm "$case_dir/workflow-api-error"
+printf '{"message":"error"}\n' > "$case_dir/ci.yml.json"
+expect_tested 'reuse=false ordinary=false ' 'a malformed nightly lookup runs'
+: > "$case_dir/workflow-api-error"
 rm "$case_dir/workflow-api-error"
 printf 'ok - a nightly run is skipped only after a green nightly at the same commit\n'

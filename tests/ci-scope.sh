@@ -533,6 +533,13 @@ printf '%s\n' "$guard" | grep -Fq 'sh .github/scripts/ci-scope.sh "$EVENT_NAME" 
 # Only a PR run whose suites ran records the tree its main push may reuse.
 printf '%s\n' "$guard" | grep -Fq "if: github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true'" || fail 'only a tested PR run records its tree'
 printf '%s\n' "$guard" | grep -Fq 'name: tested-tree' || fail 'the PR run uploads the tested tree'
+# The record follows the scan and never fails the required job.
+printf '%s\n' "$guard" | awk '/name: Scan for secrets/ { scan = NR } /name: Record the tested tree/ { rec = NR } END { exit !(scan && rec > scan) }' \
+  || fail 'the secret scan runs before the tree record'
+for wf in ci native-redaction legacy-tools; do
+  [ "$(grep -c 'continue-on-error: true' "$ROOT/.github/workflows/$wf.yml")" -eq 2 ] || fail "$wf: a failed tree record never fails the job"
+  grep -Fq 'overwrite: true' "$ROOT/.github/workflows/$wf.yml" || fail "$wf: a re-run replaces the tree record"
+done
 for gated in native-redaction legacy-tools; do
   grep -Fq 'name: tested-tree' "$ROOT/.github/workflows/$gated.yml" || fail "$gated PR runs record the tested tree"
 done
