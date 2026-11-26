@@ -47,6 +47,7 @@ pr_tree_passed() {
   run=$(jq -r --arg sha "$head" --arg ref "$ref" --arg repo "$repo" --arg path ".github/workflows/$workflow" '
     [.[].workflow_runs[] | select(.head_sha == $sha and .event == "pull_request" and .path == $path
       and .head_branch == $ref and .head_repository.full_name == $repo)]
+    | if any(.[]; (.run_started_at | type) != "string") then error("unordered runs") else . end
     | max_by([.run_started_at, .id]) | if . != null and .status == "completed" and .conclusion == "success" then .id else "none" end' "$work/runs") || return 2
   [ "$run" != none ] || return 1
   case "$run" in *[!0-9]*|'') return 2 ;; esac
@@ -70,6 +71,7 @@ schedule_passed() {
   # but starts again): a later failure is never hidden by an older success.
   passed=$(jq -r --arg sha "$sha" --arg path ".github/workflows/$workflow" --argjson self "${GITHUB_RUN_ID:?}" '
     [.[].workflow_runs[] | select(.head_sha == $sha and .event == "schedule" and .path == $path and .id != $self)]
+    | if any(.[]; (.run_started_at | type) != "string") then error("unordered runs") else . end
     | max_by([.run_started_at, .id]) | . != null and .status == "completed" and .conclusion == "success"' "$work/runs") || return 2
   [ "$passed" = true ] || return 1
   printf 'source_sha=%s\n' "$sha"

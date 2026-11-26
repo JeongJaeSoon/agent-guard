@@ -379,6 +379,10 @@ expect_tested 'reuse=false ordinary=true ' 'a run that tested another tree runs 
 ordinary_pr
 edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 6 | .run_started_at = "2026-11-21T00:00:00Z" | .conclusion = "failure"]'
 expect_tested 'reuse=false ordinary=true ' 'a newer failed run on the head is not evidence'
+# A run without a start time cannot be ordered: that is unreadable evidence.
+ordinary_pr
+edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 6 | .run_started_at = null | .conclusion = "failure"]'
+expect_tested 'reuse=false ordinary=false ' 'a run without a start time keeps the full matrix'
 # A re-run on a later page still decides.
 ordinary_pr
 jq '. + [{workflow_runs:[.[0].workflow_runs[0] | .id = 3 | .run_started_at = "2026-11-22T00:00:00Z" | .conclusion = "failure"]}]' \
@@ -461,6 +465,9 @@ expect_tested 'reuse=true ordinary=false ' 'an unchanged main skips the nightly 
 (GITHUB_RUN_ATTEMPT=2; export GITHUB_RUN_ATTEMPT; expect_tested 'reuse=false ordinary=false ' 'a re-run nightly runs everything') || exit 1
 printf '{"workflow_runs":[42]}\n' > "$case_dir/ci.yml.json"
 expect_tested 'reuse=false ordinary=false ' 'a malformed nightly entry runs'
+nightly '.'
+edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 10 | del(.run_started_at) | .status = "queued"]'
+expect_tested 'reuse=false ordinary=false ' 'a nightly without a start time runs'
 nightly '.'
 edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 10 | .run_started_at = "2026-11-21T00:00:00Z" | .conclusion = "failure"]'
 expect_tested 'reuse=false ordinary=false ' 'a later failed nightly at the same commit runs again'
