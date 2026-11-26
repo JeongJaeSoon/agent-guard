@@ -23784,6 +23784,7 @@ do_doctor() {
   # the warning names no value (a checksum or version given with them).
   for doctor_arg do
     case $doctor_arg in
+      -h|--help) break ;;
       --install|--install-gitleaks-helper|--gitleaks-version|--gitleaks-version=*|--gitleaks-checksum|--gitleaks-checksum=*)
         cli_ref_init
         info "$PROGRAM: install arguments to doctor are deprecated: doctor still passes them to setup now, but a later release refuses them. doctor only diagnoses; to install, run $AG_CLI_REF setup with the same arguments."

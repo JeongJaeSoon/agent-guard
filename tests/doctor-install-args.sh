@@ -46,6 +46,9 @@ expect "control: a bare doctor has no warning" '[ "$(status)" = 0 ] && ! warned 
 doctor --help
 expect "control: doctor --help still prints usage, without a warning" \
   '[ "$(status)" = 0 ] && grep -qF "Usage:" "$CASE/err" && ! warned'
+doctor --help --install
+expect "control: an install argument after --help, which setup never reads, is not warned about" \
+  '[ "$(status)" = 0 ] && grep -qF "Usage:" "$CASE/err" && ! warned'
 doctor --bogus
 expect "control: an unknown argument is still refused with status 2" '[ "$(status)" = 2 ] && grep -qF "unknown argument" "$CASE/err"'
 
