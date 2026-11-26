@@ -44,6 +44,7 @@ reap_trust_servers() {
 
 trap 'reap_trust_servers; rm -rf "$CASE_ROOT"' EXIT INT TERM
 REAL_JQ=$(command -v jq)
+REAL_SETSID=$(command -v setsid 2>/dev/null) || REAL_SETSID=
 REAL_MKTEMP=$(command -v mktemp)
 REAL_RM=$(command -v rm)
 pass=0
@@ -160,15 +161,6 @@ add_host() {
 
 run_guard() {
   PATH="$case_bin:/usr/bin:/bin" "$GUARD" "$@" >"$case_dir/out" 2>"$case_dir/err"
-}
-
-# Replaces the calling subshell with "$@" as the leader of a process group of
-# its own, through the launchers the guard itself accepts.
-exec_as_group_leader() {
-  if command -v setsid >/dev/null 2>&1; then
-    exec setsid "$@"
-  fi
-  exec perl -e 'setpgrp(0, 0); exec @ARGV; exit 126' "$@"
 }
 
 new_case plugin_help
@@ -1170,8 +1162,17 @@ for killed_case in hang linger hang_term spawn; do
   esac
   # SIGKILL skips the guard's exit trap, so its run directory has to be where
   # this suite removes it.
+  # This setsid starts the launcher the guard would use. For the probe it
+  # first records its PID, which the probe keeps as its process group.
+  printf '%s\n' '#!/bin/sh' \
+    'case "$*" in *agent-guard-codex-trust*) printf "%s\n" "$$" >"$AG_TEST_PROBE_GROUP" ;; esac' \
+    '[ -z "$AG_TEST_REAL_SETSID" ] || exec "$AG_TEST_REAL_SETSID" "$@"' \
+    "exec perl -MPOSIX -e 'POSIX::setsid() >= 0 or exit 125; exec @ARGV; exit 126' \"\$@\"" \
+    >"$case_bin/setsid"
+  chmod +x "$case_bin/setsid"
+  export AG_TEST_PROBE_GROUP="$case_dir/probe-group" AG_TEST_REAL_SETSID="$REAL_SETSID"
   (cd "$case_dir" && PATH="$case_bin:/usr/bin:/bin" && TMPDIR=$case_dir && export PATH TMPDIR \
-    && exec_as_group_leader "$GUARD" doctor >"$case_dir/out" 2>"$case_dir/err") &
+    && exec setsid "$GUARD" doctor >"$case_dir/out" 2>"$case_dir/err") &
   guard_pid=$!
   # linger blocks only after it has read hooks/list.
   tries=0
@@ -1180,7 +1181,7 @@ for killed_case in hang linger hang_term spawn; do
     [ "$tries" -lt 100 ] || break
     sleep 0.1; tries=$((tries + 1))
   done
-  probe_group=$(sed -n 2p "$case_dir/server-pids")
+  probe_group=$(cat "$case_dir/probe-group" 2>/dev/null)
   # Without a guard that leads its own group and a probe in another one, the
   # kill below would not be the case under test.
   staged=0
@@ -1223,6 +1224,7 @@ for killed_case in hang linger hang_term spawn; do
   fi
   reap_trust_servers
 done
+unset AG_TEST_PROBE_GROUP AG_TEST_REAL_SETSID
 
 trust_case plugin_status_trust modified
 export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1

@@ -380,36 +380,12 @@ CODEX_TRUST_WATCHDOG_PID=
 # Runs as the leader of its own process group. hooks/list is sent only after a
 # successful initialize reply. Closing stdin is what stops app-server, so the
 # writer holds it open until the reply arrives or the deadline passes.
-# The group also ends itself after the deadline. A SIGKILL of the guard's
-# process group, or a hangup where sh runs no exit trap, removes the guard
-# together with its watchdog, and nothing outside this session would then stop
-# a server that ignores end of input.
+# The group also ends itself, after the deadline or once the server is done.
+# A SIGKILL of the guard's process group, or a hangup where sh runs no exit
+# trap, removes the guard together with its watchdog, and nothing outside this
+# session would then stop a server that ignores end of input.
 CODEX_TRUST_CLIENT='codex=$1 out=$2 cwd=$3 limit=$4 version=$5
 deadline=$(( $(date +%s) + limit ))
-# The timer ignores TERM from its first instant, by inheritance. TERM reaches
-# this group from the guard as well; only the leader below cancels the timer,
-# with a signal of its own.
-trap "" TERM
-(
-  nap=
-  stop() {
-    [ -z "$nap" ] || { kill -KILL "$nap"; wait "$nap"; }
-    exit 0
-  }
-  trap stop USR1
-  sleep "$((limit + 2))" &
-  nap=$!
-  wait "$nap" || stop
-  nap=
-  # Past the deadline nothing cancels this: the TERM below can end a leader
-  # that had just asked to, and the KILL would then be left to no one.
-  trap "" USR1
-  kill -TERM -"$$"
-  sleep 1
-  kill -KILL -"$$"
-) &
-watch=$!
-trap - TERM
 replied() {
   jq -R -e --argjson id "$1" "fromjson? | select(type == \"object\" and .id == \$id) | $2" "$out" >/dev/null 2>&1
 }
@@ -419,19 +395,34 @@ await() {
     sleep 0.1 2>/dev/null || sleep 1
   done
 }
-{
+request() {
   jq -nc --arg v "$version" "{jsonrpc: \"2.0\", id: 1, method: \"initialize\", params: {clientInfo: {name: \"agent-guard\", title: \"agent-guard\", version: \$v}, capabilities: {}}}"
   await 1 && replied 1 "(.result | type == \"object\")" || exit 0
   printf "%s\n" "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}"
   jq -nc --arg cwd "$cwd" "{jsonrpc: \"2.0\", id: 2, method: \"hooks/list\", params: {cwds: [\$cwd]}}"
   await 2 || :
-} | "$codex" app-server >"$out" 2>/dev/null
-# The server is done. Stop and reap the timer, then end this group, so that
-# what the server left in it never depends on the guard still being there.
-# TERM from the guard must not end this shell between the two.
+}
+# This shell and its timer ignore TERM, which the guard sends to this group
+# as well: they have to last until the group is ended. The server starts with
+# the disposition this shell was given.
 trap "" TERM
-kill -USR1 "$watch"
-wait "$watch"
+sleep "$((limit + 2))" &
+nap=$!
+{
+  trap - TERM
+  request | "$codex" app-server >"$out" 2>/dev/null
+  # Ending the timer is how this shell learns that the server is done.
+  kill -KILL "$nap"
+} &
+work=$!
+if wait "$nap"; then
+  kill -TERM -"$$"
+  sleep 1
+else
+  wait "$work"
+fi
+# Past the deadline or with the server done, nothing may stay in this group,
+# whether the guard is still there or not.
 kill -KILL -"$$"'
 
 clear_codex_trust_probe_processes() {

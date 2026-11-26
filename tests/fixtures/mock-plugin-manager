@@ -19,8 +19,7 @@ if [ "$host" = codex ] && [ "$#" -eq 1 ] && [ "$1" = app-server ]; then
   trust_mode=${AG_PLUGIN_TEST_TRUST:-trusted}
   # Before the PID is recorded, so a test that has read it can send TERM.
   [ "$trust_mode" != hang ] || trap '' TERM
-  # The parent is the probe shell, which leads the probe's process group.
-  [ -z "${AG_PLUGIN_TEST_TRUST_PIDFILE:-}" ] || printf '%s\n' "$$" "$PPID" >>"$AG_PLUGIN_TEST_TRUST_PIDFILE"
+  [ -z "${AG_PLUGIN_TEST_TRUST_PIDFILE:-}" ] || printf '%s\n' "$$" >>"$AG_PLUGIN_TEST_TRUST_PIDFILE"
   # A test that ends the guard first holds the server here until it has.
   while [ -n "${AG_PLUGIN_TEST_TRUST_GATE:-}" ] && [ ! -e "$AG_PLUGIN_TEST_TRUST_GATE" ]; do
     sleep 0.1
