@@ -29,17 +29,15 @@ jq -e 'all(.[]; (has("both_hosts") | not) or (.both_hosts | type == "boolean"))'
   printf 'not ok - %s: both_hosts must be true or false where a row sets it\n' "$FIXTURE"
   exit 1
 }
-# A bundled fixture keeps rows for Codex; one given from outside may hold a
-# single row.
-case "$FIXTURE" in
-  "$ROOT"/tests/fixtures/*)
-    jq -e 'any(.[]; .both_hosts == true and .expected_status == 0)
-           and any(.[]; .both_hosts == true and .expected_status == 2)' "$FIXTURE" >/dev/null || {
-      printf 'not ok - %s needs a both_hosts row that passes and one that blocks\n' "$FIXTURE"
-      exit 1
-    }
-    ;;
-esac
+# The bundled fixture keeps rows for Codex; one given through
+# AGENT_GUARD_TEST_FIXTURE may hold a single row.
+if [ -z "${AGENT_GUARD_TEST_FIXTURE:-}" ]; then
+  jq -e 'any(.[]; .both_hosts == true and .expected_status == 0)
+         and any(.[]; .both_hosts == true and .expected_status == 2)' "$FIXTURE" >/dev/null || {
+    printf 'not ok - %s needs a both_hosts row that passes and one that blocks\n' "$FIXTURE"
+    exit 1
+  }
+fi
 jq -c '.[]' "$FIXTURE" >"$CASE_ROOT/cases" || exit 1
 while IFS= read -r row; do
   expected=$(printf '%s' "$row" | jq -r '.expected_status')
