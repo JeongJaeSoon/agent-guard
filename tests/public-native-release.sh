@@ -59,8 +59,10 @@ AGENT_GUARD_VERSION="$version" sh "$case_dir/download/bootstrap.sh" > "$out/fres
 AGENT_GUARD_LOG_MODE=on XDG_STATE_HOME="$case_dir/home/state" \
   "$AGENT_GUARD_BIN_DIR/agent-guard" setup --install-gitleaks-helper > "$out/gitleaks-helper.log" 2>&1
 grep -F 'gitleaks helper  installed' "$out/gitleaks-helper.log"
-# The helper goes beside the private gitleaks, which follows AGENT_GUARD_BIN_DIR here.
-(cd "$AGENT_GUARD_BIN_DIR/gitleaks-helper" && shasum -a 256 -c SHA256SUMS) >> "$out/gitleaks-helper.log"
+# The helper goes beside the private gitleaks: ~/.agent-guard/bin here. The
+# installer's link directory (AGENT_GUARD_BIN_DIR) holds no gitleaks, so the
+# CLI does not read it as the gitleaks directory.
+(cd "$HOME/.agent-guard/bin/gitleaks-helper" && shasum -a 256 -c SHA256SUMS) >> "$out/gitleaks-helper.log"
 curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$previous/bootstrap.sh" -o "$case_dir/old-bootstrap.sh"
 printf '%s  %s\n' "$previous_bootstrap_sha" "$case_dir/old-bootstrap.sh" | shasum -a 256 -c -
 export AGENT_GUARD_HOME="$case_dir/upgrade" AGENT_GUARD_BIN_DIR="$case_dir/upgrade-bin"
