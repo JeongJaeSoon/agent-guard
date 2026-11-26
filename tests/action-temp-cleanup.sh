@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
 # Execute the actual composite Action installer block with an offline download
 # fixture. Only the download is mocked; archive and checksum checks are real.
+# require-checksum takes true or false only; any other value fails the step
+# before it downloads anything, even when gitleaks is already installed.
 set -u
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
@@ -8,7 +10,9 @@ CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-action-cleanup.XXXXXX") || ex
 trap 'rm -rf "$CASE_ROOT"' EXIT HUP INT TERM
 BASH_BIN=$(command -v bash) || exit 1
 
-mkdir "$CASE_ROOT/bin" "$CASE_ROOT/payload"
+mkdir "$CASE_ROOT/bin" "$CASE_ROOT/payload" "$CASE_ROOT/preinstalled"
+printf '#!/bin/sh\nexit 0\n' >"$CASE_ROOT/preinstalled/gitleaks"
+chmod +x "$CASE_ROOT/preinstalled/gitleaks"
 # GNU tar resolves the gzip program through PATH for -z; keep this isolated
 # fixture faithful on Linux as well as on BSD tar hosts.
 for dep in uname tr mktemp shasum tar gzip mkdir mv chmod rm cp; do
@@ -32,6 +36,7 @@ checksum=$(shasum -a 256 "$CASE_ROOT/archive.tar.gz" | awk '{print $1}')
 
 cat >"$CASE_ROOT/bin/curl" <<'MOCK'
 #!/bin/sh
+printf 'curl\n' >>"$CURL_CALLS"
 case "$ACTION_DOWNLOAD_MODE" in
   failure) exit 22 ;;
   term) kill -TERM "$PPID"; exit 0 ;;
@@ -55,12 +60,17 @@ run_case() {
   expected=$2
   supplied_checksum=$3
   mode=$4
+  require=${5-true}
+  want_err=${6-}
+  path_prefix=${7-}
   case_dir="$CASE_ROOT/$label"
   mkdir "$case_dir" "$case_dir/downloads" "$case_dir/runner"
   : >"$case_dir/github-path"
-  env PATH="$CASE_ROOT/bin" TMPDIR="$case_dir/downloads" \
+  : >"$case_dir/curl-calls"
+  env PATH="$path_prefix$CASE_ROOT/bin" TMPDIR="$case_dir/downloads" \
     RUNNER_TEMP="$case_dir/runner" GITHUB_PATH="$case_dir/github-path" \
-    AGENT_GUARD_GITLEAKS_VERSION=8.30.1 AGENT_GUARD_REQUIRE_CHECKSUM=true \
+    AGENT_GUARD_GITLEAKS_VERSION=8.30.1 AGENT_GUARD_REQUIRE_CHECKSUM="$require" \
+    CURL_CALLS="$case_dir/curl-calls" \
     AGENT_GUARD_GITLEAKS_CHECKSUM="$supplied_checksum" \
     ACTION_DOWNLOAD_MODE="$mode" ACTION_ARCHIVE="$CASE_ROOT/archive.tar.gz" \
     "$BASH_BIN" "$CASE_ROOT/install.sh" >"$case_dir/out" 2>"$case_dir/err"
@@ -73,6 +83,16 @@ run_case() {
       "$label" "$actual" "$expected" "$(ls -A "$case_dir/downloads")"
     sed 's/^/  stderr: /' "$case_dir/err"
     failed=$((failed + 1))
+  fi
+  if [ -n "$want_err" ]; then
+    checked=$((checked + 1))
+    if grep -Fq -e "$want_err" "$case_dir/err" && [ ! -s "$case_dir/curl-calls" ]; then
+      printf 'ok - %s explains the refusal before any download\n' "$label"
+    else
+      printf 'not ok - %s should say "%s" before any download\n' "$label" "$want_err"
+      sed 's/^/  stderr: /' "$case_dir/err"
+      failed=$((failed + 1))
+    fi
   fi
   checked=$((checked + 1))
   if [ "$expected" -eq 0 ]; then
@@ -96,6 +116,21 @@ run_case success 0 "$checksum" success
 run_case checksum-mismatch 1 0000000000000000000000000000000000000000000000000000000000000000 success
 run_case download-failure 22 "$checksum" failure
 run_case terminated-download 143 "$checksum" term
+
+# require-checksum: true and false are the only values; the default is true.
+required='gitleaks-checksum input is required'
+run_case required-without-checksum 2 '' success true "$required"
+run_case default-without-checksum 2 '' success '' "$required"
+run_case not-required-without-checksum 0 '' success false
+run_case not-required-with-checksum 0 "$checksum" success false
+invalid='require-checksum must be "true" or "false"'
+n=0
+for value in True TRUE yes 1 on False no 0 ' true' 'true '; do
+  n=$((n + 1))
+  run_case "invalid-$n-without-checksum" 2 '' success "$value" "$invalid"
+  run_case "invalid-$n-with-checksum" 2 "$checksum" success "$value" "$invalid"
+done
+run_case invalid-preinstalled 2 "$checksum" success yes "$invalid" "$CASE_ROOT/preinstalled:"
 
 printf '%s Action cleanup checks, %s failed\n' "$checked" "$failed"
 [ "$failed" -eq 0 ]

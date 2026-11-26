@@ -610,6 +610,14 @@ check applies to a Bash command only in:
 - a Claude Code agent whose `agent_type` contains `review` (a reviewer
   subagent, or `claude --agent` with such a name).
 
+`AGENT_GUARD_SESSION_ROLE` accepts only `review`; unset or empty means no
+effect. Any other value, such as `Review` or `reveiw`, is an error that fails
+closed: when the Bash hook reaches the container check, it refuses every
+command that names `docker`, `podman` or `nerdctl`, even as a plain word or a
+path (`reason=bash_container_session_role_invalid`), whatever the agent type, and
+`agent-guard doctor` reports it and exits non-zero. The message names the
+variable and the accepted values, never the value. Fix or unset the variable.
+
 Any other session is not affected. A session that is only told to review in
 its prompt carries neither marker; start it with
 `AGENT_GUARD_SESSION_ROLE=review`. Nothing marks a Codex session by itself:
@@ -690,7 +698,7 @@ Other settings:
 | Variable | Default / use |
 | --- | --- |
 | `AGENT_GUARD_MASK_DENY_VALUES` | A file of extra deny-value rules for `mask` mode, used together with `$HOME/.config/agent-guard/mask-deny-values.txt`. |
-| `AGENT_GUARD_SESSION_ROLE` | Set to `review` in the environment of a review session to hold it to the container boundary ([Containers other sessions own](#containers-other-sessions-own)). Unset or any other value: no effect. |
+| `AGENT_GUARD_SESSION_ROLE` | Set to `review` in the environment of a review session to hold it to the container boundary ([Containers other sessions own](#containers-other-sessions-own)). Unset or empty: no effect. Any other value is an error: container runtime commands are refused and `doctor` fails until it is fixed. |
 | `AGENT_GUARD_COMMAND_WRAPPING` | `on` (default). The automatic wrappers of the shell integration act only inside Claude Code; `agx` works anywhere. `off`, `OFF`, `0`, `false`, `FALSE`, `no` or `NO` disables that wrapping for the current process. For `agent-guard update` and the bootstrap installer, a non-empty value overrides the choice recorded in the shell rc: one of those spellings installs with wrapping off, anything else with wrapping on. |
 | `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` | Positive integer `>= 10485760`; default `10485760` (10 MiB, split into thirds per producer, so `scan-staged` and each `scan-working-tree` component get 3495253 bytes by default). It can only raise the budget: smaller, non-numeric, or overlong (19+ digit) values keep the default. A larger budget scans more input; it never excludes anything from scanning. |
 | `AGENT_GUARD_RELEASE_CHECK` | `on` (default) or `off`; `doctor`, `plugin status`, and the `plugin update` no-op skip the latest-release lookup when off. |
@@ -771,7 +779,7 @@ do not recognize, and an empty value is not always the same as unset.
 | `AGENT_GUARD_OUTPUT_REDACT` | `off` turns masking off | Masking stays on, also for `OFF`, `0` and `false` |
 | `AGENT_GUARD_DENY_READ_MODE` | `block`, `mask`; empty is `block` | The read is blocked without a masked view |
 | `AGENT_GUARD_LOG_MODE` | `on`, `off`; empty is `on` | No event record and no local caches; stderr reports an invalid log mode |
-| `AGENT_GUARD_SESSION_ROLE` | `review` | No effect, also for `Review` or `reviewer`: the environment does not restrict the session. A Claude agent type containing `review` still does |
+| `AGENT_GUARD_SESSION_ROLE` | `review`; empty is unset (no effect) | Error, also for `Review` or `reviewer`: every container runtime command is refused and `doctor` fails ([Containers other sessions own](#containers-other-sessions-own)) |
 | `AGENT_GUARD_COMMAND_WRAPPING` | `off`, `OFF`, `0`, `false`, `FALSE`, `no`, `NO` turn wrapping off | Installed wrappers stay active; no value restores wrappers that `setup-shell --no-command-wrapping` left out. The installer installs them for any other non-empty value and keeps the recorded choice for an empty one |
 | `AGENT_GUARD_KEY_NAME_REDACT` | `off` or empty keeps the default | Counts as `on` (stricter), also `0` and `false` |
 | `AGENT_GUARD_TRACKED_FILE_EXCEPTION` | `on`, or unset | Counts as `off` (stricter), also an empty value |
@@ -783,7 +791,7 @@ do not recognize, and an empty value is not always the same as unset.
 | `AGENT_GUARD_EXPERIMENTAL_REDACTOR` | `rust` or unset (native), `shell` | Shell redaction, also for an empty value |
 | `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` | `1` to `86400` | The default, `600` |
 | `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` | `96` to `4096` | The default, `160` |
-| GitHub Action input `require-checksum` | `true` (empty is `true`), `false` | A checksum is **not** required, also for `True` or `yes`. A `gitleaks-checksum` that is given is still verified. Both inputs cover only the archive the Action downloads when no gitleaks is on `PATH`; they do not verify the executable that scans, which can be one already installed or selected by `AGENT_GUARD_GITLEAKS_BIN` |
+| GitHub Action input `require-checksum` | `true` (empty is `true`), `false` | Error: the step fails before it downloads anything, also for `True` or `yes` and when gitleaks is already installed. A `gitleaks-checksum` that is given is verified. Both inputs cover only the archive the Action downloads when no gitleaks is on `PATH`; they do not verify the executable that scans, which can be one already installed or selected by `AGENT_GUARD_GITLEAKS_BIN` |
 
 ## Policy files and shell integration
 

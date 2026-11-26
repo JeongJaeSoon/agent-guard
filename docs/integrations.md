@@ -119,9 +119,11 @@ provides an even tighter immutable pin when your organization requires it.
 The shown checksum is for gitleaks 8.30.1 on `linux/x64`; refresh the version
 and checksum together when changing either one. Generate a matching value with
 `agent-guard checksum`. `require-checksum` is `true` by default. Set it to
-`false` only for local experimentation. `paths` is whitespace separated, so an
-individual path cannot contain spaces. `config-path` points the scan at your own
-gitleaks config instead of the bundled one.
+`false` only for local experimentation. It accepts only `true` or `false`;
+any other value, such as `True` or `yes`, fails the step before anything is
+downloaded, even when gitleaks is already installed. `paths` is whitespace
+separated, so an individual path cannot contain spaces. `config-path` points
+the scan at your own gitleaks config instead of the bundled one.
 
 ## Limits and backstops
 
