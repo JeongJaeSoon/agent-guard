@@ -22,6 +22,12 @@ export AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks"
 # The session that runs this suite may carry these itself.
 unset AGENT_GUARD_SESSION_ROLE AGENT_GUARD_HOOK_HOST COMPOSE_PROJECT_NAME
 
+# The rows are what an agent's Bash tool runs, so they run for real under bash
+# where there is one: `\$_` is not POSIX, and dash leaves it empty.
+RUN_SHELL=$(command -v bash 2>/dev/null) || RUN_SHELL=sh
+last_arg=db
+[ "$RUN_SHELL" != sh ] || last_arg=skip
+
 STACK=verify-demo-20260101-000000-12345
 CLIENTS='psql|pg_dump|pg_dumpall|pg_restore|mysql|mysqldump|mariadb|mariadb-dump|mongosh|mongo|mongodump|mongoexport|redis-cli|valkey-cli|sqlite3|clickhouse-client|clickhouse|cqlsh|sqlcmd'
 W="$CASE/w"
@@ -85,7 +91,7 @@ reach() { # $1 command, $2 directory, $3 session compose project: stack, db or n
   : >"$CASE/log"
   (cd "$2" && env -i PATH="$STUB:/usr/bin:/bin" HOME="$CASE/run-home" STUB_LOG="$CASE/log" \
       STUB_PS="$STACK-db-1" TARGET="$STACK-db-1" PROJECT="$STACK" ${3:+COMPOSE_PROJECT_NAME="$3"} \
-      sh -c "$1" </dev/null >/dev/null 2>&1)
+      "$RUN_SHELL" -c "$1" </dev/null >/dev/null 2>&1)
   if grep -Fq -e "$STACK" "$CASE/log"; then
     echo stack
   elif grep -Eq -e "^(arg|stdin) (.*[^[:alnum:]_.-])?($CLIENTS)([^[:alnum:]_.-]|\$)" "$CASE/log"; then
@@ -218,7 +224,7 @@ held review-env bash_container_db_client db 'docker 2> /dev/null exec other-db-1
 held review-env bash_container_db_client db 'docker $DOCKER_OPTS exec other-db-1 psql -l'
 # A message value that runs the exec, and a search operand run through \$_.
 held review-env bash_container_db_client db 'git commit -m "$(docker exec other-db-1 psql -l)"'
-held review-env bash_container_db_client db "grep -c x 'docker exec other-db-1 psql -l'; \$_"
+held review-env bash_container_db_client "$last_arg" "grep -c x 'docker exec other-db-1 psql -l'; \$_"
 # A search beside a container command: the second look reads the command as
 # written, quotes around its words included.
 held review-env bash_container_db_client db "grep -c 'x' README.md; docker 'exec' other-db-1 psql -l"
