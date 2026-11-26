@@ -597,15 +597,32 @@ for tool in find xargs sh grep awk rm ls id perl; do
   chmod 755 "$CASE/planted-tmp/$tool"
 done
 RR_PATH_PREFIX=':.:' due_run "$CASE/planted-tmp" "$CASE/planted-state"
+gone_planted=no
+expect_gone "$CASE/planted-tmp" agent-guard-run.Pl12Nt && gone_planted=yes
+# doctor finds one, so its parent check runs too.
+stale_in "$CASE/planted-tmp" agent-guard-run.Pl34Dr
 env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/planted-tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
   PATH=":.:$PATH" AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
   sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
-if ! ls "$CASE"/planted-ran-* >/dev/null 2>&1 && expect_gone "$CASE/planted-tmp" agent-guard-run.Pl12Nt \
-  && grep -q 'temp: no stale run directories in' "$CASE/doctor-out"; then
+if ! ls "$CASE"/planted-ran-* >/dev/null 2>&1 && [ "$gone_planted" = yes ] \
+  && grep -q 'temp: 1 stale run directories in .*a later hook or scan removes them' "$CASE/doctor-out"; then
   ok "cleanup and doctor run no tool planted in the temp directory through a relative PATH entry"
 else
   not_ok "cleanup and doctor run no tool planted in the temp directory through a relative PATH entry"
   ls "$CASE"/planted-ran-* 2>/dev/null | sed 's/^/  ran: /'
+  grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+fi
+
+# A relative state path is refused before the state directory is made, so
+# doctor must not promise that a later run removes them.
+stale_in "$CASE/relstate-tmp" agent-guard-run.Rs12St
+(cd "$CASE" && env HOME="$CASE/home" XDG_STATE_HOME=relative-state TMPDIR="$CASE/relstate-tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
+  AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+  sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null)
+if grep -q 'temp: 1 stale run directories in .*nothing removes them while the private state directory' "$CASE/doctor-out"; then
+  ok "doctor says nothing removes them while the state path is relative"
+else
+  not_ok "doctor says nothing removes them while the state path is relative"
   grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
 fi
 

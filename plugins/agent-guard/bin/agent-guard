@@ -1608,18 +1608,25 @@ rundir_parent_safe() {
 # find prints "!", so count can tell an incomplete check from none found.
 RUNDIR_STALE_FIND='u=$1 a=$2; shift 2; [ "$#" -gt 0 ] || exit 0; find "$@" -prune -type d -user "$u" -perm -0700 ! -perm -0040 ! -perm -0020 ! -perm -0010 ! -perm -0004 ! -perm -0002 ! -perm -0001 -mmin "+$a" -print || echo "!"'
 
+# Keeps only the absolute PATH entries, for a caller that is about to cd into
+# the temp directory: there an empty or relative entry names that directory,
+# where another user can plant a tool. Fails when none is left, since an empty
+# PATH names the current directory too.
+rundir_absolute_path() {
+  ag_ap_path= ag_ap_rest=$PATH:
+  while [ -n "$ag_ap_rest" ]; do
+    ag_ap_dir=${ag_ap_rest%%:*}
+    ag_ap_rest=${ag_ap_rest#*:}
+    case "$ag_ap_dir" in /*) ag_ap_path=${ag_ap_path:+$ag_ap_path:}$ag_ap_dir ;; esac
+  done
+  [ -n "$ag_ap_path" ] || return 1
+  PATH=$ag_ap_path
+  export PATH
+}
+
 rundir_stale() ( # DIR MODE
   # count prints "unreadable" when it cannot list or check the directory.
-  # Tools come from absolute PATH entries only: after the cd an empty or
-  # relative entry names the temp directory, where another user can plant one.
-  ag_rs_path= ag_rs_rest=$PATH:
-  while [ -n "$ag_rs_rest" ]; do
-    ag_rs_dir=${ag_rs_rest%%:*}
-    ag_rs_rest=${ag_rs_rest#*:}
-    case "$ag_rs_dir" in /*) ag_rs_path=${ag_rs_path:+$ag_rs_path:}$ag_rs_dir ;; esac
-  done
-  PATH=$ag_rs_path
-  export PATH
+  rundir_absolute_path || { [ "$2" = remove ] || echo unreadable; exit 0; }
   CDPATH= cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo unreadable; exit 0; }
   [ -r . ] || { [ "$2" = remove ] || echo unreadable; exit 0; }
   [ "$2" != remove ] || rundir_parent_safe || exit 0
@@ -23965,7 +23972,9 @@ doctor_rundir_report() {
     on:*|off:on)
       doctor_rundir_why=
       doctor_rundir_state=$(audit_location)
-      if [ -e "$doctor_rundir_state" ] || [ -L "$doctor_rundir_state" ]; then
+      if ! plain_absolute_path "$doctor_rundir_state"; then
+        doctor_rundir_why='the private state directory path is not a plain absolute path'
+      elif [ -e "$doctor_rundir_state" ] || [ -L "$doctor_rundir_state" ]; then
         if ! audit_directory >/dev/null 2>&1; then
           doctor_rundir_why='the private state directory fails its ownership or mode check'
         elif [ -L "$doctor_rundir_state/rundir-reap" ] \
@@ -23979,7 +23988,7 @@ doctor_rundir_report() {
     /*) ;;
     *) [ -n "$doctor_rundir_why" ] || doctor_rundir_why='TMPDIR is a relative path' ;;
   esac
-  if [ -z "$doctor_rundir_why" ] && ! (CDPATH= cd -P -- "$doctor_rundir_dir" && rundir_parent_safe) 2>/dev/null; then
+  if [ -z "$doctor_rundir_why" ] && ! (rundir_absolute_path && CDPATH= cd -P -- "$doctor_rundir_dir" && rundir_parent_safe) 2>/dev/null; then
     doctor_rundir_why='other users can change entries in that directory'
   fi
   case "$doctor_rundir_why" in
