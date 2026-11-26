@@ -516,10 +516,12 @@ expected_mutation_paths=$(printf '%s\n' plugins/agent-guard/bin/agent-guard test
   || fail "mutation check pull request paths are exactly the code paths: $mutation_paths"
 groups=$(sed -n 's/^        group: \[\(.*\)\]$/\1/p' "$mutation_workflow" | tr -d ' ' | tr ',' '\n')
 [ "$(printf '%s\n' "$groups" | grep -c .)" -ge 2 ] || fail 'mutation groups are read from the workflow'
-for group in $groups; do
-  check=$(printf 'mutation-check.yml\tRule mutations fail a test (%s)' "$group")
-  grep -Fxq "$check" "$ROOT/.github/release-checks.tsv" || fail "release dispatches and requires mutation group $group"
-done
+# Exactly the matrix groups: a missing one is never required, a stale one
+# never reports and times the release out.
+expected_mutation_checks=$(printf '%s\n' "$groups" | sed 's/.*/Rule mutations fail a test (&)/' | LC_ALL=C sort)
+listed_mutation_checks=$(sed -n 's/^mutation-check[.]yml\t//p' "$ROOT/.github/release-checks.tsv" | LC_ALL=C sort)
+[ "$listed_mutation_checks" = "$expected_mutation_checks" ] \
+  || fail "release requires exactly the mutation groups: $listed_mutation_checks"
 grep -Fq "name: Rule mutations fail a test (\${{ matrix.group }})" "$mutation_workflow" || fail 'mutation check names follow the group'
 awk '/^on:$/ { on = 1; next } on && /^[a-z]/ { exit } on' "$mutation_workflow" | grep -Fxq '  workflow_dispatch:' \
   || fail 'release verification can dispatch the mutation check'
