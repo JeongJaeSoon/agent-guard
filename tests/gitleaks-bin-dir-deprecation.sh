@@ -191,6 +191,12 @@ expect "an empty helper directory left in AGENT_GUARD_BIN_DIR does not make it t
 : >"$EMPTY_HELPER/gitleaks-helper/SHA256SUMS"
 scan "$H" AGENT_GUARD_BIN_DIR="$EMPTY_HELPER"
 expect "nor does a helper directory with only its sums left" 'scanned_with "$H/.agent-guard/bin"'
+mkdir -p "$EMPTY_HELPER/gitleaks-helper/agent-guard-scan"
+scan "$H" AGENT_GUARD_BIN_DIR="$EMPTY_HELPER"
+expect "nor a directory where the helper executable should be" 'scanned_with "$H/.agent-guard/bin"'
+run "$H" AGENT_GUARD_BIN_DIR="$LINKS" AGENT_GUARD_GITLEAKS_HELPER=off "$GUARD" setup --install --gitleaks-checksum 0
+expect "setup --install that installs nothing does not announce an install location" \
+  'grep -qF "skipping --install" "$CASE/err" && ! notice "$CASE/err"'
 NO_HOME_LINKS="$CASE/no-home-links"
 mkdir -p "$NO_HOME_LINKS"
 env -u HOME -u AGENT_GUARD_GITLEAKS_BIN_DIR PATH="$TOOLS" XDG_STATE_HOME="$CASE/state" AGENT_GUARD_LOG_MODE=off \

@@ -258,7 +258,8 @@ if [ -n "${AGENT_GUARD_GITLEAKS_BIN_DIR:-}" ]; then
   GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_GITLEAKS_BIN_DIR
 elif [ -n "${AGENT_GUARD_BIN_DIR:-}" ]; then
   if [ -e "$AGENT_GUARD_BIN_DIR/gitleaks" ] || [ -L "$AGENT_GUARD_BIN_DIR/gitleaks" ] \
-      || [ -x "$AGENT_GUARD_BIN_DIR/gitleaks-helper/agent-guard-scan" ]; then
+      || { [ -f "$AGENT_GUARD_BIN_DIR/gitleaks-helper/agent-guard-scan" ] \
+           && [ -x "$AGENT_GUARD_BIN_DIR/gitleaks-helper/agent-guard-scan" ]; }; then
     GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_BIN_DIR
     GITLEAKS_BIN_DIR_LEGACY=1
   elif [ -n "${HOME:-}" ]; then
@@ -3128,9 +3129,13 @@ setup_suggest_gitleaks_runtime_repair() {
 }
 
 # Only a write needs the directory, so a setup that installs nothing still runs.
+SETUP_INSTALL_DIR_NOTICED=0
 setup_require_install_dir() {
   [ "$GITLEAKS_BIN_DIR_LEGACY" != 3 ] \
     || die "setup: no gitleaks install directory: HOME is unset and AGENT_GUARD_BIN_DIR no longer selects one; set AGENT_GUARD_GITLEAKS_BIN_DIR"
+  [ "$GITLEAKS_BIN_DIR_LEGACY" = 2 ] && [ "$SETUP_INSTALL_DIR_NOTICED" = 0 ] || return 0
+  SETUP_INSTALL_DIR_NOTICED=1
+  gitleaks_bin_dir_notice install >&2
 }
 
 setup_install_gitleaks() {
@@ -3424,11 +3429,7 @@ EOF
     shift
   done
 
-  if [ "$install" -eq 1 ] || [ "$helper_install" -eq 1 ]; then
-    gitleaks_bin_dir_notice install >&2 || :
-  else
-    gitleaks_bin_dir_notice >&2 || :
-  fi
+  gitleaks_bin_dir_notice >&2 || :
   jq_ok=1; awk_ok=1; git_ok=1; gitleaks_ok=1
   setup_status_line jq       || jq_ok=0
   [ "$jq_ok" -eq 0 ] || setup_jq_lookbehind_status_line
