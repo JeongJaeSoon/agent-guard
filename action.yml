@@ -23,7 +23,7 @@ inputs:
   require-checksum:
     description: When true, fail if gitleaks-checksum is empty. Defaults to true so CI
       cannot silently fall back to HTTPS-only integrity. Set to false only for local
-      experimentation.
+      experimentation. Accepts true or false only; any other value fails the step.
     required: false
     default: "true"
   config-path:
@@ -49,6 +49,14 @@ runs:
         AGENT_GUARD_REQUIRE_CHECKSUM: ${{ inputs.require-checksum }}
       run: |
         set -euo pipefail
+        require_checksum="${AGENT_GUARD_REQUIRE_CHECKSUM:-true}"
+        case "$require_checksum" in
+          true|false) ;;
+          *)
+            echo 'agent-guard: require-checksum must be "true" or "false"; the value given is neither.' >&2
+            exit 2
+            ;;
+        esac
         if command -v gitleaks >/dev/null; then
           exit 0
         fi
@@ -63,7 +71,6 @@ runs:
         esac
 
         checksum="$AGENT_GUARD_GITLEAKS_CHECKSUM"
-        require_checksum="${AGENT_GUARD_REQUIRE_CHECKSUM:-true}"
         if [ -z "$checksum" ] && [ "$require_checksum" = "true" ]; then
           echo "agent-guard: gitleaks-checksum input is required when require-checksum=true" >&2
           echo "  Provide a pinned sha256 for gitleaks ${version} or pass require-checksum=false explicitly." >&2
