@@ -1,7 +1,3 @@
-### Deprecated
-
-- `agent-guard doctor`에 설치 인자(`--install`, `--install-gitleaks-helper`, `--gitleaks-version`, `--gitleaks-checksum`)를 주는 것. `doctor`는 인자를 `setup`에 그대로 넘겨서 진단 명령이 설치까지 할 수 있었습니다. 폐기 기간에는 지금처럼 넘기되, 인자 값은 적지 않은 경고로 `setup`을 쓰라고 알립니다. 그 뒤로는 `doctor`가 설치 인자를 거부합니다. `doctor`와 `doctor --help`는 바뀌지 않습니다.
-  - 없애는 조건: 이 경고가 처음 들어간 릴리스 뒤로 minor 릴리스 2번과 30일이 모두 지난 뒤(둘 중 늦은 쪽). 그 릴리스의 CHANGELOG "Removed"에 적습니다.
 ## v3.13.9 - 2026-11-26
 
 - feat(bash): 리뷰 세션이 다른 세션 소유 컨테이너에 들어가지 못하게 한다 (#677)
