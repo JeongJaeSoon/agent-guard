@@ -502,4 +502,30 @@ if (cd "$repo" && sh "$sites_script" no-such-revision HEAD >/dev/null 2>&1); the
 pass=$((pass + 17))
 rm -rf "$sites_tmp"
 trap - 0
+mutation_listed=$(mktemp)
+jq -r '[.[].tests[]] | unique | .[]' "$ROOT/tests/mutations.json" > "$mutation_listed"
+# The rule mutation check runs on a pull request that changes the rules, the
+# list, the checker or test code, including the scanner stub the tests run. A
+# change to fixture data only skips it there, so
+# release verification dispatches every group at the release SHA.
+mutation_workflow="$ROOT/.github/workflows/mutation-check.yml"
+mutation_paths=$(awk '/^  pull_request:$/ { on = 1; next } on && /^  [a-z_]+:/ { exit } on && /^      - / { sub(/^      - /, ""); gsub(/\047/, ""); print }' "$mutation_workflow" \
+  | grep -Fxv -f "$mutation_listed" | LC_ALL=C sort)
+expected_mutation_paths=$(printf '%s\n' plugins/agent-guard/bin/agent-guard tests/mutations.json tests/mutation-check.sh \
+  .github/workflows/mutation-check.yml 'tests/*.sh' 'tests/*.py' 'tests/helpers/**' tests/fixtures/mock-gitleaks | LC_ALL=C sort)
+[ "$mutation_paths" = "$expected_mutation_paths" ] \
+  || fail "mutation check pull request paths are exactly the code paths: $mutation_paths"
+groups=$(sed -n 's/^        group: \[\(.*\)\]$/\1/p' "$mutation_workflow" | tr -d ' ' | tr ',' '\n')
+[ "$(printf '%s\n' "$groups" | grep -c .)" -ge 2 ] || fail 'mutation groups are read from the workflow'
+# Exactly the matrix groups: a missing one is never required, a stale one
+# never reports and times the release out.
+expected_mutation_checks=$(printf '%s\n' "$groups" | sed 's/.*/Rule mutations fail a test (&)/' | LC_ALL=C sort)
+listed_mutation_checks=$(awk -F '\t' '$1 == "mutation-check.yml" { print $2 }' "$ROOT/.github/release-checks.tsv" | LC_ALL=C sort)
+[ "$listed_mutation_checks" = "$expected_mutation_checks" ] \
+  || fail "release requires exactly the mutation groups: $listed_mutation_checks"
+grep -Fq "name: Rule mutations fail a test (\${{ matrix.group }})" "$mutation_workflow" || fail 'mutation check names follow the group'
+awk '/^on:$/ { on = 1; next } on && /^[a-z]/ { exit } on' "$mutation_workflow" | grep -Fxq '  workflow_dispatch:' \
+  || fail 'release verification can dispatch the mutation check'
+pass=$((pass + 4))
+rm -f "$mutation_listed"
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

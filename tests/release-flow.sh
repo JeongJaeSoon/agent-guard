@@ -36,6 +36,7 @@ case " $* " in
       esac
     done
     exit 2 ;;
+  *' workflow run '*) printf '%s\n' "$*" >> "$RELEASE_FIXTURE_DIR/dispatch.log" ;;
   *commits/*/pulls*) cat "$RELEASE_FIXTURE_DIR/prs.json" ;;
   *pulls/1*) cat "$RELEASE_FIXTURE_DIR/pr.json" ;;
   *commits/*) cat "$RELEASE_FIXTURE_DIR/merge.json" ;;
@@ -328,3 +329,70 @@ first=$(cause)
 printf 'output validation failed\n' > "$case_dir/evidence/packaged-performance/errors.txt"
 [ "$first" != "$(cause)" ] || fail 'different tool error opens a different issue'
 printf 'ok - changed nightly failure cause gets a separate issue identity\n'
+
+# Publication falls back to the exact merge commit when the reviewed tree
+# differs. Workflows that never run on a push must then be dispatched there,
+# or their required checks never report on that SHA.
+pub="$case_dir/publish-fallback"
+mkdir -p "$pub/.github"
+cp -R "$ROOT/.github/workflows" "$pub/.github/workflows"
+cp -R "$ROOT/.github/scripts" "$pub/.github/scripts"
+cp "$ROOT/.github/release-checks.tsv" "$pub/.github/release-checks.tsv"
+awk '/^      - name: Dispatch candidate verification/ { on = 1; next } on && /^      - name:/ { exit }
+  on && /^        run: \|$/ { body = 1; next } body { print substr($0, 11) }' "$ROOT/.github/workflows/release.yml" > "$case_dir/dispatch-step.sh"
+[ -s "$case_dir/dispatch-step.sh" ] || fail 'the dispatch step has a run block'
+(
+  cd "$pub"
+  git init -q
+  git config user.name Fixture
+  git config user.email fixture@example.invalid
+  git add . && git commit -qm pub
+  git update-ref refs/remotes/origin/main HEAD
+  current=$(git rev-parse HEAD)
+  : > "$case_dir/dispatch.log"
+  MODE=publish SOURCE_SHA="$current" RELEASE_SHA="$current" RELEASE_BRANCH=main bash "$case_dir/dispatch-step.sh"
+) || fail 'the publish fallback dispatch step runs'
+grep -Fxq 'workflow run performance.yml --ref main' "$case_dir/dispatch.log" || fail 'fallback measures the merge commit'
+cut -f1 "$ROOT/.github/release-checks.tsv" | sort -u | while IFS= read -r workflow; do
+  if awk '/^on:$/ { on = 1; next } on && /^[a-z]/ { exit } on' "$ROOT/.github/workflows/$workflow" | grep -Eq '^  push:'; then
+    if grep -Fq "workflow run $workflow " "$case_dir/dispatch.log"; then fail "push-triggered $workflow is not dispatched again"; fi
+  else
+    grep -Fxq "workflow run $workflow --ref main" "$case_dir/dispatch.log" || fail "fallback dispatches $workflow, which has no push trigger"
+  fi
+done
+grep -Fxq 'workflow run mutation-check.yml --ref main' "$case_dir/dispatch.log" || fail 'fallback dispatches the mutation check'
+# A retried publication does not dispatch a workflow that already passed there.
+current=$(git -C "$pub" rev-parse HEAD)
+: > "$case_dir/check-rows"
+awk -F '\t' '$1 == "mutation-check.yml" { print $2 }' "$ROOT/.github/release-checks.tsv" | while IFS= read -r name; do
+  jq -nc --arg name "$name" --arg sha "$current" \
+    '{id:1,name:$name,head_sha:$sha,check_suite:{id:77},app:{slug:"github-actions"},status:"completed",conclusion:"success"}' >> "$case_dir/check-rows"
+done
+jq -s '[{check_runs:.}]' "$case_dir/check-rows" > "$case_dir/checks.json"
+jq -n --arg sha "$current" '[{workflow_runs:[{id:3,event:"workflow_dispatch",head_sha:$sha,path:".github/workflows/mutation-check.yml",check_suite_id:77,status:"completed",conclusion:"success"}]}]' \
+  > "$case_dir/mutation-check.yml.json"
+(
+  cd "$pub"
+  : > "$case_dir/dispatch.log"
+  MODE=publish SOURCE_SHA="$current" RELEASE_SHA="$current" RELEASE_BRANCH=main bash "$case_dir/dispatch-step.sh" > /dev/null
+) || fail 'the retried publish dispatch step runs'
+if grep -Fq 'workflow run mutation-check.yml' "$case_dir/dispatch.log"; then fail 'a passed workflow is not dispatched again'; fi
+grep -Fxq 'workflow run performance.yml --ref main' "$case_dir/dispatch.log" || fail 'a retry still measures the merge commit'
+rm "$case_dir/mutation-check.yml.json"
+# Main moved after the first check: refuse rather than dispatch a newer commit.
+(
+  cd "$pub"
+  : > "$case_dir/dispatch.log"
+  moved=$(git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p HEAD -m moved)
+  # The first fetch (the step's opening check) still sees the release; main
+  # moves before the dispatch.
+  : > "$case_dir/fetches"
+  printf '#!/bin/sh\nif [ "$1" = fetch ]; then echo x >> "$RELEASE_FIXTURE_DIR/fetches"; [ "$(wc -l < "$RELEASE_FIXTURE_DIR/fetches")" -lt 2 ] || "$REAL_GIT" update-ref refs/remotes/origin/main %s; exit 0; fi\nexec "$REAL_GIT" "$@"\n' "$moved" > "$case_dir/bin/git"
+  if MODE=publish SOURCE_SHA="$current" RELEASE_SHA="$current" RELEASE_BRANCH=main bash "$case_dir/dispatch-step.sh" > /dev/null 2>&1; then
+    exit 1
+  fi
+) || fail 'a moved main is refused before dispatch'
+printf '#!/bin/sh\nif [ "$1" = fetch ]; then exit 0; fi\nexec "$REAL_GIT" "$@"\n' > "$case_dir/bin/git"
+if grep -Fq 'workflow run mutation-check.yml' "$case_dir/dispatch.log"; then fail 'nothing is dispatched once main moved'; fi
+[ "$(wc -l < "$case_dir/fetches")" -ge 2 ] || fail 'main is checked again right before the dispatch'
+printf 'ok - the merge-commit fallback dispatches required workflows that a push does not start\n'
