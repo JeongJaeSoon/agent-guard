@@ -12,7 +12,7 @@ set -u
 # When VERSION is omitted, defaults to the value pinned in action.yml.
 # Tests override the source URL with AGENT_GUARD_GITLEAKS_CHECKSUMS_URL under
 # AG_PLUGIN_TEST_MODE=1. Outside that mode the override is deprecated: still
-# honored, with a warning, until a later release ignores it (CHANGELOG).
+# honored, with a warning, until a later release ignores it.
 
 DEFAULT_VERSION=8.30.1
 
