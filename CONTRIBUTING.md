@@ -169,9 +169,14 @@ report as `not_compared`: times, run identifiers, file identities and hashes
 in file names, and the content of the CLI's cache files. A new entry there
 needs a reason; a difference is otherwise a bug in the change.
 
-The report holds names, sizes, equality and the first differing offset, never
-the text of an input or an output, so the same command is safe on a corpus
-that is not synthetic. Corpus strings may use `{{REPO}}`, `{{TOKEN}}`,
+The report holds case names, sizes, equality, the first differing offset and
+a count of what each step left by kind (audit event, cache, state file,
+temporary file, home file, repository file), never the text of an input or
+an output and never a file name, which can hold a session identifier. So the
+same command is safe on a corpus that is not synthetic. `--names` prints the
+names of the entries that differ to standard error, for a synthetic corpus.
+A comparison that cannot finish (a timeout, state it cannot read) replaces
+any earlier report with one that says `complete: false`. Corpus strings may use `{{REPO}}`, `{{TOKEN}}`,
 `{{HEX}}` and `{{KEY_BLOCK}}`; the last three are values built at run time
 that a scanner must report, so the corpus itself holds none.
 

@@ -100,7 +100,7 @@ const COMMANDS: &[Subcommand] = &[
             "--timeout",
             "--out",
         ]),
-        flags: &[],
+        flags: &["--names"],
         run: parity::differential,
     },
     Subcommand {

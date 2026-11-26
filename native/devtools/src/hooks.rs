@@ -129,7 +129,19 @@ impl Sandbox {
         ])
     }
     pub fn git(&self, args: &[&str]) -> Result<()> {
-        let mut command = vec!["git".to_string(), "-C".into(), self.repo.clone()];
+        // No background maintenance: it would still be writing into the
+        // repository when the first hook runs.
+        let mut command: Vec<String> = [
+            "git",
+            "-c",
+            "gc.auto=0",
+            "-c",
+            "maintenance.auto=false",
+            "-C",
+        ]
+        .map(String::from)
+        .to_vec();
+        command.push(self.repo.clone());
         command.extend(args.iter().map(|s| s.to_string()));
         let mut env = self.env();
         for name in ["GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE"] {

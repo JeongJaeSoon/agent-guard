@@ -232,6 +232,58 @@ fi
 jq -e '.differences == 2 and (.cases[] | select(.name == "pre-bash-protected-path") | .steps[0]
     | .status == [2, 0] and .decision == ["block", "allow"] and (.state.equal | not))
   and (.cases[] | select(.name == "pre-bash-clean") | .equal)' "$CASE/parity-decision.json" >/dev/null
+# The report names no state file: a file name can hold the session identifier
+# of an input.
+jq -c '[.[] | select(.name == "scanner-missing-open") | .steps[0].input.session_id = "sample-customer-session"]' \
+  tests/fixtures/cli-differential.json >"$CASE/session-corpus.json"
+"$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --corpus "$CASE/session-corpus.json" \
+  --out "$CASE/parity-session.json" >"$CASE/parity-session-summary.json" 2>/dev/null
+jq -e '.differences == 0 and (.cases[0].steps[0].state.changes.baseline | length) > 0' "$CASE/parity-session.json" >/dev/null
+if grep -q 'sample-customer-session' "$CASE/parity-session.json" "$CASE/parity-session-summary.json"; then
+  echo 'a differential report holds a session identifier' >&2; exit 1
+fi
+# A build that leaves a file in the home directory and an empty directory
+# differs although every output is the same.
+mkdir "$CASE/litter"
+cp -R plugins/agent-guard "$CASE/litter/agent-guard"
+awk 'NR == 2 { print; print ": >\"$HOME/left-behind\"; mkdir -p \"${TMPDIR:-/tmp}/left-empty\""; next } { print }' \
+  "$GUARD" >"$CASE/litter/agent-guard/bin/agent-guard"
+if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$CASE/litter/agent-guard/bin/agent-guard" --scanner "$MOCK" \
+    --case pre-read-clean --out "$CASE/parity-litter.json" >/dev/null 2>&1; then
+  echo 'cli-differential missed files outside the state directory' >&2; exit 1
+fi
+jq -e '.differences == 1 and (.cases[0].steps[0] | .stdout.equal and .stderr.equal and .status == [0, 0] and (.state.equal | not)
+  and .state.changes.candidate["home-file"] == 1 and .state.changes.candidate["temporary-directory"] == 1)' "$CASE/parity-litter.json" >/dev/null
+# A manifest whose matcher changed dispatches other tools, whatever the
+# command does.
+mkdir "$CASE/matcher"
+cp -R plugins/agent-guard "$CASE/matcher/agent-guard"
+jq '.hooks.PreToolUse[0].matcher = "apply_patch"' plugins/agent-guard/hooks.json >"$CASE/matcher/agent-guard/hooks.json"
+if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$CASE/matcher/agent-guard/bin/agent-guard" --scanner "$MOCK" --entry manifest \
+    --case codex-pre-bash-clean --out "$CASE/parity-matcher.json" >/dev/null 2>&1; then
+  echo 'cli-differential missed a changed manifest matcher' >&2; exit 1
+fi
+jq -e '.different_cases == ["manifest-dispatch-codex"]' "$CASE/parity-matcher.json" >/dev/null
+# A comparison that cannot finish replaces an earlier report and says so.
+printf '%s\n' '#!/bin/sh' 'case "${1:-}" in version) echo 8.30.1; exit 0 ;; esac' 'cat >/dev/null' 'sleep 30' >"$CASE/failing/gitleaks"
+cp "$CASE/parity-same.json" "$CASE/parity-stale.json"
+if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$CASE/failing/gitleaks" --timeout 5 \
+    --case pre-read-clean --case prompt-clean --out "$CASE/parity-stale.json" >/dev/null 2>&1; then
+  echo 'cli-differential passed a comparison that timed out' >&2; exit 1
+fi
+jq -e '(.complete | not) and .aborted.case == "prompt-clean" and ([.cases[].name] == ["pre-read-clean"])' "$CASE/parity-stale.json" >/dev/null
+# State that cannot be read is not state that is absent (root reads anything).
+if [ "$(id -u)" != 0 ]; then
+  mkdir "$CASE/locked"
+  cp -R plugins/agent-guard "$CASE/locked/agent-guard"
+  awk 'NR == 2 { print; print "mkdir -p \"${TMPDIR:-/tmp}/locked\" && chmod 000 \"${TMPDIR:-/tmp}/locked\""; next } { print }' \
+    "$GUARD" >"$CASE/locked/agent-guard/bin/agent-guard"
+  if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$CASE/locked/agent-guard/bin/agent-guard" --scanner "$MOCK" \
+      --case pre-read-clean --out "$CASE/parity-locked.json" >/dev/null 2>&1; then
+    echo 'cli-differential passed state it could not read' >&2; exit 1
+  fi
+  jq -e '(.complete | not)' "$CASE/parity-locked.json" >/dev/null
+fi
 # A corpus with an unknown placeholder or without steps is refused.
 printf '%s\n' '[{"name":"bad","steps":[{"args":["version"],"stdin":"{{NO_SUCH}}"}]}]' >"$CASE/bad-corpus.json"
 printf '%s\n' '[{"name":"empty","steps":[]}]' >"$CASE/empty-corpus.json"

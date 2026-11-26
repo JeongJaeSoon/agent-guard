@@ -10,8 +10,9 @@ use std::path::Path;
 const UNSTABLE: &[&str] = &[
     "audit events: run_id, time and duration_seconds",
     "names of state and temporary files: every run of digits and every run of 8 or more hexadecimal characters (times, process and file identities, hashes), and the random suffix of an audit event file",
-    "content of the CLI's cache files in the state directory (times and file identities)",
-    "a line of digits only in any other file the CLI leaves (a warning marker holds the time it was written)",
+    "content of the CLI's cache files in the state directory: gitleaks-probe, gitleaks-clean, deny-path-regex and gitleaks-helper (times and file identities)",
+    "content of files inside the repository's .git other than HEAD and refs (the index and logs hold times; objects are named by their content)",
+    "a line of digits only in a temporary file the CLI leaves (a warning marker holds the time it was written)",
     "each side's own plugin root in output, read as one placeholder",
 ];
 
@@ -20,11 +21,14 @@ struct Side {
     root: String,
     shell: Option<String>,
 }
+/// One thing a step changed: a label safe to publish, the name compared,
+/// and the bytes compared (empty where only the name is).
+type Change = (&'static str, String, Vec<u8>);
 struct Outcome {
     status: i32,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
-    state: Vec<(String, Vec<u8>)>,
+    state: Vec<Change>,
 }
 
 /// Replace the corpus placeholders. The text of a case is never echoed.
@@ -79,23 +83,38 @@ fn stable_name(path: &str) -> String {
     out
 }
 
-/// Every file under the state and temporary directories.
+/// Every entry under the repository, home, state and temporary directories.
+/// A directory is an entry of its own (named with a trailing slash): an
+/// empty one can be state. Anything that cannot be read fails the
+/// comparison; only an entry that vanished meanwhile is skipped.
 fn tree(base: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
+    fn gone<T>(result: std::io::Result<T>) -> Result<Option<T>> {
+        match result {
+            Ok(value) => Ok(Some(value)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(format!("cannot read the state a step left: {error}").into()),
+        }
+    }
     fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Vec<u8>>) -> Result<()> {
-        let Ok(entries) = std::fs::read_dir(dir) else {
+        let Some(entries) = gone(std::fs::read_dir(dir))? else {
             return Ok(());
         };
         for entry in entries {
-            let entry = entry?;
+            let Some(entry) = gone(entry)? else { continue };
             let name = format!("{prefix}/{}", entry.file_name().to_string_lossy());
-            let kind = entry.file_type()?;
+            let Some(kind) = gone(entry.file_type())? else {
+                continue;
+            };
             if kind.is_dir() {
+                out.insert(format!("{name}/"), Vec::new());
                 walk(&entry.path(), &name, out)?;
             } else if kind.is_file() {
-                // A file a finished hook removed between the listing and the
-                // read is no longer state.
-                if let Ok(bytes) = std::fs::read(entry.path()) {
+                if let Some(bytes) = gone(std::fs::read(entry.path()))? {
                     out.insert(name, bytes);
+                }
+            } else if kind.is_symlink() {
+                if let Some(target) = gone(std::fs::read_link(entry.path()))? {
+                    out.insert(name, format!("link to {}", target.display()).into_bytes());
                 }
             } else {
                 out.insert(name, b"not a regular file".to_vec());
@@ -104,59 +123,125 @@ fn tree(base: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
         Ok(())
     }
     let mut out = BTreeMap::new();
-    for name in ["s", "t"] {
+    for name in ["repo", "home", "s", "t"] {
         walk(&base.join(name), name, &mut out)?;
     }
     Ok(out)
 }
 
-/// What one step changed: audit events without their unstable fields, cache
-/// files by name only, and everything else (notices, markers) with content.
+/// How one path is compared, and the label the report may show for it.
+fn change(path: &str, bytes: &[u8]) -> Change {
+    const CACHES: [&str; 4] = [
+        "s/agent-guard/gitleaks-probe",
+        "s/agent-guard/gitleaks-clean/",
+        "s/agent-guard/deny-path-regex-",
+        "s/agent-guard/gitleaks-helper/",
+    ];
+    let directory = path.ends_with('/');
+    let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
+    if path.starts_with("s/") && name.starts_with("event-") {
+        let events: Vec<String> = String::from_utf8_lossy(bytes)
+            .lines()
+            .map(|line| match parse(line.as_bytes()) {
+                Ok(Value::Object(mut event)) => {
+                    for key in ["run_id", "time", "duration_seconds"] {
+                        event.remove(key);
+                    }
+                    Value::Object(event).to_string()
+                }
+                _ => line.to_owned(),
+            })
+            .collect();
+        (
+            "audit-event",
+            format!("{dir}/event"),
+            events.join("\n").into_bytes(),
+        )
+    } else if CACHES.iter().any(|cache| path.starts_with(cache)) {
+        ("cache", stable_name(path), Vec::new())
+    } else if path.starts_with("s/") {
+        let label = if directory {
+            "state-directory"
+        } else {
+            "state-file"
+        };
+        (label, stable_name(path), bytes.to_vec())
+    } else if path.starts_with("t/") {
+        let lines: Vec<&[u8]> = bytes
+            .split(|byte| *byte == b'\n')
+            .map(|line| {
+                if !line.is_empty() && line.iter().all(u8::is_ascii_digit) {
+                    b"#".as_slice()
+                } else {
+                    line
+                }
+            })
+            .collect();
+        let label = if directory {
+            "temporary-directory"
+        } else {
+            "temporary-file"
+        };
+        (label, stable_name(path), lines.join(&b'\n'))
+    } else if path.starts_with("repo/.git/") {
+        let compared = path == "repo/.git/HEAD" || path.starts_with("repo/.git/refs/");
+        (
+            "git-internal",
+            path.to_owned(),
+            if compared { bytes.to_vec() } else { Vec::new() },
+        )
+    } else if path.starts_with("repo/") {
+        ("repository-file", path.to_owned(), bytes.to_vec())
+    } else {
+        ("home-file", path.to_owned(), bytes.to_vec())
+    }
+}
+
+/// What one step changed, in a fixed order.
 fn transition(
     before: &BTreeMap<String, Vec<u8>>,
     after: &BTreeMap<String, Vec<u8>>,
-) -> Vec<(String, Vec<u8>)> {
-    let mut out = Vec::new();
-    for (path, bytes) in after {
-        if before.get(path) == Some(bytes) {
-            continue;
-        }
-        let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
-        if path.starts_with("s/") && name.starts_with("event-") {
-            let events: Vec<String> = String::from_utf8_lossy(bytes)
-                .lines()
-                .map(|line| match parse(line.as_bytes()) {
-                    Ok(Value::Object(mut event)) => {
-                        for key in ["run_id", "time", "duration_seconds"] {
-                            event.remove(key);
-                        }
-                        Value::Object(event).to_string()
-                    }
-                    _ => line.to_owned(),
-                })
-                .collect();
-            out.push((format!("{dir}/event"), events.join("\n").into_bytes()));
-        } else if path.starts_with("s/") {
-            out.push((stable_name(path), Vec::new()));
-        } else {
-            let lines: Vec<&[u8]> = bytes
-                .split(|byte| *byte == b'\n')
-                .map(|line| {
-                    if !line.is_empty() && line.iter().all(u8::is_ascii_digit) {
-                        b"#".as_slice()
-                    } else {
-                        line
-                    }
-                })
-                .collect();
-            out.push((stable_name(path), lines.join(&b'\n')));
-        }
-    }
+) -> Vec<Change> {
+    let mut out: Vec<Change> = after
+        .iter()
+        .filter(|(path, bytes)| before.get(*path) != Some(bytes))
+        .map(|(path, bytes)| change(path, bytes))
+        .collect();
     for path in before.keys().filter(|path| !after.contains_key(*path)) {
-        out.push((format!("removed {}", stable_name(path)), Vec::new()));
+        out.push(("removed", change(path, b"").1, Vec::new()));
     }
     out.sort();
     out
+}
+
+/// The dispatch a host reads from a plugin manifest: everything but the
+/// command text, which is compared by running it.
+fn dispatch(root: &str, host: &str) -> Result<Value> {
+    let file = if host == "codex" {
+        "hooks.json"
+    } else {
+        "hooks/hooks.json"
+    };
+    let mut manifest = read_json(Path::new(root).join(file))?;
+    let events = manifest["hooks"]
+        .as_object_mut()
+        .ok_or("invalid plugin manifest")?;
+    for (event, groups) in events {
+        let groups = groups.as_array_mut().ok_or("invalid plugin manifest")?;
+        // Only the first command of an event is run here.
+        ensure(
+            groups.len() == 1
+                && groups[0]["hooks"]
+                    .as_array()
+                    .is_some_and(|hooks| hooks.len() == 1),
+            format!("the {host} manifest has more than one command for {event}"),
+        )?;
+        groups[0]["hooks"][0]
+            .as_object_mut()
+            .ok_or("invalid plugin manifest")?
+            .remove("command");
+    }
+    Ok(manifest)
 }
 
 /// A fixed word for what the host is told: never a value from the output.
@@ -337,6 +422,11 @@ pub fn differential(args: &Args) -> Result<()> {
         )?;
     }
     ensure(!cases.is_empty(), "the corpus has no case")?;
+    // An earlier report must not outlive a comparison that fails to finish.
+    match std::fs::remove_file(&out_path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+        _ => {}
+    }
     // Made before anything runs: a comparison must not end without its report.
     if let Some(parent) = out_path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
@@ -409,20 +499,59 @@ pub fn differential(args: &Args) -> Result<()> {
 
     let mut rows = Vec::new();
     let mut different = Vec::new();
+    if manifest {
+        for host in ["claude", "codex"] {
+            if dispatch(&sides[0].root, host)? != dispatch(&sides[1].root, host)? {
+                let name = if host == "codex" {
+                    "manifest-dispatch-codex"
+                } else {
+                    "manifest-dispatch-claude"
+                };
+                eprintln!("DIFFERENT {name}");
+                different.push(name);
+            }
+        }
+    }
+    // A step that cannot run ends the comparison; the report then says it is
+    // incomplete instead of leaving an earlier result in place.
+    let mut aborted = Value::Null;
     for case in &cases {
         let name = case["name"].as_str().unwrap();
-        let baseline = run_case(case, &sides[0])?;
-        let candidate = run_case(case, &sides[1])?;
+        let both = run_case(case, &sides[0])
+            .and_then(|baseline| Ok((baseline, run_case(case, &sides[1])?)));
+        let (baseline, candidate) = match both {
+            Ok(both) => both,
+            Err(error) => {
+                eprintln!("ABORTED {name}");
+                aborted = json!({"case": name, "error": error.to_string()});
+                break;
+            }
+        };
         let mut steps = Vec::new();
         let mut equal = true;
         for (index, (a, b)) in baseline.iter().zip(&candidate).enumerate() {
             let decisions = [decision(a.status, &a.stdout), decision(b.status, &b.stdout)];
-            let names = |o: &Outcome| o.state.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
+            let labels = |o: &Outcome| {
+                let mut counts = BTreeMap::new();
+                for (label, _, _) in &o.state {
+                    *counts.entry(*label).or_insert(0) += 1;
+                }
+                json!(counts)
+            };
             let same = a.status == b.status
                 && a.stdout == b.stdout
                 && a.stderr == b.stderr
                 && a.state == b.state;
             equal &= same;
+            if args.flag("--names") && a.state != b.state {
+                // Names can hold a session identifier: standard error only,
+                // and only when asked, for a synthetic corpus.
+                for (side, own, other) in [("baseline", a, b), ("candidate", b, a)] {
+                    for (label, name, _) in own.state.iter().filter(|c| !other.state.contains(c)) {
+                        eprintln!("  only {side}: {label} {name}");
+                    }
+                }
+            }
             steps.push(json!({
                 "command": case["steps"][index]["args"][0],
                 "equal": same,
@@ -430,7 +559,7 @@ pub fn differential(args: &Args) -> Result<()> {
                 "decision": decisions,
                 "stdout": compared(&a.stdout, &b.stdout),
                 "stderr": compared(&a.stderr, &b.stderr),
-                "state": {"equal": a.state == b.state, "baseline": names(a), "candidate": names(b)},
+                "state": {"equal": a.state == b.state, "changes": {"baseline": labels(a), "candidate": labels(b)}},
             }));
         }
         eprintln!("{} {name}", if equal { "same" } else { "DIFFERENT" });
@@ -454,6 +583,8 @@ pub fn differential(args: &Args) -> Result<()> {
         "compared": "exit status, decision, standard output and standard error byte for byte, audit events and the files each step left",
         "not_compared": UNSTABLE,
         "case_count": rows.len(),
+        "complete": aborted.is_null(),
+        "aborted": aborted,
         "differences": different.len(),
         "different_cases": different,
     });
@@ -467,6 +598,10 @@ pub fn differential(args: &Args) -> Result<()> {
         text.push('\n');
         let _ = std::io::stdout().write_all(text.as_bytes());
     }
+    ensure(
+        report["complete"] == true,
+        "the comparison did not finish; see aborted",
+    )?;
     ensure(
         report["differences"] == 0,
         "the two builds differ; see different_cases",
@@ -606,16 +741,48 @@ mod tests {
 "
             )
         );
-        let names: Vec<_> = a.iter().map(|(name, _)| name.as_str()).collect();
+        let names: Vec<_> = a
+            .iter()
+            .map(|(label, name, _)| (*label, name.as_str()))
+            .collect();
         assert_eq!(
             names,
             [
-                "removed t/gone",
-                "s/agent-guard/event",
-                "s/agent-guard/gitleaks-probe",
-                "t/agent-guard-warnings-#/blocked-injection-#",
-                "t/agent-guard-warnings-#/infrastructure-s#",
+                ("audit-event", "s/agent-guard/event"),
+                ("cache", "s/agent-guard/gitleaks-probe"),
+                ("removed", "t/gone"),
+                (
+                    "temporary-file",
+                    "t/agent-guard-warnings-#/blocked-injection-#"
+                ),
+                (
+                    "temporary-file",
+                    "t/agent-guard-warnings-#/infrastructure-s#"
+                ),
             ]
         );
+    }
+    #[test]
+    fn what_is_compared_depends_on_where_a_file_is() {
+        // Content counts everywhere but in caches and Git's own bookkeeping.
+        for (path, compared) in [
+            ("s/agent-guard/gitleaks-clean/17e87020352c6b96", false),
+            ("s/agent-guard/deny-path-regex-literal-3.13.9:1:2", false),
+            ("s/agent-guard/pending-notice", true),
+            ("t/agent-guard-warnings-501/blocked-injection-1", true),
+            ("home/left-behind", true),
+            ("repo/notes.md", true),
+            ("repo/.git/index", false),
+            ("repo/.git/HEAD", true),
+            ("repo/.git/refs/heads/main", true),
+        ] {
+            assert_eq!(
+                change(path, b"one") != change(path, b"two"),
+                compared,
+                "{path}"
+            );
+        }
+        assert_eq!(change("t/left-empty/", b"").0, "temporary-directory");
+        assert_eq!(change("home/x", b"").0, "home-file");
     }
 }
