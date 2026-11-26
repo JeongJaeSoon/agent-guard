@@ -334,12 +334,18 @@ for kind in typo-case typo-spelling typo-agent other-role; do
   free "$kind" none 'ls -la'
   free "$kind" none 'grep -c "docker exec other-db-1 psql" README.md'
 done
+# Decided trade-off: the refusal reads the same runtime words the review
+# boundary looks at, so it is never weaker than a correct review session, and
+# it also refuses a runtime name that is only a word or a path.
+held typo-spelling bash_container_session_role_invalid none 'echo docker'
+held typo-spelling bash_container_session_role_invalid none 'git status -- deploy/docker/compose.yml'
 POLICY_HOME=$UNLISTED
 held typo-spelling bash_container_session_role_invalid none 'docker ps'
 POLICY_HOME=$LISTED
 # The message names the variable and the accepted values, never the value.
 hook typo-spelling 'docker ps' "$W"
 if grep -Fq 'AGENT_GUARD_SESSION_ROLE' "$CASE/err" && grep -Fq 'accepted values: review' "$CASE/err" \
+   && grep -Fq 'the cause is the session' "$CASE/err" && grep -Fq 'unsets it' "$CASE/err" \
    && ! grep -Fq reveiw "$CASE/err"; then
   ok "the refusal names AGENT_GUARD_SESSION_ROLE and its accepted values, not the value"
 else
