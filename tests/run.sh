@@ -17528,6 +17528,7 @@ else
 fi
 rm -rf "$NORM_PARENT"
 run_expect 0 "smoke-test keeps the process EXIT trap and leaves no temp directory" sh "$ROOT/tests/exit-trap-cleanup.sh"
+run_expect 0 "HUP, INT and TERM remove the run directory on every shell, and stale leftovers are reaped" sh "$ROOT/tests/rundir-cleanup.sh"
 
 # --- pilot security: bounded tree scans and Codex write targets ------------
 # Assemble the test-only sentinel so source scans never see the matched value.
