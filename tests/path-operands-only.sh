@@ -58,7 +58,7 @@ jq -e '. as $all | all(range(0; length); . as $i
 # Each fixture keeps a must-pass case for Codex, a must-pass case that runs
 # there has its block case there too, and so does a case with its own workdir.
 jq -e '. as $all | any(.[]; .both_hosts == true and .classification == "must-pass")
-       and all(.[]; (.both_hosts // false) | type == "boolean")
+       and all(.[]; (has("both_hosts") | not) or (.both_hosts | type == "boolean"))
        and all(.[]; (has("workdir") | not) or .both_hosts == true)
        and all(range(0; length); . as $i
          | ($all[$i].both_hosts // false) == false
