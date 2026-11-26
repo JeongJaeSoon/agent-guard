@@ -34,7 +34,14 @@ printf 'cat .env\n' >"$W/cmds.txt"
 mkdir -p "$W/g/src"
 printf 'const p = process.env.PORT\n' >"$W/g/src/a.ts"
 printf 'VALUE=%s\n' "$canary" >"$W/g/.env"
-(cd "$W/g" && git init -q . && git add -f .) >/dev/null 2>&1 || { printf 'not ok - could not build the git fixture\n'; exit 1; }
+# Two commits, so a revision written with a tilde or a caret resolves.
+(
+  cd "$W/g" && git init -q . && git add -f . || exit 1
+  for m in one two; do
+    git -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+      -c core.hooksPath=/dev/null commit -q --allow-empty -m "$m" || exit 1
+  done
+) >/dev/null 2>&1 || { printf 'not ok - could not build the git fixture\n'; exit 1; }
 
 # An inherited L names a protected file: an assignment the shell may skip or
 # runs in a subshell must not stand for its value (#636). Every other row
@@ -326,6 +333,8 @@ allow cd g && git grep -h -oE 'process\.env\.[A-Z]+' -- src | sort | uniq -c
 allow cd g && git grep -n "process.env" -A2 -- src | head; git grep -c '\.env' -- src
 allow cd g && git diff -U0 -- src | grep -E 'process\.env|tls\.key'
 allow cd g && git diff --stat -- src 2>/dev/null | grep -c '\.env'
+allow cd g && git diff HEAD~1 -- src | grep -E 'process\.env|tls\.key'
+allow cd g && git diff --stat HEAD~1..HEAD^ | grep -c '\.env'
 allow for f in src/a.ts notes.txt; do grep -n 'process\.env' $f | head -3; done
 allow for f in src/a.ts notes.txt; do echo "== $f"; grep -c "\.env" "$f"; done
 allow if grep -q '\.env' list.txt; then echo yes; fi
@@ -377,6 +386,9 @@ held git -c core.pager=cat grep '\.env'
 held cd g && git grep -l '\.env' | xargs cat
 held cd g && git grep -n -e .env; cat $_
 held git diff --output=p -- src | grep '\.env'
+held git diff HEAD~1 --output=p -- src | grep '\.env'
+held git diff ~/x | grep '\.env'
+held git diff a=~/x | grep '\.env'
 held git -c diff.external=./shim diff -- src | grep '\.env'
 held for i in 1 2; do grep -e .env list.txt; hash -p /bin/cat grep; done
 held for f in a b; do grep -c '\.env' list.txt; done > p

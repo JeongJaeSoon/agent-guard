@@ -279,8 +279,11 @@ run_expect 0 "NUL redaction preserves clean leaves" sh "$ROOT/tests/unit-nul-red
 run_expect 0 "quote gate skips only texts the quote pass leaves unchanged" sh "$ROOT/tests/unit-quoted-words.sh"
 run_expect 0 "printenv argument boundaries preserve empty and public values" sh "$ROOT/tests/printenv-argument-contract.sh"
 run_expect 0 "known dotenv values are masked only in deny-read mask mode" sh "$ROOT/tests/known-env-value.sh"
+# A session that loaded the shell integration exports its marker to every
+# subprocess, and the marker silences the SessionStart setup notice. Run the
+# suite with one set, as an agent worker does, so it cannot depend on it (#619).
 run_expect 0 "CLI guidance names a command that runs for plugin-only installs" \
-  sh "$ROOT/tests/cli-guidance.sh"
+  env AGENT_GUARD_SHELL_INIT_VERSION=0.0.1 sh "$ROOT/tests/cli-guidance.sh"
 
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
@@ -3003,6 +3006,8 @@ run_expect 0 "status words and named placeholders are prose, real values still b
   sh "$ROOT/tests/prompt-prose-placeholder.sh"
 run_expect 0 "empty values, key-file paths and obvious placeholders are not values, real ones still block" \
   sh "$ROOT/tests/prompt-empty-path-placeholder.sh"
+run_expect 0 "a colon key that opens a JSON string value is read, an empty one is not (#657)" \
+  sh "$ROOT/tests/json-string-colon-key.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \

@@ -2234,6 +2234,117 @@
     "new": "if (wv[g] ~ /^-[fsw]$/) g++",
     "tests": [
       "tests/search-operand-ground-truth.sh"
+      ]
+    },
+    {
+    "id": "bash-git-diff-rev-tilde-refused",
+    "rule": "git diff before a search (#626): a revision with a tilde or caret keeps it a printing command",
+    "old": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\\/@~^-]*$/) return 0",
+    "new": "if (bad(k)) return 0",
+    "tests": [
+      "tests/search-operand-ground-truth.sh",
+      "tests/bash-path-text-data.sh"
+    ]
+  },
+  {
+    "id": "bash-git-diff-rev-leading-tilde",
+    "rule": "git diff before a search (#626): a word that starts with a tilde is refused",
+    "old": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\\/@~^-]*$/) return 0",
+    "new": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_~][A-Za-z0-9_.\\/@~^-]*$/) return 0",
+    "tests": [
+      "tests/search-operand-ground-truth.sh",
+      "tests/bash-path-text-data.sh"
+    ]
+  },
+  {
+    "id": "bash-git-diff-rev-assignment-tilde",
+    "rule": "git diff before a search (#626): a tilde in a word shaped like an assignment is refused",
+    "old": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\\/@~^-]*$/) return 0",
+    "new": "if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\\/@~^=-]*$/) return 0",
+    "tests": [
+      "tests/search-operand-ground-truth.sh",
+      "tests/bash-path-text-data.sh"
+    ]
+  },
+  {
+    "id": "leaf-colon-key-unread",
+    "rule": "scan_line_once: a colon key that opens a JSON string value is a candidate assignment",
+    "old": "        if (leaf_colon_start > 0 && (colon_start == 0 || leaf_colon_start < colon_start)) {",
+    "new": "        if (0) {",
+    "tests": [
+      "tests/json-string-colon-key.sh"
+    ]
+  },
+  {
+    "id": "leaf-colon-key-not-leftmost",
+    "rule": "scan_line_once: the key that opens a JSON string value goes first when it is left of the other colon key",
+    "old": "        if (leaf_colon_start > 0 && (colon_start == 0 || leaf_colon_start < colon_start)) {",
+    "new": "        if (leaf_colon_start > 0 && colon_start == 0) {",
+    "tests": [
+      "tests/json-string-colon-key.sh"
+    ]
+  },
+  {
+    "id": "leaf-colon-key-empty-value",
+    "rule": "leaf_colon_assignment: a string that closes right after the delimiter holds no value",
+    "old": "leaf_colon_assignment = \":\\\"\" key \"[ \\t]*:[ \\t]*[^ \\t\\r\\\"]\"",
+    "new": "leaf_colon_assignment = \":\\\"\" key \"[ \\t]*:\"",
+    "tests": [
+      "tests/json-string-colon-key.sh"
+    ]
+  },
+  {
+    "id": "leaf-colon-key-copy-escaped-value",
+    "rule": "find_leaf_colon: the copy reading takes a value that opens with an escaped quote",
+    "old": "      if (copy_reading ? match(low, leaf_colon_copy_assignment) \\",
+    "new": "      if (0 ? match(low, leaf_colon_copy_assignment) \\",
+    "tests": [
+      "tests/json-string-colon-key.sh"
+    ]
+  },
+  {
+    "id": "leaf-colon-key-length",
+    "rule": "find_leaf_colon: the assignment ends at its delimiter, before the value",
+    "old": "leaf_colon_length = index(substr(low, RSTART + 1, RLENGTH - 1), \":\")",
+    "new": "leaf_colon_length = RLENGTH - 1",
+    "tests": [
+      "tests/json-string-colon-key.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-query-sequenced-not-inert",
+    "rule": "program text after a gh query (#502): a query sequenced with ; or && is inert too",
+    "old": "if (mode == \"program\" && a == h && gh_query(h, e, 0)) continue",
+    "new": "if (mode == \"program\" && a == h && segpipe[wseg[k]] && gh_query(h, e, 0)) continue",
+    "tests": [
+      "tests/bash-path-text-data.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-query-download-inert",
+    "rule": "program text after a gh query (#502): a gh command that writes files is no query",
+    "old": "return sub1 ~ /^(api|run view|run list|run watch|pr view|pr list|pr checks|pr diff|pr status|issue view|issue list|issue status)$/",
+    "new": "return sub1 ~ /^(api|run view|run list|run watch|run download|pr view|pr list|pr checks|pr diff|pr status|issue view|issue list|issue status)$/",
+    "tests": [
+      "tests/bash-path-text-data.sh"
+    ]
+  },
+  {
+    "id": "bash-message-value-backslash-refused",
+    "rule": "message value (#502): a double-quoted value with a backslash before an ordinary character is one literal",
+    "old": "if (flat == v && !(q == \"\\\"\" && body ~ /[$`]/) && ++seen == want) {",
+    "new": "if (flat == v && !(q == \"\\\"\" && body ~ /[$`\\\\]/) && ++seen == want) {",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
+  },
+  {
+    "id": "bash-message-value-dollar-accepted",
+    "rule": "message value (#409): a double-quoted value with a dollar sign stays in the scan",
+    "old": "if (flat == v && !(q == \"\\\"\" && body ~ /[$`]/) && ++seen == want) {",
+    "new": "if (flat == v && !(q == \"\\\"\" && body ~ /[`]/) && ++seen == want) {",
+    "tests": [
+      "tests/message-value-prose.sh"
     ]
   }
 ]

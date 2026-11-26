@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=3.13.6
+VERSION=3.13.7
 
 # Where releases are published and what the host plugin managers call them.
 AG_REPO=JeongJaeSoon/agent-guard
@@ -7912,8 +7912,11 @@ message_heredoc_placeholders() (
 
 # Replace each message value message_value_records finds, quotes included,
 # with `_`. A value is replaced only when it is one quoted literal (single
-# quotes, or double quotes holding no `$`, backquote or backslash) and
-# re-tokenizing shows that it changed that record and nothing else. Leaving no
+# quotes, or double quotes holding no `$` or backquote, escaped or not) and
+# re-tokenizing shows that it changed that record and nothing else. A
+# backslash before an ordinary character is text inside double quotes; one
+# that escapes a quote or a backslash makes the text differ from the value
+# the tokenizer read, so that value stays as written. Leaving no
 # quotes lets the deny-path check skip its dequoted pass.
 #
 # Any other substitution in a message value, or anywhere in the command,
@@ -7973,7 +7976,7 @@ bash_strip_literal_message_values() (
           if (j > n) exit 1
           body = substr(s, i + 1, j - i - 1)
           flat = body; gsub(/\n/, " ", flat)
-          if (flat == v && !(q == "\"" && body ~ /[$`\\]/) && ++seen == want) {
+          if (flat == v && !(q == "\"" && body ~ /[$`]/) && ++seen == want) {
             printf "%s", substr(s, 1, i - 1) "_" substr(s, j + 1)
             exit 0
           }
@@ -8467,12 +8470,17 @@ search_operand_spans() {
     }
     # `git diff` whose every word is literal and whose options are on this
     # list: none names an output file, an order file or a program to run.
+    # A revision may hold a tilde or a caret (`HEAD~1`, `main^`) after a
+    # name character: no shell expands a tilde there, and a zsh extended
+    # glob made of them matches only names that start the same way, so the
+    # word is still no option. A leading tilde, or one in a word shaped like
+    # an assignment (`a=~/x`, which bash expands), stays refused.
     function git_diff_prints(a, b,   k, dd) {
       if (wv[a] != "git" || a + 1 > b || wv[a + 1] != "diff") return 0
       dd = 0
       for (k = a; k <= b; k++) {
         if (quiet(k)) continue
-        if (bad(k)) return 0
+        if (bad(k) && wv[k] !~ /^[A-Za-z0-9_][A-Za-z0-9_.\/@~^-]*$/) return 0
         if (k < a + 2 || dd || substr(wv[k], 1, 1) != "-") continue
         if (wv[k] == "--") { dd = 1; continue }
         if (wv[k] !~ /^(-U[0-9]+|--unified=[0-9]+|--stat|--numstat|--shortstat|--name-only|--name-status|--cached|--staged|--no-color|--no-ext-diff|--no-textconv|--no-renames|-M|-w|-b|--ignore-all-space|--ignore-space-change|--diff-filter=[A-Za-z]+)$/) return 0
@@ -8861,10 +8869,11 @@ search_operand_spans() {
         # operand could expand to a file named like an option (--pre=sh).
         if (known) continue
         if (wv[h] == "sed" && (sed_prints_lines(h, e) || sed_substitutes(h, e))) continue
-        # A gh query that feeds a pipe runs in a subshell and writes no file,
-        # so it cannot change what the next command name runs. Sequenced with
-        # `;` or `&&` it stays outside the inert list, as before.
-        if (mode == "program" && a == h && segpipe[wseg[k]] && gh_query(h, e, 0)) continue
+        # A gh query writes no file and rebinds no name, whether it feeds a
+        # pipe or is sequenced with `;`, `&&` or `||` (`gh run watch N &&
+        # gh run view N --log | sed ...`), so it cannot change what the next
+        # command name runs.
+        if (mode == "program" && a == h && gh_query(h, e, 0)) continue
         # So do `git ls-files` and `git diff` that feed a pipe: they print
         # names or changed lines and write nothing.
         if (a == h && segpipe[wseg[k]] && (git_lists_files(h, e) || git_diff_prints(h, e))) continue
@@ -16179,6 +16188,16 @@ secretish_env_values() {
       # find_quote_colon looks for it apart, so that a line without one
       # reads exactly as before.
       quote_colon_assignment = ":[\"'\''`][\"'\''`]" key "[\"'\''`][ \t]*:"
+      # A colon key at the very start of a JSON string value follows the
+      # colon and the quote that open that string
+      # (`"text":"password: <secret>"`), the place an `=` key is read from
+      # (#178, #657). The same quote right after the delimiter closes the
+      # string on an empty value, and that line reads as before. In the copy
+      # scan_line reads, the quote there can be an escaped one that opens the
+      # value, so the copy takes it and emit_value reads what it holds.
+      # find_leaf_colon looks for the key apart, as find_quote_colon does.
+      leaf_colon_assignment = ":\"" key "[ \t]*:[ \t]*[^ \t\r\"]"
+      leaf_colon_copy_assignment = ":\"" key "[ \t]*:[ \t]*[^ \t\r]"
       # Skipping after ANY colon-terminated token also let real structured log
       # lines through unmasked (`response: api_key: <secret>`), so only these
       # status words justify the skip. Deliberately short: an unlisted label
@@ -17907,6 +17926,19 @@ secretish_env_values() {
         quote_length = RLENGTH - 1
       }
     }
+    # The leftmost key that opens a JSON string value, from the quote
+    # through its delimiter, in leaf_colon_start/leaf_colon_length (0 and -1
+    # when there is none). A key holds no colon, so the delimiter is the
+    # first one after the quote.
+    function find_leaf_colon(low) {
+      leaf_colon_start = 0
+      leaf_colon_length = -1
+      if (copy_reading ? match(low, leaf_colon_copy_assignment) \
+                       : match(low, leaf_colon_assignment)) {
+        leaf_colon_start = RSTART + 1
+        leaf_colon_length = index(substr(low, RSTART + 1, RLENGTH - 1), ":")
+      }
+    }
     function find_assignment(low, delimiter, before) {
       assignment_start = 0
       assignment_length = -1
@@ -18036,6 +18068,11 @@ secretish_env_values() {
         if (quote_start > 0 && (colon_start == 0 || quote_start < colon_start)) {
           colon_start = quote_start
           colon_length = quote_length
+        }
+        find_leaf_colon(low)
+        if (leaf_colon_start > 0 && (colon_start == 0 || leaf_colon_start < colon_start)) {
+          colon_start = leaf_colon_start
+          colon_length = leaf_colon_length
         }
 
         start = eq_start
