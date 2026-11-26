@@ -1,10 +1,10 @@
 name: Rule mutation check
 
 # Hand-written mutants of the core detection rules (tests/mutations.json) must
-# each fail a listed test (#590). It is not a required check. A pull request
-# runs it when the rules, the list, the checker or test code change; a
-# fixtures-only change gets it on the release PR, whose version bump always
-# changes the binary.
+# each fail a listed test (#590). It is not a required check on pull requests.
+# A pull request runs it when the rules, the list, the checker or test code
+# change; release verification dispatches every group at the release SHA
+# (.github/release-checks.tsv), which also covers fixtures-only changes.
 on:
   workflow_dispatch:
   pull_request:
