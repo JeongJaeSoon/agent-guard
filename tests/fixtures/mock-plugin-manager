@@ -17,7 +17,8 @@ esac
 # process-group cleanup in the guard.
 if [ "$host" = codex ] && [ "$#" -eq 1 ] && [ "$1" = app-server ]; then
   trust_mode=${AG_PLUGIN_TEST_TRUST:-trusted}
-  [ -z "${AG_PLUGIN_TEST_TRUST_PIDFILE:-}" ] || printf '%s\n' "$$" >>"$AG_PLUGIN_TEST_TRUST_PIDFILE"
+  # The parent is the probe shell, which leads the probe's process group.
+  [ -z "${AG_PLUGIN_TEST_TRUST_PIDFILE:-}" ] || printf '%s\n' "$$" "$PPID" >>"$AG_PLUGIN_TEST_TRUST_PIDFILE"
   case "$trust_mode" in
     silent) exit 0 ;;
     hang) trap '' TERM; while :; do sleep 1; done ;;

@@ -1155,15 +1155,13 @@ for trust_mode in hang linger; do
   while [ ! -s "$case_dir/server-pids" ] && [ "$tries" -lt 100 ]; do
     sleep 0.1; tries=$((tries + 1))
   done
-  server_pid=$(sed -n 1p "$case_dir/server-pids")
-  guard_group=$(ps -o pgid= -p "$guard_pid" 2>/dev/null | tr -d ' ')
-  probe_group=$(ps -o pgid= -p "${server_pid:-0}" 2>/dev/null | tr -d ' ')
-  # Without a guard in its own group and a probe outside it, the kill below
-  # would not be the case under test.
+  probe_group=$(sed -n 2p "$case_dir/server-pids")
+  # Without a guard that leads its own group and a probe in another one, the
+  # kill below would not be the case under test.
   staged=0
   case "$probe_group" in
-    ''|*[!0-9]*|"$guard_group") ;;
-    *) [ "$guard_group" != "$guard_pid" ] || staged=1 ;;
+    ''|*[!0-9]*|"$guard_pid") ;;
+    *) kill -0 -"$guard_pid" 2>/dev/null && kill -0 -"$probe_group" 2>/dev/null && staged=1 ;;
   esac
   if [ "$staged" -eq 1 ]; then
     kill -KILL -"$guard_pid" 2>/dev/null
