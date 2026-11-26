@@ -114,6 +114,9 @@ doctor $OFFLINE AGENT_GUARD_PII_PROVIDER=zq9 AGENT_GUARD_PII_SKIP=EMAIL
 expect "an unknown provider is left to the provider error, not blamed on the skip list" '! line PII_SKIP | grep -qF unrecognized'
 doctor $OFFLINE AGENT_GUARD_PII_TIMEOUT_SECONDS=1000000000000000000
 expect "the PII timeout takes any positive integer, without the scan limit's digit cap" '! line PII_TIMEOUT_SECONDS | grep -qF unrecognized'
+env $UNSET HOME="$CASE/home" AGENT_GUARD_GITLEAKS_BIN="$CASE/gl/gitleaks" $OFFLINE AGENT_GUARD_PROMPT_GUARD_MODE=warn \
+  "$GUARD" doctor --help >"$CASE/out" 2>"$CASE/err" </dev/null
+expect "doctor --help prints usage without the settings section" 'grep -qF "Usage:" "$CASE/err" && ! grep -qF "setting  " "$CASE/err"'
 
 # P-5: the top-level usage lists every user-facing form, and no internal one.
 "$GUARD" --help 2>"$CASE/usage"

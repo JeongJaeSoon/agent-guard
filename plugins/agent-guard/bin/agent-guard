@@ -3367,6 +3367,7 @@ setup_gitleaks_helper_status_line() {
 # Warned once, as setup's parser reads the first one, so an argument it never
 # reads (after --help or an unknown one) is not; the warning names no value.
 SETUP_VIA_DOCTOR=0
+SETUP_HELP_SHOWN=0
 setup_doctor_install_arg() {
   [ "$SETUP_VIA_DOCTOR" = 1 ] || return 0
   SETUP_VIA_DOCTOR=2
@@ -3419,6 +3420,7 @@ helper for this platform from the Agent Guard release. It is installed only
 when it matches the checksums built into this CLI, and scans then use it
 without further setup. AGENT_GUARD_GITLEAKS_HELPER=off turns it off.
 EOF
+        SETUP_HELP_SHOWN=1
         return 0
         ;;
       *) die "setup: unknown argument: $1" ;;
@@ -23937,7 +23939,7 @@ do_doctor() {
   do_setup "$@"
   doctor_status=$?
   doctor_shell_integration_report
-  doctor_settings_report
+  [ "$SETUP_HELP_SHOWN" = 1 ] || doctor_settings_report
   if command -v codex >/dev/null 2>&1; then
     doctor_here=$(pwd -P 2>/dev/null) || doctor_here=$PWD
     codex_trust_probe "$doctor_here"
