@@ -524,6 +524,12 @@ ordinary_pr
 printf '{"artifacts":[42]}\n' > "$case_dir/artifacts.json"
 expect_tested 'reuse=false ordinary=false ' 'a malformed artifact entry keeps the full matrix'
 ordinary_pr
+printf '{"artifacts":[{"name":"tested-tree"}]}\n' > "$case_dir/artifacts.json"
+expect_tested 'reuse=false ordinary=false ' 'an artifact without its expiry keeps the full matrix'
+ordinary_pr
+edit_fixture ci.yml.json '.workflow_runs[0] |= del(.conclusion)'
+expect_tested 'reuse=false ordinary=false ' 'a run without its conclusion keeps the full matrix'
+ordinary_pr
 printf 'not json\n' > "$case_dir/ci.yml.json"
 expect_tested 'reuse=false ordinary=false ' 'malformed run JSON keeps the full matrix'
 ordinary_pr

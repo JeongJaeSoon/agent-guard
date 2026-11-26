@@ -53,11 +53,12 @@ pr_tree_passed() {
       then error("run without identity") else . end
     | map(select(.head_branch == $ref and .head_repository.full_name == $repo))
     | if any(.[]; (.run_started_at | type) != "string") then error("unordered runs") else . end
+    | if any(.[]; (.status | type) != "string" or (.status == "completed" and (.conclusion | type) != "string")) then error("run without a result") else . end
     | max_by([.run_started_at, .id]) | if . != null and .status == "completed" and .conclusion == "success" then .id else "none" end' "$work/runs") || return 2
   [ "$run" != none ] || return 1
   case "$run" in *[!0-9]*|'') return 2 ;; esac
   gh api "repos/$repo/actions/runs/$run/artifacts?name=tested-tree" > "$work/artifacts" || return 2
-  jq -e '.artifacts | type == "array"' "$work/artifacts" > /dev/null || return 2
+  jq -e '.artifacts | type == "array" and all(.[]; (.name | type) == "string" and (.expired | type) == "boolean")' "$work/artifacts" > /dev/null || return 2
   found=$(jq -r '[.artifacts[] | select(.name == "tested-tree" and .expired == false)] | length == 1' "$work/artifacts") || return 2
   [ "$found" = true ] || return 1
   gh run download "$run" --repo "$repo" --name tested-tree --dir "$work/tested" || return 2
@@ -77,6 +78,7 @@ schedule_passed() {
     | if any(.[]; [.head_sha, .event, .path] | any(type != "string")) then error("unreadable run") else . end
     | map(select(.head_sha == $sha and .event == "schedule" and .path == $path and .id != $self))
     | if any(.[]; (.run_started_at | type) != "string") then error("unordered runs") else . end
+    | if any(.[]; (.status | type) != "string" or (.status == "completed" and (.conclusion | type) != "string")) then error("run without a result") else . end
     | sort_by([.run_started_at, .id]) | reverse | .[]
     | {id, done: (.status == "completed"), passed: (.status == "completed" and .conclusion == "success")}' "$work/runs" > "$work/nightly" || return 2
   # Newest first: the newest nightly that ran the matrix itself (it holds a
@@ -87,7 +89,7 @@ schedule_passed() {
     case "$id" in *[!0-9]*|'') return 2 ;; esac
     printf '%s\n' "$row" | jq -e '.passed' > /dev/null || return 1
     gh api "repos/$repo/actions/runs/$id/artifacts?name=tested-tree" > "$work/artifacts" || return 2
-    jq -e '.artifacts | type == "array"' "$work/artifacts" > /dev/null || return 2
+    jq -e '.artifacts | type == "array" and all(.[]; (.name | type) == "string" and (.expired | type) == "boolean")' "$work/artifacts" > /dev/null || return 2
     found=$(jq -r '[.artifacts[] | select(.name == "tested-tree" and .expired == false)] | length == 1' "$work/artifacts") || return 2
     if [ "$found" = true ]; then
       printf 'source_sha=%s\nsource_run=%s\n' "$sha" "$id"
