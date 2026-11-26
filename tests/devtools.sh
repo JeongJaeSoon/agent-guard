@@ -61,8 +61,8 @@ grep -q 'failed: 1' "$CASE/failed-partitions/shell-1.log"
 grep -q 'passed: 1' "$CASE/failed-partitions/native-4.log"
 # Hook latency: every arm that needs no helper runs with the mock scanner, each
 # run is stored as a sample, and the summary on standard output holds none.
-"$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 2 --out "$CASE/latency.json" >"$CASE/latency-summary.json"
-jq -e '.arms == ["helper-off", "repeat-input"] and (.samples | length) == 20 and (.problems | length) == 0
+"$TOOLS" hook-latency --unverified --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 2 --out "$CASE/latency.json" >"$CASE/latency-summary.json"
+jq -e '.arms == ["helper-off", "repeat-input"] and (.samples | length) == 20 and (.problems | length) == 0 and (.verified | not)
   and ([.samples[] | select(.status != 0 or .seconds <= 0 or .max_child_peak_rss_kib <= 0)] | length) == 0
   and ([.samples[] | [.case, .arm]] | unique | length) == 10
   and ([.samples[] | select((.scanner | type) != "string" or (.cache | type) != "string" or (.probe | type) != "string" or (.client | type) != "array")] | length) == 0
@@ -70,14 +70,15 @@ jq -e '.arms == ["helper-off", "repeat-input"] and (.samples | length) == 20 and
   and (.cells | length) == 10 and ([.cells[] | select(.n != 2 or .median_ms <= 0 or .p95_ms < .median_ms)] | length) == 0' "$CASE/latency.json" >/dev/null
 jq -e 'has("samples") | not' "$CASE/latency-summary.json" >/dev/null
 jq -e '(.cells | length) == 10' "$CASE/latency-summary.json" >/dev/null
-"$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 1 --case pre-read --arm helper-off --entry manifest --out "$CASE/latency-manifest.json" >/dev/null
+"$TOOLS" hook-latency --unverified --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 1 --case pre-read --arm helper-off --entry manifest --out "$CASE/latency-manifest.json" >/dev/null
 jq -e '.entry == "manifest" and (.samples | length) == 1 and .samples[0].status == 0' "$CASE/latency-manifest.json" >/dev/null
 # With the real scanner the samples say which scanner ran and what the
 # clean-scan cache did: a scan without the helper is gitleaks, a hook with no
 # scan is none, and only a repeated Bash command is a cache hit.
 if [ -n "$SCANNER" ]; then
   "$TOOLS" hook-latency --scanner "$SCANNER" --runs 2 --out "$CASE/latency-real.json" >/dev/null
-  jq -e '.scanner_evidence.threshold_kib > 0 and (.problems | length) == 0
+  jq -e '.scanner_evidence.threshold_kib > 0 and (.problems | length) == 0 and .verified
+    and ([.cells[] | select(.probe_runs_left_out != 0)] | length) == 0 and ([.samples[].scanner] | index("unknown") == null)
     and ([.cells[] | select(.arm == "helper-off" and .case != "pre-read") | .scanner == {"gitleaks": 2}] | all)
     and ([.cells[] | select(.case == "pre-read") | .scanner == {"none": 2} and .cache == {"none": 2}] | all)
     and ([.cells[] | select(.arm == "helper-off" and .case == "pre-bash") | .cache == {"stored": 2}] | all)
@@ -91,7 +92,7 @@ mkdir "$CASE/failing" "$CASE/unpinned"
 printf '%s\n' '#!/bin/sh' 'case "${1:-}" in version) echo 8.30.1; exit 0 ;; esac' \
   'case "$(cat)" in *"PRIVATE KEY"*) exit 2 ;; esac' 'exit 0' >"$CASE/failing/gitleaks"
 chmod 755 "$CASE/failing/gitleaks"
-if "$TOOLS" hook-latency --scanner "$CASE/failing/gitleaks" --runs 1 --case pre-read --arm helper-off --out "$CASE/latency-failing.json" >/dev/null 2>&1; then
+if "$TOOLS" hook-latency --unverified --scanner "$CASE/failing/gitleaks" --runs 1 --case pre-read --arm helper-off --out "$CASE/latency-failing.json" >/dev/null 2>&1; then
   echo 'hook-latency took a scanner failure for a detected control' >&2; exit 1
 fi
 jq -e '.controls[0].status == 2 and .controls[0].outcome == "degraded" and (.problems | length) == 1' "$CASE/latency-failing.json" >/dev/null
@@ -101,15 +102,32 @@ for name in agent-guard-scan agent-guard-gitleaks-helper; do
   printf '%s\n' '#!/bin/sh' 'exit 2' >"$CASE/unpinned/$name"
   chmod 755 "$CASE/unpinned/$name"
 done
-if "$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" --helper "$CASE/unpinned" --runs 1 --case pre-write --arm warm-helper --out "$CASE/latency-unpinned.json" >/dev/null 2>&1; then
+if "$TOOLS" hook-latency --unverified --scanner "$ROOT/tests/fixtures/mock-gitleaks" --helper "$CASE/unpinned" --runs 1 --case pre-write --arm warm-helper --out "$CASE/latency-unpinned.json" >/dev/null 2>&1; then
   echo 'hook-latency named a run without the scan client warm' >&2; exit 1
 fi
 jq -e '(.problems | length) > 0 and .controls[0].client == []' "$CASE/latency-unpinned.json" >/dev/null
+# A scanner whose runs cannot be told from a hook without a scan is refused
+# unless the caller says the run is unverified.
+if "$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 1 --case pre-read --arm helper-off --out "$CASE/latency-unmarked.json" >/dev/null 2>"$CASE/latency-unmarked-error"; then
+  echo 'hook-latency took a test double for a verified scanner' >&2; exit 1
+fi
+grep -qF -- '--unverified' "$CASE/latency-unmarked-error"
+test ! -e "$CASE/latency-unmarked.json"
+# A manifest command runs bin/agent-guard of its root: another file named as
+# the binary would be reported and never run.
+mkdir "$CASE/renamed"
+cp -R plugins/agent-guard "$CASE/renamed/agent-guard"
+cp "$CASE/renamed/agent-guard/bin/agent-guard" "$CASE/renamed/agent-guard/bin/candidate"
+if "$TOOLS" hook-latency --unverified --binary "$CASE/renamed/agent-guard/bin/candidate" --scanner "$ROOT/tests/fixtures/mock-gitleaks" --entry manifest \
+    --runs 1 --case pre-read --arm helper-off --out "$CASE/latency-renamed.json" >/dev/null 2>"$CASE/latency-renamed-error"; then
+  echo 'hook-latency reported a binary the manifest command does not run' >&2; exit 1
+fi
+grep -qF 'must be that file' "$CASE/latency-renamed-error"
 # A script scanner has no probe cache record: its probe result is unknown.
 jq -e '[.samples[].probe] | unique == ["unknown"]' "$CASE/latency.json" >/dev/null
 jq -e '[.samples[].outcome] | unique == ["pass"]' "$CASE/latency.json" >/dev/null
 # An interrupted run removes its own temporary directory.
-"$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 50 --out "$CASE/latency-interrupted.json" >/dev/null 2>"$CASE/latency-interrupted-error" &
+"$TOOLS" hook-latency --unverified --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 50 --out "$CASE/latency-interrupted.json" >/dev/null 2>"$CASE/latency-interrupted-error" &
 latency_pid=$!
 tries=0
 until sandbox=$(sed -n 's/^sandbox //p' "$CASE/latency-interrupted-error") && [ -n "$sandbox" ]; do
@@ -126,14 +144,14 @@ test "$status" = 143
 test ! -e "$sandbox"
 # The sample file's directory is made before anything is measured, and the
 # command runs from outside a checkout when it is given the CLI.
-(cd "$CASE" && "$TOOLS" hook-latency --binary "$ROOT/plugins/agent-guard/bin/agent-guard" --scanner "$ROOT/tests/fixtures/mock-gitleaks" \
+(cd "$CASE" && "$TOOLS" hook-latency --unverified --binary "$ROOT/plugins/agent-guard/bin/agent-guard" --scanner "$ROOT/tests/fixtures/mock-gitleaks" \
   --runs 1 --case pre-read --arm helper-off --out "$CASE/new/directory/latency.json" >/dev/null 2>&1)
 jq -e '(.samples | length) == 1 and .scanner_version == "8.30.1-mock"' "$CASE/new/directory/latency.json" >/dev/null
 # A helper arm without helper binaries, an unknown arm and a missing sample
 # file are refused before anything is measured.
 while IFS='|' read -r bad diagnostic; do
   # shellcheck disable=SC2086 # each row is a list of options
-  if (cd "$CASE" && "$TOOLS" hook-latency --binary "$ROOT/plugins/agent-guard/bin/agent-guard" --scanner "$ROOT/tests/fixtures/mock-gitleaks" $bad) >"$CASE/latency-bad-output" 2>"$CASE/latency-bad-error"; then
+  if (cd "$CASE" && "$TOOLS" hook-latency --unverified --binary "$ROOT/plugins/agent-guard/bin/agent-guard" --scanner "$ROOT/tests/fixtures/mock-gitleaks" $bad) >"$CASE/latency-bad-output" 2>"$CASE/latency-bad-error"; then
     echo "hook-latency accepted: $bad" >&2; exit 1
   fi
   grep -qF -- "$diagnostic" "$CASE/latency-bad-error"

@@ -82,7 +82,7 @@ const COMMANDS: &[Subcommand] = &[
             "--arm",
             "--out",
         ]),
-        flags: &[],
+        flags: &["--unverified"],
         run: hooks::latency,
     },
     Subcommand {
