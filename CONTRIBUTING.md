@@ -135,9 +135,12 @@ assumed: `scanner` (the scan client's trace, or the peak memory of the hook's
 children where no client is selected), `cache` (whether the clean-scan cache
 gained an entry or answered) and `probe` (whether the readiness probe ran).
 Standard output is the per-arm summary. The command fails when a sample did
-not run the path its arm names, so a helper that silently fell back is never
-reported as warm. `--scanner` must be the official gitleaks release build
-for the helper arms.
+not run the path its arm names, so a helper that silently fell back, or a
+hook that passed without scanning, is never reported as measured. A sample
+that also ran the readiness probe is kept in the file and left out of the
+summary. `--scanner` must be the official gitleaks release build for the
+helper arms; `--unverified` accepts a test double whose runs cannot be
+told from a hook without a scan, and the report then says `verified: false`.
 
 ## Rule mutation check
 

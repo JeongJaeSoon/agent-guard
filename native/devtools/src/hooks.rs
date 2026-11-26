@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// (case, hook event, hook subcommand, whether the hook scans its input).
@@ -199,6 +200,14 @@ pub fn hook_command(
         .parent()
         .and_then(Path::parent)
         .ok_or("the binary has no plugin root")?;
+    // The launcher runs bin/agent-guard of the root, whatever file was named.
+    ensure(
+        std::fs::canonicalize(root.join("bin/agent-guard"))
+            .ok()
+            .as_deref()
+            == Some(Path::new(binary)),
+        "a manifest command runs bin/agent-guard of its plugin root; the CLI named must be that file",
+    )?;
     let (file, variable) = if host == "codex" {
         ("hooks.json", "PLUGIN_ROOT")
     } else {
@@ -416,12 +425,22 @@ fn scanner(words: &[String], rss: f64, threshold: Option<f64>) -> &'static str {
 
 /// Whether a sample shows the scanner its arm names. A hook that scans must
 /// show one: the client's words where a client is selected, gitleaks by
-/// memory elsewhere (unknown where memory cannot tell). Only a hook without a
-/// scan and a verified cache hit may show none.
-fn evidence(arm: &str, helper: bool, scans: bool, hit: bool, words: &[String], ran: &str) -> bool {
+/// memory elsewhere. Only a hook without a scan and a verified cache hit may
+/// show none. unverified accepts unknown too: a test double's memory tells
+/// nothing, and the report then says so.
+fn evidence(
+    arm: &str,
+    helper: bool,
+    scans: bool,
+    hit: bool,
+    words: &[String],
+    ran: &str,
+    unverified: bool,
+) -> bool {
     let all = |word: &str| !words.is_empty() && words.iter().all(|w| w == word);
+    let ran_is = |scanner: &str| ran == scanner || unverified && ran == "unknown";
     if !scans || hit {
-        return words.is_empty() && ["none", "unknown"].contains(&ran);
+        return words.is_empty() && ran_is("none");
     }
     match (arm, helper) {
         ("first-call", _) => {
@@ -429,7 +448,7 @@ fn evidence(arm: &str, helper: bool, scans: bool, hit: bool, words: &[String], r
         }
         ("fallback", _) => all("real:socket-path"),
         (_, true) => all("helper"),
-        _ => words.is_empty() && ["gitleaks", "unknown"].contains(&ran),
+        _ => words.is_empty() && ran_is("gitleaks"),
     }
 }
 
@@ -650,6 +669,50 @@ pub fn latency(args: &Args) -> Result<()> {
     let scan_rss = number(&read_json(&run.metrics)?["max_child_peak_rss_kib"]);
     let idle_rss = number(&idle["max_child_peak_rss_kib"]);
     let threshold = (scan_rss >= 4.0 * idle_rss).then(|| (scan_rss * idle_rss).sqrt());
+    let unverified = args.flag("--unverified");
+    ensure(
+        threshold.is_some() || unverified,
+        "this scanner's peak memory cannot be told from a hook without a scan, so no sample could show that it scanned; pass --unverified to time a test double",
+    )?;
+    // One hook, and a helper it started is up before the next call, so that
+    // start-up stays out of the next sample. A first-call helper is watched
+    // while the hook runs: it can be gone again before a slow hook ends.
+    let hook = |arm: &Arm,
+                state: &Path,
+                case: &Case,
+                input: &Value,
+                extra: &[(&str, &str)]|
+     -> Result<Value> {
+        let seen = AtomicBool::new(false);
+        let done = AtomicBool::new(false);
+        let row = std::thread::scope(|scope| {
+            if arm.name == "first-call" {
+                scope.spawn(|| {
+                    while !done.load(Ordering::Relaxed) {
+                        if helper_file(state, ".sock") {
+                            seen.store(true, Ordering::Relaxed);
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                });
+            }
+            let row = run.hook(arm, state, case, input, extra);
+            done.store(true, Ordering::Relaxed);
+            row
+        })?;
+        if row["client"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("spawned"))
+            && !seen.load(Ordering::Relaxed)
+        {
+            ensure(
+                wait_until(30.0, || helper_file(state, ".sock")),
+                format!("{}: the helper did not start", arm.name),
+            )?;
+        }
+        Ok(row)
+    };
 
     // Warm every cell: the readiness probe, the deny-pattern cache, and the
     // helper where the arm has one.
@@ -666,17 +729,7 @@ pub fn latency(args: &Args) -> Result<()> {
                     "fixed".into()
                 };
                 let extra: &[(&str, &str)] = if arm.name == "first-call" { &off } else { &[] };
-                let row = run.hook(arm, &state, case, &input(arm, case, &n), extra)?;
-                if row["client"]
-                    .as_array()
-                    .unwrap()
-                    .contains(&json!("spawned"))
-                {
-                    ensure(
-                        wait_until(30.0, || helper_file(&state, ".sock")),
-                        "the warm helper did not start",
-                    )?;
-                }
+                let row = hook(arm, &state, case, &input(arm, case, &n), extra)?;
                 if !arm.unique && row["cache_changed"] == true {
                     stored.push((arm.name, case.0));
                 }
@@ -691,7 +744,7 @@ pub fn latency(args: &Args) -> Result<()> {
             continue;
         }
         seen.push(state.clone());
-        let row = run.hook(
+        let row = hook(
             arm,
             &state,
             &CASES[1],
@@ -709,13 +762,6 @@ pub fn latency(args: &Args) -> Result<()> {
                 "control: {} scanned without the scan client; the helper files may not be the ones this CLI pins",
                 arm.name
             ));
-        }
-        if row["client"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("spawned"))
-        {
-            wait_until(30.0, || helper_file(&state, ".sock"));
         }
         controls.push(json!({"arm": arm.name, "status": row["status"], "outcome": row["outcome"], "client": row["client"]}));
     }
@@ -757,20 +803,13 @@ pub fn latency(args: &Args) -> Result<()> {
                     }
                 }
             }
-            let mut row = run.hook(arm, &state, case, &input(arm, case, &n), &[])?;
+            let mut row = hook(arm, &state, case, &input(arm, case, &n), &[])?;
             let words: Vec<String> = row["client"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .map(|w| w.as_str().unwrap().to_owned())
                 .collect();
-            if words.iter().any(|w| w == "spawned") {
-                // Keep the helper's start-up out of the next sample.
-                ensure(
-                    wait_until(30.0, || helper_file(&state, ".sock")),
-                    "a first-call helper did not start",
-                )?;
-            }
             let rss = number(&row["max_child_peak_rss_kib"]);
             let changed = row["cache_changed"] == true;
             let limit = threshold.filter(|_| row["probe"] == "cached");
@@ -801,7 +840,12 @@ pub fn latency(args: &Args) -> Result<()> {
                 ));
             }
             let hit = row["cache"] == "hit";
-            let expected = evidence(arm.name, arm.helper, case.3, hit, &words, ran);
+            // A sample that also ran the readiness probe is another path:
+            // kept, and left out of its cell's summary.
+            let aggregated = row["probe"] != "ran";
+            row["aggregated"] = json!(aggregated);
+            let expected =
+                !aggregated || evidence(arm.name, arm.helper, case.3, hit, &words, ran, unverified);
             if !expected {
                 problems.push(format!(
                     "{label}: scanner {ran} and scan client words {words:?} are not what this arm measures"
@@ -850,10 +894,18 @@ pub fn latency(args: &Args) -> Result<()> {
 
     let mut summary = Vec::new();
     for (arm, case) in &cells {
-        let rows: Vec<_> = samples
+        let all: Vec<_> = samples
             .iter()
             .filter(|s| s["arm"] == arm.name && s["case"] == case.0)
             .collect();
+        let rows: Vec<_> = all.iter().filter(|s| s["aggregated"] == true).collect();
+        if rows.is_empty() {
+            problems.push(format!(
+                "{}/{}: every sample ran the readiness probe",
+                arm.name, case.0
+            ));
+            continue;
+        }
         let mut times: Vec<f64> = rows
             .iter()
             .map(|s| number(&s["seconds"]) * 1000.0)
@@ -874,7 +926,7 @@ pub fn latency(args: &Args) -> Result<()> {
             json!({"case": case.0, "event": case.1, "arm": arm.name, "n": times.len(),
             "median_ms": tenth(median(times.clone())), "p95_ms": tenth(p95),
             "min_ms": tenth(times[0]), "max_ms": tenth(times[times.len() - 1]),
-            "scanner": count("scanner"), "cache": count("cache"), "probe": count("probe")}),
+            "scanner": count("scanner"), "cache": count("cache"), "probe_runs_left_out": all.len() - rows.len()}),
         );
     }
     let mut report = json!({
@@ -890,6 +942,7 @@ pub fn latency(args: &Args) -> Result<()> {
         "jq_version": sandbox.version(&["jq", "--version"])?,
         "runs": runs,
         "arms": arm_names,
+        "verified": !unverified,
         "scanner_evidence": match threshold {
             Some(limit) => json!({"source": "scan client trace; peak child memory where no client is selected", "threshold_kib": limit, "scan_kib": scan_rss, "no_scan_kib": idle_rss}),
             None => json!({"source": "scan client trace only: this scanner's peak memory is too close to a hook without a scan", "scan_kib": scan_rss, "no_scan_kib": idle_rss}),
@@ -1007,7 +1060,7 @@ mod tests {
             ),
             ("repeat-input", false, true, true, &[], "none", true),
             ("helper-off", false, true, false, &[], "gitleaks", true),
-            ("helper-off", false, true, false, &[], "unknown", true),
+            ("helper-off", false, true, false, &[], "unknown", false),
             ("helper-off", false, true, false, &[], "none", false),
             (
                 "helper-off",
@@ -1023,10 +1076,38 @@ mod tests {
         ];
         for (arm, helper, scans, hit, list, ran, accepted) in rows {
             assert_eq!(
-                evidence(arm, *helper, *scans, *hit, &words(list), ran),
+                evidence(arm, *helper, *scans, *hit, &words(list), ran, false),
                 *accepted,
                 "{arm} helper={helper} scans={scans} hit={hit} {list:?} {ran}"
             );
         }
+        // A test double: unknown stands for the scanner, a wrong client word does not.
+        assert!(evidence(
+            "helper-off",
+            false,
+            true,
+            false,
+            &[],
+            "unknown",
+            true
+        ));
+        assert!(evidence(
+            "helper-off",
+            false,
+            false,
+            false,
+            &[],
+            "unknown",
+            true
+        ));
+        assert!(!evidence(
+            "warm-helper",
+            true,
+            true,
+            false,
+            &[],
+            "unknown",
+            true
+        ));
     }
 }
