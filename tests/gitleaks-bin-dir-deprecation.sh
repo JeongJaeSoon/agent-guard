@@ -195,6 +195,13 @@ env -u HOME -u AGENT_GUARD_GITLEAKS_BIN_DIR PATH="$TOOLS" XDG_STATE_HOME="$CASE/
 no_home_install=$?
 expect "without HOME setup --install refuses rather than install into the installer link directory" \
   '[ "$no_home_install" -ne 0 ] && [ ! -e "$NO_HOME_LINKS/gitleaks" ] && grep -qF "set AGENT_GUARD_GITLEAKS_BIN_DIR" "$CASE/err"'
+env -u HOME -u AGENT_GUARD_GITLEAKS_BIN_DIR PATH="$TOOLS" XDG_STATE_HOME="$CASE/state" AGENT_GUARD_LOG_MODE=off \
+  AGENT_GUARD_RELEASE_CHECK=off AGENT_GUARD_GITLEAKS_HELPER=off AGENT_GUARD_BIN_DIR="$NO_HOME_LINKS" \
+  AGENT_GUARD_GITLEAKS_BIN="$NEW/gitleaks" \
+  "$GUARD" setup --install --gitleaks-version 8.30.1 --gitleaks-checksum "$SUM" >"$CASE/out" 2>"$CASE/err"
+no_home_noop=$?
+expect "control: without HOME a setup --install with gitleaks already selected installs nothing and succeeds" \
+  '[ "$no_home_noop" = 0 ] && grep -qF "skipping --install" "$CASE/err" && [ ! -e "$NO_HOME_LINKS/gitleaks" ]'
 H="$CASE/home-install-new"
 run "$H" AGENT_GUARD_BIN_DIR="$LINKS" AGENT_GUARD_GITLEAKS_BIN_DIR="$NEW-install" AGENT_GUARD_GITLEAKS_HELPER=off \
   "$GUARD" setup --install --gitleaks-version 8.30.1 --gitleaks-checksum "$SUM"

@@ -3127,7 +3127,14 @@ setup_suggest_gitleaks_runtime_repair() {
   return 1
 }
 
+# Only a write needs the directory, so a setup that installs nothing still runs.
+setup_require_install_dir() {
+  [ "$GITLEAKS_BIN_DIR_LEGACY" != 3 ] \
+    || die "setup: no gitleaks install directory: HOME is unset and AGENT_GUARD_BIN_DIR no longer selects one; set AGENT_GUARD_GITLEAKS_BIN_DIR"
+}
+
 setup_install_gitleaks() {
+  setup_require_install_dir
   version=$1
   checksum=$2
   if [ -z "$checksum" ]; then
@@ -3198,6 +3205,7 @@ gitleaks_helper_target() {
 # where gitleaks_helper_installed finds them. Any failure leaves an earlier
 # installed helper as it was.
 setup_install_gitleaks_helper() {
+  setup_require_install_dir
   gitleaks_helper_target \
     || die "setup: no warm gitleaks helper is released for this platform ($(uname -s) $(uname -m))"
   need_cmd curl
@@ -3417,8 +3425,6 @@ EOF
   done
 
   if [ "$install" -eq 1 ] || [ "$helper_install" -eq 1 ]; then
-    [ "$GITLEAKS_BIN_DIR_LEGACY" != 3 ] \
-      || die "setup: no gitleaks install directory: HOME is unset and AGENT_GUARD_BIN_DIR no longer selects one; set AGENT_GUARD_GITLEAKS_BIN_DIR"
     gitleaks_bin_dir_notice install >&2 || :
   else
     gitleaks_bin_dir_notice >&2 || :
