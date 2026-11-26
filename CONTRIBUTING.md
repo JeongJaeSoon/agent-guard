@@ -176,7 +176,12 @@ variables. Compared for every step: exit status, the decision the host is
 told, standard output and standard error byte for byte, the audit events
 written, and the files left behind. `--baseline-shell` and
 `--candidate-shell` run a side under a named interpreter;
-`--entry manifest` runs the host's plugin manifest command.
+`--entry manifest` runs the host's plugin manifest command. The hooks get
+no locale variable, so both sides run in the C locale, where a shell handles
+text byte by byte; `--locale NAME` (a name `locale -a` lists, such as
+`en_US.UTF-8`) sets `LC_ALL` for every hook. Run a change of interpreter
+both ways: a shell with multibyte support differs from one without only in
+such a locale.
 
 What two runs of one build may differ in is not compared and is listed in the
 report as `not_compared`: the time, run identifier and duration of an audit
