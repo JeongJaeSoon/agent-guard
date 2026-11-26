@@ -35,6 +35,9 @@ env:
 
 jobs:
   release-evidence:
+    # Only a main push or a nightly run can reuse evidence; pull requests and
+    # manual runs skip this job, so the required scan never waits for it.
+    if: github.event_name == 'push' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     # Agent Guard waits for this job; a stalled lookup must not hold it.
     timeout-minutes: 5
@@ -49,9 +52,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          # Only a main push compares release history; other events read no
-          # history here.
-          fetch-depth: ${{ github.event_name == 'push' && 0 || 1 }}
+          # Only a main push compares release history. Strings: a numeric 0
+          # is false in an expression.
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '1' }}
           persist-credentials: false
       - id: release
         env:

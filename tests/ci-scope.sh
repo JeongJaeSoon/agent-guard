@@ -546,6 +546,8 @@ done
 # A failed evidence job reuses nothing.
 grep -Fq "if: \${{ !cancelled() && needs.secret-guard.result == 'success' && needs.release-evidence.outputs.reuse != 'true' }}" "$ci_yml" || fail 'shards run when evidence fails'
 grep -Fq "if: \${{ !cancelled() && needs.release-evidence.outputs.reuse != 'true' }}" "$ci_yml" || fail 'Lint runs when evidence fails'
+printf '%s\n' "$evidence" | grep -Fxq "    if: github.event_name == 'push' || github.event_name == 'schedule'" || fail 'only main pushes and nightly runs look up evidence'
+printf '%s\n' "$evidence" | grep -Fq "fetch-depth: \${{ github.event_name == 'push' && '0' || '1' }}" || fail 'a main push keeps full history'
 # Agent Guard must report even when the evidence job fails.
 printf '%s\n' "$guard" | grep -Fxq '    if: ${{ !cancelled() }}' || fail 'Agent Guard does not depend on evidence success'
 for gated in native-redaction legacy-tools; do

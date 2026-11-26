@@ -411,6 +411,12 @@ ordinary_pr
 edit_fixture prs.json '.[0].labels = null'
 expect_tested 'reuse=false ordinary=false ' 'PR metadata without labels keeps the full matrix'
 ordinary_pr
+printf '{"workflow_runs":[42]}\n' > "$case_dir/ci.yml.json"
+expect_tested 'reuse=false ordinary=false ' 'a malformed run entry keeps the full matrix'
+ordinary_pr
+printf '{"artifacts":[42]}\n' > "$case_dir/artifacts.json"
+expect_tested 'reuse=false ordinary=false ' 'a malformed artifact entry keeps the full matrix'
+ordinary_pr
 printf 'not json\n' > "$case_dir/ci.yml.json"
 expect_tested 'reuse=false ordinary=false ' 'malformed run JSON keeps the full matrix'
 ordinary_pr
@@ -431,6 +437,9 @@ nightly() { # $1 jq edit of the one schedule run
 }
 nightly .
 expect_tested 'reuse=true ordinary=false ' 'an unchanged main skips the nightly run'
+(GITHUB_RUN_ATTEMPT=2; export GITHUB_RUN_ATTEMPT; expect_tested 'reuse=false ordinary=false ' 'a re-run nightly runs everything') || exit 1
+printf '{"workflow_runs":[42]}\n' > "$case_dir/ci.yml.json"
+expect_tested 'reuse=false ordinary=false ' 'a malformed nightly entry runs'
 nightly '.'
 edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 10 | .conclusion = "failure"]'
 expect_tested 'reuse=false ordinary=false ' 'a later failed nightly at the same commit runs again'
