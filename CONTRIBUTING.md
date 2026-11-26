@@ -26,6 +26,20 @@ security tiers or test-pyramid layers.
 | Deployment and service integration | `make smoke-test`, archive/Homebrew validation, opt-in `make test-pleno-integration` | Real scanner/tool dependencies, installation and configured service boundaries |
 | Authenticated host E2E | Separate Claude/Codex host-dispatch verification | Host loads and invokes the installed adapter; direct CLI calls or selecting a host environment variable do not establish this |
 
+## Test-only environment variables
+
+The hook launcher and the CLI read these so that tests can isolate warning
+markers. They are not user settings. The CLI also keys the recovery notice it
+queues for a blocked injected prompt on both, so a test of that recovery keeps
+both the same across its hook calls. The notice is queued only in a directory
+that is private: let the CLI create it, or create it as a non-symlink owned by
+the current user with mode `0700`.
+
+| Variable | Use |
+| --- | --- |
+| `AGENT_GUARD_SESSION_ID` | A non-empty value replaces the payload's `session_id` as the key that deduplicates notices; an empty one counts as unset. The CLI accepts only ASCII letters, digits, `.`, `_` and `-`; with any other character it keys on the host and parent process ID instead (the launcher hashes any value) |
+| `AGENT_GUARD_WARNING_DIR` | Directory of the notice markers and queued recovery notices (default `${TMPDIR:-/tmp}/agent-guard-warnings-<uid>`) |
+
 ## Direct contract inventory
 
 This table is the single reference for the complete `make test-unit` suite
@@ -232,6 +246,14 @@ For a bug or behavior change:
 4. Record the red/green commits or logs and remaining untested boundaries in
    the PR. If no pre-fix failure was observed, call it added regression
    coverage, not completed TDD.
+
+## Revert and compatibility switches
+
+A setting that reverts a behavior change, or keeps earlier behavior available,
+states its removal condition in the pull request that adds it. List it under
+[Compatibility and hardening switches](docs/configuration.md#compatibility-and-hardening-switches),
+not among the policy settings, and add its row to
+[Unrecognized values](docs/configuration.md#unrecognized-values).
 
 ## CI checks
 
