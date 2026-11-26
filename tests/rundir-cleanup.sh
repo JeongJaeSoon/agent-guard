@@ -57,6 +57,21 @@ case "${1:-}" in
 esac
 STUB
 chmod +x "$CASE/bin/gitleaks"
+mkdir "$CASE/launch-bin" || exit 1
+real_setsid=$(command -v setsid 2>/dev/null) || real_setsid=
+sed "s|@CASE@|$CASE|g; s|@REAL@|$real_setsid|g" >"$CASE/launch-bin/setsid" <<'STUB'
+#!/bin/sh
+# The gitleaks probe uses setsid too; record only the reap pass.
+case " $* " in
+  *" __reap-run-dirs "*)
+    printf '%s\n' "$$" >>"@CASE@/reaper-pids"
+    [ ! -e "@CASE@/slow-reap" ] || sleep 6
+    ;;
+esac
+[ -z "@REAL@" ] || exec "@REAL@" "$@"
+exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or exit 126' "$@"
+STUB
+chmod +x "$CASE/launch-bin/setsid"
 
 # sh always; bash and dash (the launcher's choice where present) and busybox
 # sh when installed. Both CI runners have bash and dash.
@@ -161,13 +176,31 @@ reap_run() {
   n=$((n + 1))
   sh_=$1
   case "$sh_" in busybox-sh) sh_="busybox sh" ;; esac
+  : >"$CASE/reaper-pids"
   printf '{"session_id":"rundir-reap-%s-%s","tool_name":"Read","tool_input":{"file_path":"%s/plain.txt"}}' "$$" "$n" "$CASE" \
     | { # shellcheck disable=SC2086
         env HOME="$CASE/home" XDG_STATE_HOME="$3" TMPDIR="$2" AGENT_GUARD_LOG_MODE=on \
-          AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+          PATH="$CASE/launch-bin:$PATH" AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
           $sh_ "$GUARD" hook-pre-tool >"$CASE/reap-out" 2>"$CASE/reap-err"; }
 }
 : >"$CASE/plain.txt"
+
+# reap_wait: a due run starts the pass detached and does not wait for it.
+# The setsid on the runs' PATH records the pass's PID (exec keeps it) before
+# it hands over to the real setsid, or perl where there is none.
+reap_wait() {
+  rw_i=0
+  while [ ! -s "$CASE/reaper-pids" ] && [ "$rw_i" -lt 200 ]; do
+    rw_i=$((rw_i + 1))
+    sleep 0.05
+  done
+  rw_pid=$(tail -n 1 "$CASE/reaper-pids" 2>/dev/null)
+  rw_i=0
+  while [ -n "$rw_pid" ] && kill -0 "$rw_pid" 2>/dev/null && [ "$rw_i" -lt 400 ]; do
+    rw_i=$((rw_i + 1))
+    sleep 0.05
+  done
+}
 
 # fixture TMP: every kind of entry the reaper must keep or remove.
 fixture() {
@@ -246,6 +279,7 @@ for sh_ in $SHELLS; do
   # Due: the marker is an interval old.
   printf '%s %s\n' "$((NOW - 3601))" "$tmp" >"$marker"
   reap_run "$sh_" "$tmp" "$state"
+  reap_wait
   bad=
   for e in agent-guard-run.Ab12Cd agent-guard-run.999999999.Ef34Gh agent-guard-run.999999998.Hh22Jj ${KILLED:+"${KILLED##*/}"}; do
     expect_gone "$tmp" "$e" || bad="$bad $e"
@@ -284,6 +318,7 @@ for sh_ in $SHELLS; do
   printf '08 %s\n' "$tmp" >"$marker"
   reap_run "$sh_" "$tmp" "$state"
   status=$?
+  reap_wait
   read -r stamp _ <"$marker" || stamp=
   if [ "$status" -eq 0 ] && [ "${stamp:-0}" -ge "$NOW" ] 2>/dev/null && expect_gone "$tmp" agent-guard-run.Oc08Zz; then
     ok "$sh_: a time with a leading zero is ignored and the hook passes"
@@ -297,6 +332,7 @@ for sh_ in $SHELLS; do
   touch -t "$OLD" "$tmp/agent-guard-run.Zz99Yy"
   printf '%s %s\n' "$((NOW + 86400))" "$tmp" >"$marker"
   reap_run "$sh_" "$tmp" "$state"
+  reap_wait
   if expect_gone "$tmp" agent-guard-run.Zz99Yy; then
     ok "$sh_: a marker from the future does not stop reaping"
   else
@@ -315,6 +351,7 @@ touch -t "$OLD" "$CASE/real-tmp/agent-guard-run.Ln12Kt"
 reap_run "$first_shell" "$CASE/link-tmp" "$CASE/link-state"
 printf '%s %s\n' "$((NOW - 3601))" "$CASE/link-tmp" >"$CASE/link-state/agent-guard/rundir-reap"
 reap_run "$first_shell" "$CASE/link-tmp" "$CASE/link-state"
+reap_wait
 if expect_gone "$CASE/real-tmp" agent-guard-run.Ln12Kt && [ -L "$CASE/link-tmp" ]; then
   ok "a TMPDIR that is a symlink is reaped through and stays a symlink"
 else
@@ -331,7 +368,9 @@ for d in a b; do
 done
 printf '%s %s\n%s %s\n' "$((NOW - 3601))" "$CASE/pair-a" "$((NOW - 3601))" "$CASE/pair-b" >"$CASE/pair-state/agent-guard/rundir-reap"
 reap_run "$first_shell" "$CASE/pair-a" "$CASE/pair-state"
+reap_wait
 reap_run "$first_shell" "$CASE/pair-b" "$CASE/pair-state"
+reap_wait
 if expect_gone "$CASE/pair-a" agent-guard-run.Pr12aa && expect_gone "$CASE/pair-b" agent-guard-run.Pr12bb \
     && [ "$(grep -c . "$CASE/pair-state/agent-guard/rundir-reap")" -eq 2 ]; then
   ok "each temp directory has its own reap interval"
@@ -363,6 +402,7 @@ due_run() {
   mkdir -p "$2/agent-guard" && chmod 700 "$2/agent-guard"
   printf '%s %s\n' "$((NOW - 3601))" "$1" >"$2/agent-guard/rundir-reap"
   reap_run "$first_shell" "$1" "$2"
+  reap_wait
 }
 
 # A parent where another user could swap an entry between the check and rm
@@ -386,6 +426,7 @@ stale_in "$CASE/missing-tmp" agent-guard-run.Mi12Ss
 mkdir -p "$CASE/missing-state/agent-guard" && chmod 700 "$CASE/missing-state/agent-guard"
 printf '%s %s\n' "$NOW" "$CASE/elsewhere" >"$CASE/missing-state/agent-guard/rundir-reap"
 reap_run "$first_shell" "$CASE/missing-tmp" "$CASE/missing-state"
+reap_wait
 if expect_gone "$CASE/missing-tmp" agent-guard-run.Mi12Ss; then
   ok "a directory missing from an existing marker is reaped at once"
 else
@@ -419,6 +460,26 @@ if [ "$(uname -s)" = Darwin ]; then
   fi
 fi
 
+# The hook does not wait for the pass: a pass that takes 6 s leaves the hook
+# well inside its time limit, and still finishes afterwards.
+stale_in "$CASE/slow-tmp" agent-guard-run.Sl12Ow
+: >"$CASE/slow-reap"
+slow_start=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
+due_run_nowait() {
+  mkdir -p "$2/agent-guard" && chmod 700 "$2/agent-guard"
+  printf '%s %s\n' "$((NOW - 3601))" "$1" >"$2/agent-guard/rundir-reap"
+  reap_run "$first_shell" "$1" "$2"
+}
+due_run_nowait "$CASE/slow-tmp" "$CASE/slow-state"
+slow_ms=$(( $(perl -MTime::HiRes=time -e 'printf "%d", time * 1000') - slow_start ))
+reap_wait
+rm -f "$CASE/slow-reap"
+if [ "$slow_ms" -lt 4000 ] && expect_gone "$CASE/slow-tmp" agent-guard-run.Sl12Ow; then
+  ok "the hook returns without waiting for a slow reap pass, which still completes"
+else
+  not_ok "the hook returns without waiting for a slow reap pass, which still completes (hook took ${slow_ms} ms)"
+fi
+
 # Ineligible names, however many, do not hide an eligible directory.
 mkdir -p "$CASE/many-tmp"
 i=0
@@ -435,8 +496,8 @@ else
 fi
 rm -rf "$CASE/many-tmp"
 
-# Seven retired directories in the marker and two in use, alternating: the
-# least recent line goes, so both in use keep their clocks and get reaped.
+# Seven retired directories in the marker and two in use, alternating: both
+# in use get reaped, and the marker stays at 8 lines.
 mkdir -p "$CASE/lru-state/agent-guard"
 chmod 700 "$CASE/lru-state/agent-guard"
 : >"$CASE/lru-state/agent-guard/rundir-reap"
@@ -446,6 +507,7 @@ done
 for d in a b; do
   mkdir -p "$CASE/lru-$d"
   reap_run "$first_shell" "$CASE/lru-$d" "$CASE/lru-state"
+  reap_wait
 done
 for d in a b; do
   stale_in "$CASE/lru-$d" "agent-guard-run.Lr12$d$d"
@@ -454,12 +516,14 @@ done
 sed "s|^[0-9]* \($CASE/lru-\)|$((NOW - 3601)) \1|" "$CASE/lru-state/agent-guard/rundir-reap" >"$CASE/lru-marker"
 cat "$CASE/lru-marker" >"$CASE/lru-state/agent-guard/rundir-reap"
 reap_run "$first_shell" "$CASE/lru-a" "$CASE/lru-state"
+reap_wait
 reap_run "$first_shell" "$CASE/lru-b" "$CASE/lru-state"
+reap_wait
 if expect_gone "$CASE/lru-a" agent-guard-run.Lr12aa && expect_gone "$CASE/lru-b" agent-guard-run.Lr12bb \
     && [ "$(grep -c . "$CASE/lru-state/agent-guard/rundir-reap")" -le 8 ]; then
-  ok "the marker drops its least recent directory, not one in use"
+  ok "two alternating directories beside seven retired ones both get reaped"
 else
-  not_ok "the marker drops its least recent directory, not one in use"
+  not_ok "two alternating directories beside seven retired ones both get reaped"
   sed "s|$CASE|<case>|; s/^/  /" "$CASE/lru-state/agent-guard/rundir-reap"
 fi
 

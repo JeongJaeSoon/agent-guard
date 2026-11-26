@@ -1569,7 +1569,15 @@ rundir_reap() {
   fi
   # Where this run's directory went: TMPDIR, or /tmp when TMPDIR could not
   # hold it, so a setting that keeps falling back is reaped where it leaves.
-  rundir_stale "$ag_rr_dir" remove </dev/null >/dev/null 2>&1 || :
+  # The pass runs as a new session and nobody waits for it: a slow or large
+  # TMPDIR never takes from the hook's time limit, and a host that kills the
+  # hook's process group when it ends does not stop it. Without setsid or perl
+  # it runs in the background of this group instead.
+  if select_gitleaks_probe_launcher; then
+    (exec_in_new_session sh "$SELF_BIN" __reap-run-dirs "$ag_rr_dir") </dev/null >/dev/null 2>&1 &
+  else
+    (rundir_stale "$ag_rr_dir" remove) </dev/null >/dev/null 2>&1 &
+  fi
 }
 
 # Works inside the directory it lists (cd -P, CDPATH cleared), so a TMPDIR
@@ -23946,6 +23954,10 @@ doctor_rundir_report() {
       fi
       ;;
   esac
+  case "$doctor_rundir_dir" in
+    /*) ;;
+    *) [ -n "$doctor_rundir_why" ] || doctor_rundir_why='TMPDIR is a relative path' ;;
+  esac
   if [ -z "$doctor_rundir_why" ] && ! (CDPATH= cd -P -- "$doctor_rundir_dir" && rundir_parent_safe) 2>/dev/null; then
     doctor_rundir_why='other users can change entries in that directory'
   fi
@@ -24047,6 +24059,15 @@ audit_begin "$cmd"
 rundir_reap
 case "$cmd" in
   hook-pre-tool) claude_block_capture_begin PreToolUse; hook_pre_tool ;;
+  # Internal: the detached pass rundir_reap starts. It removes only what
+  # rundir_stale selects, from an absolute directory.
+  __reap-run-dirs)
+    case "${2:-}" in /*) ;; *) exit 2 ;; esac
+    AG_UID=$(id -u 2>/dev/null) || exit 2
+    case "$AG_UID" in ''|*[!0123456789]*) exit 2 ;; esac
+    rundir_stale "$2" remove </dev/null >/dev/null 2>&1
+    exit 0
+    ;;
   hook-post-tool) hook_post_tool ;;
   hook-post-tool-failure) hook_post_tool_failure ;;
   hook-stop) claude_block_capture_begin Stop; hook_stop ;;
