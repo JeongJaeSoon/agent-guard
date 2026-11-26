@@ -336,6 +336,7 @@ printf 'ok - changed nightly failure cause gets a separate issue identity\n'
 pub="$case_dir/publish-fallback"
 mkdir -p "$pub/.github"
 cp -R "$ROOT/.github/workflows" "$pub/.github/workflows"
+cp -R "$ROOT/.github/scripts" "$pub/.github/scripts"
 cp "$ROOT/.github/release-checks.tsv" "$pub/.github/release-checks.tsv"
 awk '/^      - name: Dispatch candidate verification/ { on = 1; next } on && /^      - name:/ { exit }
   on && /^        run: \|$/ { body = 1; next } body { print substr($0, 11) }' "$ROOT/.github/workflows/release.yml" > "$case_dir/dispatch-step.sh"
@@ -357,4 +358,22 @@ cut -f1 "$ROOT/.github/release-checks.tsv" | sort -u | while IFS= read -r workfl
   fi
 done
 grep -Fxq 'workflow run mutation-check.yml --ref main' "$case_dir/dispatch.log" || fail 'fallback dispatches the mutation check'
+# A retried publication does not dispatch a workflow that already passed there.
+current=$(git -C "$pub" rev-parse HEAD)
+: > "$case_dir/check-rows"
+grep '^mutation-check.yml	' "$ROOT/.github/release-checks.tsv" | cut -f2 | while IFS= read -r name; do
+  jq -nc --arg name "$name" --arg sha "$current" \
+    '{id:1,name:$name,head_sha:$sha,check_suite:{id:77},app:{slug:"github-actions"},status:"completed",conclusion:"success"}' >> "$case_dir/check-rows"
+done
+jq -s '[{check_runs:.}]' "$case_dir/check-rows" > "$case_dir/checks.json"
+jq -n --arg sha "$current" '[{workflow_runs:[{id:3,event:"workflow_dispatch",head_sha:$sha,path:".github/workflows/mutation-check.yml",check_suite_id:77,status:"completed",conclusion:"success"}]}]' \
+  > "$case_dir/mutation-check.yml.json"
+(
+  cd "$pub"
+  : > "$case_dir/dispatch.log"
+  MODE=publish SOURCE_SHA="$current" RELEASE_SHA="$current" RELEASE_BRANCH=main bash "$case_dir/dispatch-step.sh" > /dev/null
+) || fail 'the retried publish dispatch step runs'
+if grep -Fq 'workflow run mutation-check.yml' "$case_dir/dispatch.log"; then fail 'a passed workflow is not dispatched again'; fi
+grep -Fxq 'workflow run performance.yml --ref main' "$case_dir/dispatch.log" || fail 'a retry still measures the merge commit'
+rm "$case_dir/mutation-check.yml.json"
 printf 'ok - the merge-commit fallback dispatches required workflows that a push does not start\n'

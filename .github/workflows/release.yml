@@ -368,7 +368,12 @@ jobs:
             # The merge push starts the rest; a required workflow without a
             # push trigger would otherwise never report on this SHA.
             cut -f1 .github/release-checks.tsv | sort -u | while IFS= read -r workflow; do
-              if ! awk '/^on:$/ { on = 1; next } on && /^[a-z]/ { exit } on' ".github/workflows/$workflow" | grep -Eq '^  push:'; then
+              if awk '/^on:$/ { on = 1; next } on && /^[a-z]/ { exit } on' ".github/workflows/$workflow" | grep -Eq '^  push:'; then
+                continue
+              fi
+              if sh .github/scripts/release-checks.sh "$SOURCE_SHA" 0 "$workflow" > /dev/null 2>&1; then
+                echo "$workflow already passed at $SOURCE_SHA; not dispatching again"
+              else
                 gh workflow run "$workflow" --ref main
               fi
             done
