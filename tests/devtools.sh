@@ -108,26 +108,42 @@ jq -e '(.problems | length) > 0 and .controls[0].client == []' "$CASE/latency-un
 # A script scanner has no probe cache record: its probe result is unknown.
 jq -e '[.samples[].probe] | unique == ["unknown"]' "$CASE/latency.json" >/dev/null
 jq -e '[.samples[].outcome] | unique == ["pass"]' "$CASE/latency.json" >/dev/null
-# An interrupted run removes its temporary directory.
-ls -d /tmp/agl* 2>/dev/null | sort >"$CASE/sandboxes-before" || :
-"$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 50 --out "$CASE/latency-interrupted.json" >/dev/null 2>&1 &
+# An interrupted run removes its own temporary directory.
+"$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 50 --out "$CASE/latency-interrupted.json" >/dev/null 2>"$CASE/latency-interrupted-error" &
 latency_pid=$!
-sleep 2
+tries=0
+until sandbox=$(sed -n 's/^sandbox //p' "$CASE/latency-interrupted-error") && [ -n "$sandbox" ]; do
+  tries=$((tries + 1))
+  [ "$tries" -lt 100 ] || { echo 'hook-latency named no sandbox' >&2; exit 1; }
+  sleep 0.1
+done
+test -d "$sandbox"
+sleep 1
 kill -TERM "$latency_pid"
 status=0
 wait "$latency_pid" || status=$?
 test "$status" = 143
-ls -d /tmp/agl* 2>/dev/null | sort >"$CASE/sandboxes-after" || :
-cmp "$CASE/sandboxes-before" "$CASE/sandboxes-after"
+test ! -e "$sandbox"
+# The sample file's directory is made before anything is measured, and the
+# command runs from outside a checkout when it is given the CLI.
+(cd "$CASE" && "$TOOLS" hook-latency --binary "$ROOT/plugins/agent-guard/bin/agent-guard" --scanner "$ROOT/tests/fixtures/mock-gitleaks" \
+  --runs 1 --case pre-read --arm helper-off --out "$CASE/new/directory/latency.json" >/dev/null 2>&1)
+jq -e '(.samples | length) == 1 and .scanner_version == "8.30.1-mock"' "$CASE/new/directory/latency.json" >/dev/null
 # A helper arm without helper binaries, an unknown arm and a missing sample
 # file are refused before anything is measured.
-for bad in '--arm warm-helper --out latency-bad.json' '--arm no-such-arm --out latency-bad.json' '--case no-such-case --out latency-bad.json' '--runs 1'; do
+while IFS='|' read -r bad diagnostic; do
   # shellcheck disable=SC2086 # each row is a list of options
-  if (cd "$CASE" && "$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" $bad) >"$CASE/latency-bad-output" 2>"$CASE/latency-bad-error"; then
+  if (cd "$CASE" && "$TOOLS" hook-latency --binary "$ROOT/plugins/agent-guard/bin/agent-guard" --scanner "$ROOT/tests/fixtures/mock-gitleaks" $bad) >"$CASE/latency-bad-output" 2>"$CASE/latency-bad-error"; then
     echo "hook-latency accepted: $bad" >&2; exit 1
   fi
+  grep -qF -- "$diagnostic" "$CASE/latency-bad-error"
   test ! -e "$CASE/latency-bad.json"
-done
+done <<'EOF'
+--arm warm-helper --out latency-bad.json|arm warm-helper requires --helper
+--arm no-such-arm --out latency-bad.json|unknown arm: no-such-arm
+--case no-such-case --out latency-bad.json|unknown case: no-such-case
+--runs 1|required option: --out
+EOF
 # A repeated option keeps its last value.
 test ! -e "$CASE/ignored-out"
 printf 'Developer tools: option parsing, resource status, source-location and failed-partition contracts passed\n'

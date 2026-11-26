@@ -5,13 +5,15 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// (case, hook event, hook subcommand). Synthetic inputs only.
-pub const CASES: &[(&str, &str, &str)] = &[
-    ("pre-bash", "PreToolUse", "hook-pre-tool"),
-    ("pre-write", "PreToolUse", "hook-pre-tool"),
-    ("pre-read", "PreToolUse", "hook-pre-tool"),
-    ("post-bash", "PostToolUse", "hook-post-tool"),
-    ("user-prompt", "UserPromptSubmit", "hook-user-prompt"),
+/// (case, hook event, hook subcommand, whether the hook scans its input).
+/// Synthetic inputs only.
+type Case = (&'static str, &'static str, &'static str, bool);
+const CASES: &[Case] = &[
+    ("pre-bash", "PreToolUse", "hook-pre-tool", true),
+    ("pre-write", "PreToolUse", "hook-pre-tool", true),
+    ("pre-read", "PreToolUse", "hook-pre-tool", false),
+    ("post-bash", "PostToolUse", "hook-post-tool", true),
+    ("user-prompt", "UserPromptSubmit", "hook-user-prompt", true),
 ];
 // helper-off: no helper installed. first-call: a helper is installed and none
 // runs. warm-helper: the helper answers. repeat-input: the same input again,
@@ -26,7 +28,7 @@ const ARMS: &[&str] = &[
 ];
 const HELPER_FILES: [&str; 2] = ["agent-guard-gitleaks-helper", "agent-guard-scan"];
 
-pub fn payload(case: &str, event: &str, repo: &str, session: &str, n: &str) -> Value {
+fn payload(case: &str, event: &str, repo: &str, session: &str, n: &str) -> Value {
     let mut value = json!({"hook_event_name": event, "session_id": session, "cwd": repo});
     match case {
         "pre-bash" => {
@@ -141,6 +143,22 @@ impl Sandbox {
     }
     pub fn env(&self) -> Env {
         Self::plain_env(&self.base)
+    }
+    /// A tool's version line, asked as the hooks would run the tool.
+    pub fn version(&self, command: &[&str]) -> Result<String> {
+        let command: Vec<String> = command.iter().map(|s| s.to_string()).collect();
+        let (_, out) = invoke_isolated(
+            &command,
+            b"",
+            &self.env(),
+            Some(Path::new(&self.repo)),
+            15.0,
+        )?;
+        ensure(
+            out.status.success(),
+            format!("command failed: {}", command[0]),
+        )?;
+        Ok(String::from_utf8(out.stdout)?.trim().to_owned())
     }
 }
 
@@ -270,7 +288,7 @@ impl Run<'_> {
         &self,
         arm: &Arm,
         state: &Path,
-        case: &(&str, &str, &str),
+        case: &Case,
         input: &Value,
         extra: &[(&str, &str)],
     ) -> Result<Value> {
@@ -362,6 +380,25 @@ fn scanner(words: &[String], rss: f64, threshold: Option<f64>) -> &'static str {
     }
 }
 
+/// Whether a sample shows the scanner its arm names. A hook that scans must
+/// show one: the client's words where a client is selected, gitleaks by
+/// memory elsewhere (unknown where memory cannot tell). Only a hook without a
+/// scan and a verified cache hit may show none.
+fn evidence(arm: &str, helper: bool, scans: bool, hit: bool, words: &[String], ran: &str) -> bool {
+    let all = |word: &str| !words.is_empty() && words.iter().all(|w| w == word);
+    if !scans || hit {
+        return words.is_empty() && ["none", "unknown"].contains(&ran);
+    }
+    match (arm, helper) {
+        ("first-call", _) => {
+            words.len() > 1 && words[0] == "spawned" && words[1..].iter().all(|w| w == "real:cold")
+        }
+        ("fallback", _) => all("real:socket-path"),
+        (_, true) => all("helper"),
+        _ => words.is_empty() && ["gitleaks", "unknown"].contains(&ran),
+    }
+}
+
 fn copy_executable(from: &Path, to: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::copy(from, to)?;
@@ -382,7 +419,10 @@ pub fn latency(args: &Args) -> Result<()> {
         "entry must be direct or manifest",
     )?;
     let out_path = PathBuf::from(args.get("--out")?);
-    let binary = absolute(args.opt("--binary", cli()?))?;
+    let binary = absolute(match args.get("--binary") {
+        Ok(binary) => binary,
+        Err(_) => cli()?,
+    })?;
     let scanner_path = absolute(args.opt(
         "--scanner",
         version(&["sh", "-c", "command -v gitleaks"]).unwrap_or_default(),
@@ -425,8 +465,13 @@ pub fn latency(args: &Args) -> Result<()> {
             .collect()
     };
 
+    // Made before anything is measured: a run must not end without its samples.
+    if let Some(parent) = out_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
     let sandbox = Sandbox::new()?;
     let base = &sandbox.base;
+    eprintln!("sandbox {}", base.display());
     // Two private gitleaks directories: one with the scanner alone, one laid
     // out as setup --install-gitleaks-helper leaves it.
     let off_bin = base.join("off");
@@ -495,9 +540,8 @@ pub fn latency(args: &Args) -> Result<()> {
         }
     };
     let session = |arm: &Arm| format!("latency-{}", arm.name);
-    let input = |arm: &Arm, case: &(&str, &str, &str), n: &str| {
-        payload(case.0, case.1, &sandbox.repo, &session(arm), n)
-    };
+    let input =
+        |arm: &Arm, case: &Case, n: &str| payload(case.0, case.1, &sandbox.repo, &session(arm), n);
     let off = [("AGENT_GUARD_GITLEAKS_HELPER", "off")];
 
     // Peak memory that separates a hook that ran gitleaks from one that did
@@ -537,11 +581,13 @@ pub fn latency(args: &Args) -> Result<()> {
         .and_then(Path::parent)
         .ok_or("the binary has no plugin root")?
         .join("config/gitleaks.toml");
+    // The copy the hooks run, in their environment and directory.
+    let staged_scanner = off_bin.join("gitleaks").display().to_string();
     let mut scan = vec![
         run.exe.clone(),
         "resource-sample".into(),
         run.metrics.display().to_string(),
-        scanner_path.clone(),
+        staged_scanner.clone(),
     ];
     scan.extend(
         [
@@ -556,7 +602,13 @@ pub fn latency(args: &Args) -> Result<()> {
         .map(String::from),
     );
     scan.push(config.display().to_string());
-    let (_, out) = invoke_isolated(&scan, b"ls -la src\n", &sandbox.env(), None, timeout)?;
+    let (_, out) = invoke_isolated(
+        &scan,
+        b"ls -la src\n",
+        &sandbox.env(),
+        Some(Path::new(&sandbox.repo)),
+        timeout,
+    )?;
     ensure(
         out.status.success(),
         "the scanner could not scan a clean line",
@@ -640,7 +692,7 @@ pub fn latency(args: &Args) -> Result<()> {
         json!(values)
     };
     let load_start = load();
-    let cells: Vec<(&Arm, &(&str, &str, &str))> = arms
+    let cells: Vec<(&Arm, &Case)> = arms
         .iter()
         .flat_map(|arm| cases.iter().map(move |case| (arm, *case)))
         .collect();
@@ -714,20 +766,12 @@ pub fn latency(args: &Args) -> Result<()> {
                     row["status"], row["outcome"]
                 ));
             }
-            let all = |word: &str| words.iter().all(|w| w == word);
-            let expected = match arm.name {
-                "first-call" => {
-                    words.is_empty()
-                        || words[0] == "spawned"
-                            && words[1..].iter().all(|w| w == "real:cold")
-                            && words.len() > 1
-                }
-                "fallback" => all("real:socket-path"),
-                _ if arm.helper => all("helper"),
-                _ => words.is_empty(),
-            };
+            let hit = row["cache"] == "hit";
+            let expected = evidence(arm.name, arm.helper, case.3, hit, &words, ran);
             if !expected {
-                problems.push(format!("{label}: the scan client reported {words:?}"));
+                problems.push(format!(
+                    "{label}: scanner {ran} and scan client words {words:?} are not what this arm measures"
+                ));
             }
             if arm.helper && words.is_empty() && ran == "gitleaks" {
                 problems.push(format!("{label}: gitleaks ran without the scan client"));
@@ -806,10 +850,10 @@ pub fn latency(args: &Args) -> Result<()> {
         "load_average": {"start": load_start, "end": load_end},
         "entry": entry,
         "binary_sha256": hash(&binary)?,
-        "scanner_version": version(&[&scanner_path, "version"])?,
+        "scanner_version": sandbox.version(&[&staged_scanner, "version"])?,
         "scanner_sha256": hash(&scanner_path)?,
         "helper_sha256": helper_sums,
-        "jq_version": version(&["jq", "--version"])?,
+        "jq_version": sandbox.version(&["jq", "--version"])?,
         "runs": runs,
         "arms": arm_names,
         "scanner_evidence": match threshold {
@@ -827,4 +871,128 @@ pub fn latency(args: &Args) -> Result<()> {
         report["problems"].as_array().unwrap().is_empty(),
         "a sample did not measure what its arm names; see problems",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn words(list: &[&str]) -> Vec<String> {
+        list.iter().map(|w| w.to_string()).collect()
+    }
+    #[test]
+    fn a_sample_needs_the_scanner_its_arm_names() {
+        // (arm, helper, scans, cache hit, client words, scanner, accepted)
+        type Row = (
+            &'static str,
+            bool,
+            bool,
+            bool,
+            &'static [&'static str],
+            &'static str,
+            bool,
+        );
+        let rows: &[Row] = &[
+            (
+                "warm-helper",
+                true,
+                true,
+                false,
+                &["helper"],
+                "helper",
+                true,
+            ),
+            ("warm-helper", true, true, false, &[], "none", false),
+            ("warm-helper", true, true, false, &[], "unknown", false),
+            (
+                "warm-helper",
+                true,
+                true,
+                false,
+                &["real:engine"],
+                "gitleaks",
+                false,
+            ),
+            ("warm-helper", true, false, false, &[], "none", true),
+            (
+                "warm-helper",
+                true,
+                false,
+                false,
+                &["helper"],
+                "helper",
+                false,
+            ),
+            (
+                "first-call",
+                true,
+                true,
+                false,
+                &["spawned", "real:cold"],
+                "gitleaks",
+                true,
+            ),
+            (
+                "first-call",
+                true,
+                true,
+                false,
+                &["real:cold"],
+                "gitleaks",
+                false,
+            ),
+            ("first-call", true, true, false, &[], "gitleaks", false),
+            (
+                "fallback",
+                true,
+                true,
+                false,
+                &["real:socket-path"],
+                "gitleaks",
+                true,
+            ),
+            ("fallback", true, true, false, &["helper"], "helper", false),
+            ("fallback", true, true, false, &[], "none", false),
+            ("repeat-input", true, true, true, &[], "none", true),
+            (
+                "repeat-input",
+                true,
+                true,
+                true,
+                &["helper"],
+                "helper",
+                false,
+            ),
+            (
+                "repeat-input",
+                true,
+                true,
+                false,
+                &["helper"],
+                "helper",
+                true,
+            ),
+            ("repeat-input", false, true, true, &[], "none", true),
+            ("helper-off", false, true, false, &[], "gitleaks", true),
+            ("helper-off", false, true, false, &[], "unknown", true),
+            ("helper-off", false, true, false, &[], "none", false),
+            (
+                "helper-off",
+                false,
+                true,
+                false,
+                &["helper"],
+                "helper",
+                false,
+            ),
+            ("helper-off", false, false, false, &[], "none", true),
+            ("helper-off", false, false, false, &[], "gitleaks", false),
+        ];
+        for (arm, helper, scans, hit, list, ran, accepted) in rows {
+            assert_eq!(
+                evidence(arm, *helper, *scans, *hit, &words(list), ran),
+                *accepted,
+                "{arm} helper={helper} scans={scans} hit={hit} {list:?} {ran}"
+            );
+        }
+    }
 }
