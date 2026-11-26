@@ -23820,7 +23820,7 @@ PII_PROVIDER enum regex regex,http,pleno
 PII_LANGUAGE enum en en,ja
 PII_SKIP list unset EMAIL,PHONE,IP_ADDRESS
 SCAN_INPUT_MAX_BYTES number 10485760 10485760-999999999999999999
-PII_TIMEOUT_SECONDS number 30 1-999999999999999999
+PII_TIMEOUT_SECONDS number 30 1-
 GITLEAKS_HELPER_IDLE_SECONDS number 600 1-86400
 GITLEAKS_HELPER_MAX_RSS_MIB number 160 96-4096
 GITLEAKS_HELPER helper unset -
@@ -23864,17 +23864,18 @@ doctor_settings_report() {
           ;;
         list)
           # The parse of pii_skip_set, without its error exit: words split on
-          # commas and spaces, used only by the regex provider.
-          ds_ok=1
+          # commas and spaces; an endpoint provider refuses a non-empty list.
+          ds_ok=1 ds_words=0
           ds_oifs=$IFS
           IFS=', '
           for ds_word in $ds_value; do
+            ds_words=1
             case ",$ds_accepted," in *",$ds_word,"*) ;; *) ds_ok=0 ;; esac
           done
           IFS=$ds_oifs
           case $ds_value in *"$(printf '\t')"*|*"
 "*) ds_ok=0 ;; esac
-          case ${AGENT_GUARD_PII_PROVIDER:-regex} in regex) ;; *) ds_ok=0 ;; esac
+          [ "$ds_words" -eq 0 ] || case ${AGENT_GUARD_PII_PROVIDER:-regex} in http|pleno) ds_ok=0 ;; esac
           ;;
         number)
           # The runtime parsers drop leading zeros; the helper's Go Atoi also
@@ -23887,7 +23888,10 @@ doctor_settings_report() {
           case $ds_value in
             *[!0-9]*) ;;
             *)
-              if [ "${#ds_value}" -le 18 ] && [ "$ds_value" -ge "${ds_accepted%-*}" ] \
+              # No maximum (PII timeout): the runtime's own positive-integer test.
+              if [ -z "${ds_accepted#*-}" ]; then
+                [ "$ds_value" -ge "${ds_accepted%-*}" ] 2>/dev/null && ds_ok=1
+              elif [ "${#ds_value}" -le 18 ] && [ "$ds_value" -ge "${ds_accepted%-*}" ] \
                   && [ "$ds_value" -le "${ds_accepted#*-}" ]; then
                 ds_ok=1
               fi
@@ -23916,6 +23920,11 @@ doctor_settings_report() {
           ;;
       esac
     fi
+    # audit_begin keeps no state for an unrecognized log mode, so no cache.
+    case $ds_name:${AGENT_GUARD_LOG_MODE:-on} in
+      SCAN_CACHE:on|SCAN_CACHE:off) ;;
+      SCAN_CACHE:*) ds_shown="no effect: an unrecognized AGENT_GUARD_LOG_MODE turns the cache off" ;;
+    esac
     info "$PROGRAM: setting  AGENT_GUARD_$ds_name  $ds_shown"
   done; }
   return 0

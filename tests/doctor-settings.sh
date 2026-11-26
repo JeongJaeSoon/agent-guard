@@ -105,6 +105,15 @@ expect "leading zeros are dropped, as at runtime" 'line SCAN_INPUT_MAX_BYTES | g
 expect "the helper reads a leading plus sign, as Go's Atoi does" 'line GITLEAKS_HELPER_IDLE_SECONDS | grep -qF " 120 " && ! line GITLEAKS_HELPER_IDLE_SECONDS | grep -qF unrecognized'
 doctor $OFFLINE AGENT_GUARD_SCAN_INPUT_MAX_BYTES=+20971520
 expect "but the shell parser of the scan limit does not" 'line SCAN_INPUT_MAX_BYTES | grep -qF unrecognized'
+doctor $OFFLINE AGENT_GUARD_LOG_MODE=quiet AGENT_GUARD_SCAN_CACHE=off
+expect "an unrecognized log mode turns the cache off whatever its setting, and the line says so" \
+  'line SCAN_CACHE | grep -qF "no effect" && ! line SCAN_CACHE | grep -qF differs'
+doctor $OFFLINE AGENT_GUARD_PII_PROVIDER=http AGENT_GUARD_PII_SKIP=' '
+expect "a skip list with no words is accepted with any provider, as at runtime" '! line PII_SKIP | grep -qF unrecognized'
+doctor $OFFLINE AGENT_GUARD_PII_PROVIDER=zq9 AGENT_GUARD_PII_SKIP=EMAIL
+expect "an unknown provider is left to the provider error, not blamed on the skip list" '! line PII_SKIP | grep -qF unrecognized'
+doctor $OFFLINE AGENT_GUARD_PII_TIMEOUT_SECONDS=1000000000000000000
+expect "the PII timeout takes any positive integer, without the scan limit's digit cap" '! line PII_TIMEOUT_SECONDS | grep -qF unrecognized'
 
 # P-5: the top-level usage lists every user-facing form, and no internal one.
 "$GUARD" --help 2>"$CASE/usage"
