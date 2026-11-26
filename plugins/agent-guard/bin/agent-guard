@@ -1,6 +1,29 @@
 #!/usr/bin/env sh
 set -u
 
+# bash acting as sh (macOS) parses and runs this script several times slower
+# than dash. Started that way, hand the same file and arguments to a system
+# dash before anything else is read. $BASH ends in /sh only when bash was
+# started as sh, so an explicit `bash agent-guard` keeps bash, and a name
+# without a slash is left to the shell that found it. The marker reaches only
+# the dash started here and is unset at once: no child inherits it, and a
+# dash that is itself bash cannot hand over again. With execfail a dash that
+# cannot be started leaves this shell running the script as before.
+if [ -n "${AGENT_GUARD_SH_HANDOVER:-}" ]; then
+  unset AGENT_GUARD_SH_HANDOVER
+else
+  # shellcheck disable=SC3028,SC3044 # reached only by bash
+  case "${BASH:-}:$0" in
+    */sh:*/*)
+      shopt -s execfail 2>/dev/null || :
+      for ag_dash in /bin/dash /usr/bin/dash; do
+        [ ! -x "$ag_dash" ] || AGENT_GUARD_SH_HANDOVER=1 exec "$ag_dash" "$0" "$@"
+      done
+      unset AGENT_GUARD_SH_HANDOVER ag_dash
+      ;;
+  esac
+fi
+
 PROGRAM=agent-guard
 VERSION=3.13.9
 

@@ -638,6 +638,41 @@ for host in claude codex; do
   done
 done
 
+# 18. The CLI is a POSIX sh script, and dash runs it several times faster than
+# bash acting as sh. A binary that starts with the CLI's own interpreter line
+# is handed to a system dash where there is one, for a hook that continues
+# (exec) and for one that blocks (child). Any other binary, such as a native
+# one from another version directory, is executed as it is.
+dash_path=
+for candidate in /bin/dash /usr/bin/dash; do
+  if [ -x "$candidate" ]; then dash_path=$candidate; break; fi
+done
+# shellcheck disable=SC2016 # expanded by the fake binary, not here
+interp_body='ps -o comm= -p "$$"; printf "args=%s\n" "$*"'
+T="$CASE/interp"
+mkdir -p "$T"
+fake_version "$T" 1.0.0 1.0.0 complete "$interp_body"
+fake_version "$T" 2.0.0 2.0.0 complete "$interp_body"
+{ printf '#!/bin/sh\n'; sed 1d "$T/2.0.0/bin/agent-guard"; } >"$T/other"
+cat "$T/other" >"$T/2.0.0/bin/agent-guard"
+for sub in hook-stop hook-pre-tool; do
+  for version in 1.0.0 2.0.0; do
+    case "$version:$dash_path" in
+      1.0.0:/*) want=dash ;;
+      *) want=sh ;;
+    esac
+    printf '{}' | sh "$LAUNCHER" claude "$sub" "$T/$version" >"$OUT" 2>"$ERR"
+    status=$?
+    name=$(sed -n 1p "$OUT")
+    name=${name##*/}
+    if [ "$status" -eq 0 ] && [ "$name" = "$want" ] && [ "$(sed -n 2p "$OUT")" = "args=$sub" ] && [ ! -s "$ERR" ]; then
+      ok "$sub: a binary with interpreter line $(sed -n 1p "$T/$version/bin/agent-guard") runs under $want"
+    else
+      bad "$sub: a binary with interpreter line $(sed -n 1p "$T/$version/bin/agent-guard") runs under $want (got $name, status $status)"
+    fi
+  done
+done
+
 # 17. A truncated launcher (interrupted copy) fails to parse instead of
 # running a prefix of the policy or reaching a binary.
 T="$CASE/truncated"
