@@ -317,5 +317,38 @@ else
   not_ok "a TMPDIR that is a symlink is reaped through and stays a symlink"
 fi
 
+# doctor counts what the reaper would remove and removes nothing; with no
+# private state directory it says that nothing will.
+DOC_TMP="$CASE/doctor-tmp"
+fixture "$DOC_TMP"
+before=$(find "$DOC_TMP" | LC_ALL=C sort)
+for mode in on off; do
+  env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$DOC_TMP" AGENT_GUARD_LOG_MODE=$mode \
+    AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+    sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
+  case $mode in
+    on) want='temp: 3 stale run directories in [^ ]* (left by a killed run; a later hook or scan removes them' ;;
+    off) want='temp: 3 stale run directories in [^ ]* (left by a killed run; nothing removes them while the private state directory is off' ;;
+  esac
+  after=$(find "$DOC_TMP" | LC_ALL=C sort)
+  if grep -q "$want" "$CASE/doctor-out" && [ "$before" = "$after" ]; then
+    ok "doctor (log $mode) counts stale run directories and removes none"
+  else
+    not_ok "doctor (log $mode) counts stale run directories and removes none"
+    grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+  fi
+done
+for p in $LIVE_PIDS; do kill -KILL "$p" 2>/dev/null || :; done
+LIVE_PIDS=
+mkdir "$CASE/doctor-empty"
+env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/doctor-empty" \
+  AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+  sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
+if grep -q 'temp: no stale run directories in' "$CASE/doctor-out"; then
+  ok "doctor says when there is no stale run directory"
+else
+  not_ok "doctor says when there is no stale run directory"
+fi
+
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

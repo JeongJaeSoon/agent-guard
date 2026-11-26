@@ -1527,7 +1527,7 @@ rundir_reap() {
   [ -n "$ag_rr_last" ] || return 0
   # Where this run's directory went: TMPDIR, or /tmp when TMPDIR could not
   # hold it, so a setting that keeps falling back is reaped where it leaves.
-  rundir_reap_pass "${AGENT_GUARD_RUNDIR%/*}" </dev/null >/dev/null 2>&1 || :
+  rundir_stale "${AGENT_GUARD_RUNDIR%/*}" remove </dev/null >/dev/null 2>&1 || :
 }
 
 # Lists one directory and nothing below it, from inside it (cd -P), so a
@@ -1537,9 +1537,10 @@ rundir_reap() {
 # user, mode 0700 and old enough; the loop keeps only this CLI's mktemp
 # names and skips a live owner (kill -0 fails for another user's process,
 # which owns no directory of this user). rm -rf does not follow symlinks
-# inside. The listing is bounded like audit_prune's.
-rundir_reap_pass() (
-  cd -P -- "$1" 2>/dev/null || exit 0
+# inside. The listing is bounded like audit_prune's. MODE remove deletes them;
+# count prints how many there are and changes nothing (doctor).
+rundir_stale() ( # DIR MODE
+  cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo 0; exit 0; }
   {
     find . -mindepth 1 -maxdepth 1 -name 'agent-guard-run.*.*' \
       ! -name '*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-]*' -type d \
@@ -1571,7 +1572,11 @@ rundir_reap_pass() (
         [ -d "$ag_rr_path" ] && [ ! -L "$ag_rr_path" ] || continue
         printf '%s\0' "$ag_rr_path"
       done \
-    | xargs -0 rm -rf -- 2>/dev/null
+    | if [ "$2" = remove ]; then
+        xargs -0 rm -rf -- 2>/dev/null
+      else
+        tr -cd '\000' | wc -c | tr -d ' '
+      fi
 )
 
 audit_begin() {
@@ -23861,10 +23866,34 @@ doctor_shell_integration_report() {
 
 # doctor is setup plus a release-staleness line; the setup status is returned
 # unchanged so a failed lookup never turns a healthy doctor red.
+# Read-only: shows what rundir_reap would remove from the temp directory this
+# run uses, so a user without the private state directory (LOG_MODE=off),
+# where nothing reaps, can notice leftovers.
+doctor_rundir_report() {
+  [ -n "$AGENT_GUARD_RUNDIR" ] || return 0
+  AG_UID=${AG_UID:-$(id -u 2>/dev/null)}
+  case "$AG_UID" in ''|*[!0123456789]*) return 0 ;; esac
+  doctor_rundir_dir=${AGENT_GUARD_RUNDIR%/*}
+  doctor_rundir_count=$(rundir_stale "$doctor_rundir_dir" count 2>/dev/null </dev/null) || doctor_rundir_count=
+  case "$doctor_rundir_count" in ''|*[!0123456789]*) return 0 ;; esac
+  if [ "$doctor_rundir_count" -eq 0 ]; then
+    info "$PROGRAM: temp: no stale run directories in $doctor_rundir_dir"
+    return 0
+  fi
+  # The same settings under which audit_begin prepares the private state.
+  case "${AGENT_GUARD_LOG_MODE:-on}:${AGENT_GUARD_SCAN_CACHE:-}" in
+    on:*|off:on)
+    info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; a later hook or scan removes them, at most once an hour)" ;;
+    *)
+    info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; nothing removes them while the private state directory is off, as with AGENT_GUARD_LOG_MODE=off; remove them by hand or turn logging on)" ;;
+  esac
+}
+
 do_doctor() {
   do_setup "$@"
   doctor_status=$?
   doctor_shell_integration_report
+  doctor_rundir_report
   if command -v codex >/dev/null 2>&1; then
     doctor_here=$(pwd -P 2>/dev/null) || doctor_here=$PWD
     codex_trust_probe "$doctor_here"
