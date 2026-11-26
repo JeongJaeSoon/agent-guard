@@ -29,7 +29,7 @@ security tiers or test-pyramid layers.
 ## Test-only environment variables
 
 The hook launcher and the CLI read these so that tests can isolate the
-once-per-session notices. They are not user settings.
+deduplication of warning notices. They are not user settings.
 
 | Variable | Use |
 | --- | --- |

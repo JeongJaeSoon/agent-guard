@@ -670,7 +670,7 @@ Hook modes:
 
 | Variable | Default / use |
 | --- | --- |
-| `AGENT_GUARD_INFRA_FAILURE_MODE` | Hook behavior when a dependency, policy or scanner fails: unset (default), `open` or `closed`. Unset is `closed` for a secret scan that did not run and `open` for every other infrastructure failure ([Infrastructure policy](#infrastructure-policy)). The shell integration reads it only when it cannot locate the CLI or `agent-guard check` fails: `closed` then refuses the wrapped command, and otherwise it runs unmasked. |
+| `AGENT_GUARD_INFRA_FAILURE_MODE` | Hook behavior when a dependency, policy or scanner fails: unset (default), `open` or `closed`. Unset is `closed` for a secret scan that did not run and `open` for every other infrastructure failure; `PostToolUseFailure` cannot block and reports the unchecked output instead ([Infrastructure policy](#infrastructure-policy)). The shell integration (wrapped commands and `agx`) reads it only when it cannot locate the CLI or `agent-guard check` fails: `closed` then refuses the command, and otherwise it runs unmasked. |
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block` (default), `warn`, `off`, or the currently blocking `mask` fallback. |
 | `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
 | `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
@@ -761,7 +761,7 @@ do not recognize, and an empty value is not always the same as unset.
 
 | Setting | Recognized values | Any other value |
 | --- | --- | --- |
-| `AGENT_GUARD_INFRA_FAILURE_MODE` | `open`, `closed` | Read as unset, as an empty value is: a secret scan that did not run blocks, other infrastructure failures continue |
+| `AGENT_GUARD_INFRA_FAILURE_MODE` | `open`, `closed` | Read as unset, as an empty value is: a secret scan that did not run blocks (`PostToolUseFailure` only reports it), other infrastructure failures continue |
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block`, `warn`, `off`, `mask`; empty is `block` | Error: the prompt is blocked with exit status 2 |
 | `AGENT_GUARD_PII_HOOK_MODE` | `off`, `block`, `mask`; empty is `off` | Error: the affected hook exits with status 2 |
 | `AGENT_GUARD_PII_PROVIDER` | `regex`, `http`, `pleno`; empty is `regex` | Error where the provider is called ([PII handling](#pii-handling)) |
@@ -797,7 +797,9 @@ hold at least one line that is neither blank nor a comment. Otherwise `check`
 fails, the hooks report degraded protection and the
 [infrastructure policy](#infrastructure-policy) applies. The content is not
 compared with the bundled file: a replacement with fewer rules is used as it
-is, with no notice.
+is, with no notice. The plugin hook launcher also needs the three bundled files in
+the plugin directory to be readable, even when they are replaced; `check` with
+replacement files does not test that.
 
 The user files `mask-deny-values.txt`, `mask-allow-keys.txt` and
 `protected-containers.txt` are read from `$HOME/.config/agent-guard/`.
