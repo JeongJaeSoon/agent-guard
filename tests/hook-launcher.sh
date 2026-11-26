@@ -648,7 +648,9 @@ for candidate in /bin/dash /usr/bin/dash; do
   if [ -x "$candidate" ]; then dash_path=$candidate; break; fi
 done
 # shellcheck disable=SC2016 # expanded by the fake binary, not here
-interp_body='ps -o comm= -p "$$"; printf "args=%s\n" "$*"'
+# The first word of the command line: the process name is the interpreter on
+# macOS and the script on Linux.
+interp_body='a=$(ps -o args= -p "$$"); printf "%s\n" "${a%% *}"; printf "args=%s\n" "$*"'
 T="$CASE/interp"
 mkdir -p "$T"
 fake_version "$T" 1.0.0 1.0.0 complete "$interp_body"
