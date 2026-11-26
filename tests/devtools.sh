@@ -84,6 +84,8 @@ if [ -n "$SCANNER" ]; then
     and ([.cells[] | select(.arm == "helper-off" and .case == "pre-bash") | .cache == {"stored": 2}] | all)
     and ([.cells[] | select(.arm == "repeat-input") | .cache == (if .case == "pre-bash" then {"hit": 2} else {"none": 2} end)] | all)
     and ([.cells[] | select(.arm == "repeat-input" and .case == "pre-bash") | .scanner == {"none": 2}] | all)
+    and .cache_controls == [{"arm": "repeat-input", "case": "pre-bash", "scanner_with_cache_off": "gitleaks"}]
+    and ([.samples[] | select(.aggregated | not)] | length) == 0
     and (.cells | length) == 10' "$CASE/latency-real.json" >/dev/null
 fi
 # What the samples claim must have evidence. A scanner that fails on the
@@ -96,6 +98,15 @@ if "$TOOLS" hook-latency --unverified --scanner "$CASE/failing/gitleaks" --runs 
   echo 'hook-latency took a scanner failure for a detected control' >&2; exit 1
 fi
 jq -e '.controls[0].status == 2 and .controls[0].outcome == "degraded" and (.problems | length) == 1' "$CASE/latency-failing.json" >/dev/null
+# A scanner that fails on the measured input: the samples are kept, none is
+# summarized, and they are stored even when nobody reads the summary.
+printf '%s\n' '#!/bin/sh' 'case "${1:-}" in version) echo 8.30.1; exit 0 ;; esac' \
+  'case "$(cat)" in *"note line"*) exit 2 ;; esac' 'exit 0' >"$CASE/failing/gitleaks"
+if "$TOOLS" hook-latency --unverified --scanner "$CASE/failing/gitleaks" --runs 2 --case pre-write --arm helper-off --out "$CASE/latency-degraded.json" 2>/dev/null | true; then
+  :
+fi
+jq -e '(.samples | length) == 2 and ([.samples[] | select(.aggregated)] | length) == 0 and (.cells | length) == 0
+  and ([.samples[].outcome] | unique) == ["degraded"] and (.problems | length) > 0' "$CASE/latency-degraded.json" >/dev/null
 # Helper binaries the CLI does not pin are never run: the helper arms would
 # time gitleaks itself, so the run fails instead of naming it warm.
 for name in agent-guard-scan agent-guard-gitleaks-helper; do
