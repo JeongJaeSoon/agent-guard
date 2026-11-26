@@ -9,11 +9,10 @@ use std::path::Path;
 // What two runs of one build may differ in, and what is therefore left out of
 // the comparison. Everything else is compared byte for byte.
 const UNSTABLE: &[&str] = &[
-    "audit events: run_id, time and duration_seconds",
-    "names of state and temporary files: every run of digits and every run of 8 or more hexadecimal characters (times, process and file identities, hashes), and the random suffix of an audit event file",
-    "content of the CLI's cache files in the state directory: gitleaks-probe, gitleaks-clean, deny-path-regex and gitleaks-helper (times and file identities)",
-    "content of files inside the repository's .git other than HEAD and refs (the index and logs hold times; objects are named by their content)",
-    "a line of digits only in a temporary file the CLI leaves (a warning marker holds the time it was written)",
+    "audit events: run_id, time and duration_seconds, and the event file's name",
+    "the CLI's cache files in the state directory (gitleaks-probe, gitleaks-clean, deny-path-regex, gitleaks-helper): content, and in their names every run of digits and every run of 8 or more hexadecimal characters (times, file identities, hashes)",
+    "inside the repository's .git: content of the index, the logs and the objects (the index and logs hold times; an object is named by its content)",
+    "the warning directory: the user number in its name, and a line of digits only in a marker (the time it was written)",
     "each side's own plugin root in output, read as one placeholder",
 ];
 
@@ -133,9 +132,44 @@ fn tree(base: &Path) -> Result<BTreeMap<String, Entry>> {
     }
     let mut out = BTreeMap::new();
     for name in ["repo", "home", "s", "t"] {
-        walk(&base.join(name), name, &mut out)?;
+        // The four directories are entries too: one that was removed, made a
+        // link or given other permissions is a change.
+        let path = base.join(name);
+        let Some(meta) = gone(std::fs::symlink_metadata(&path))? else {
+            continue;
+        };
+        if meta.file_type().is_dir() {
+            out.insert(
+                format!("{name}/"),
+                (meta.permissions().mode() & 0o7777, Vec::new()),
+            );
+            walk(&path, name, &mut out)?;
+        } else {
+            out.insert(name.to_owned(), (0, b"not a directory".to_vec()));
+        }
     }
     Ok(out)
+}
+
+/// One entry of a directory: name, size, mode and modification time.
+type Listed = (String, u64, u32, i64, i64);
+/// The entries of the scanner directory with what a write would change.
+fn scanner_directory(bin: &Path) -> Result<Vec<Listed>> {
+    use std::os::unix::fs::MetadataExt;
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(bin)? {
+        let entry = entry?;
+        let meta = std::fs::symlink_metadata(entry.path())?;
+        entries.push((
+            entry.file_name().to_string_lossy().to_string(),
+            meta.len(),
+            meta.mode(),
+            meta.mtime(),
+            meta.mtime_nsec(),
+        ));
+    }
+    entries.sort();
+    Ok(entries)
 }
 
 /// How one path is compared, and the label the report may show for it.
@@ -151,6 +185,9 @@ fn change(path: &str, entry: &Entry) -> Change {
     let (mode, bytes) = (entry.0, entry.1.as_slice());
     let directory = path.ends_with('/');
     let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
+    let warning = path
+        .strip_prefix("t/agent-guard-warnings-")
+        .filter(|rest| rest.starts_with(|c: char| c.is_ascii_digit()));
     let (label, name, bytes): (&'static str, String, Vec<u8>) =
         if path.starts_with("s/") && name.starts_with("event-") {
             let events: Vec<String> = String::from_utf8_lossy(bytes)
@@ -172,14 +209,9 @@ fn change(path: &str, entry: &Entry) -> Change {
             )
         } else if CACHES.iter().any(|cache| path.starts_with(cache)) {
             ("cache", stable_name(path), Vec::new())
-        } else if path.starts_with("s/") {
-            let label = if directory {
-                "state-directory"
-            } else {
-                "state-file"
-            };
-            (label, stable_name(path), bytes.to_vec())
-        } else if path.starts_with("t/") {
+        } else if let Some(rest) = warning {
+            // The warning directory is named for the user, and a marker in it
+            // holds the time it was written on a line of its own.
             let lines: Vec<&[u8]> = bytes
                 .split(|byte| *byte == b'\n')
                 .map(|line| {
@@ -190,12 +222,17 @@ fn change(path: &str, entry: &Entry) -> Change {
                     }
                 })
                 .collect();
+            let marker = rest.trim_start_matches(|c: char| c.is_ascii_digit());
             let label = if directory {
                 "temporary-directory"
             } else {
                 "temporary-file"
             };
-            (label, stable_name(path), lines.join(&b'\n'))
+            (
+                label,
+                format!("t/agent-guard-warnings-#{marker}"),
+                lines.join(&b'\n'),
+            )
         } else if path.starts_with("repo/.git/") {
             let volatile = GIT_VOLATILE.iter().any(|prefix| path.starts_with(prefix));
             (
@@ -203,10 +240,17 @@ fn change(path: &str, entry: &Entry) -> Change {
                 path.to_owned(),
                 if volatile { Vec::new() } else { bytes.to_vec() },
             )
-        } else if path.starts_with("repo/") {
-            ("repository-file", path.to_owned(), bytes.to_vec())
         } else {
-            ("home-file", path.to_owned(), bytes.to_vec())
+            // Everything else is compared as it is, name and content.
+            let label = match (path.split('/').next().unwrap_or_default(), directory) {
+                ("s", true) => "state-directory",
+                ("s", false) => "state-file",
+                ("t", true) => "temporary-directory",
+                ("t", false) => "temporary-file",
+                ("repo", _) => "repository-file",
+                _ => "home-file",
+            };
+            (label, path.to_owned(), bytes.to_vec())
         };
     (label, name, mode, bytes)
 }
@@ -419,6 +463,7 @@ fn compare(args: &Args, out_path: &Path) -> Result<()> {
     let bin = sandbox.base.join("bin");
     std::fs::create_dir(&bin)?;
     std::fs::copy(&scanner, bin.join("gitleaks"))?;
+    let installed = scanner_directory(&bin)?;
     let digest = |label: &str| format!("{:x}", Sha256::digest(label));
     let vars = [
         ("{{REPO}}", sandbox.repo.clone()),
@@ -456,14 +501,14 @@ fn compare(args: &Args, out_path: &Path) -> Result<()> {
                 Some(Ok(fields)) => fields.iter().all(|(key, value)| {
                     value.is_string()
                         && if key_ok {
-                            // A path in the environment stays inside the
-                            // sandbox both sides are rebuilt from, or names
-                            // nothing at all.
-                            let path = value.as_str().unwrap_or_default();
+                            // No path but one that names nothing: a path
+                            // could move the CLI's writes out of the sandbox
+                            // both sides are rebuilt from.
+                            let text = value.as_str().unwrap_or_default();
                             key.starts_with("AGENT_GUARD_")
-                                && (!path.starts_with('/')
-                                    || path.starts_with("/nonexistent/")
-                                    || Path::new(path).starts_with(&sandbox.base))
+                                && (!text.contains('/')
+                                    || text.starts_with("/nonexistent/")
+                                        && !text.split('/').any(|part| part == ".."))
                         } else {
                             !key.starts_with('/') && !key.split('/').any(|part| part == "..")
                         }
@@ -536,6 +581,11 @@ fn compare(args: &Args, out_path: &Path) -> Result<()> {
             let before = tree(&sandbox.base)?;
             let (_, out) = invoke_isolated(&command, &input, &env, Some(repo), timeout)?;
             let state = transition(&before, &tree(&sandbox.base)?);
+            // The scanner is shared by both sides and every case.
+            ensure(
+                scanner_directory(&bin)? == installed,
+                "a build changed the scanner directory, which no hook writes to",
+            )?;
             let own = |bytes: &[u8]| replace(bytes, side.root.as_bytes(), b"<cli-root>");
             outcomes.push(Outcome {
                 // A signal is its negative number: never a status a program exits with.
@@ -830,11 +880,11 @@ mod tests {
                 ("removed", "t/gone"),
                 (
                     "temporary-file",
-                    "t/agent-guard-warnings-#/blocked-injection-#"
+                    "t/agent-guard-warnings-#/blocked-injection-1"
                 ),
                 (
                     "temporary-file",
-                    "t/agent-guard-warnings-#/infrastructure-s#"
+                    "t/agent-guard-warnings-#/infrastructure-s1"
                 ),
             ]
         );

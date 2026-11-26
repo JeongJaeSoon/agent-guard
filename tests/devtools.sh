@@ -279,10 +279,15 @@ if [ "$(id -u)" != 0 ]; then
   awk 'NR == 2 { print; print "mkdir -p \"${TMPDIR:-/tmp}/locked\" && chmod 000 \"${TMPDIR:-/tmp}/locked\""; next } { print }' \
     "$GUARD" >"$CASE/locked/agent-guard/bin/agent-guard"
   if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$CASE/locked/agent-guard/bin/agent-guard" --scanner "$MOCK" \
-      --case pre-read-clean --out "$CASE/parity-locked.json" >/dev/null 2>&1; then
+      --case pre-read-clean --out "$CASE/parity-locked.json" >/dev/null 2>"$CASE/locked.err"; then
     echo 'cli-differential passed state it could not read' >&2; exit 1
   fi
   jq -e '(.complete | not)' "$CASE/parity-locked.json" >/dev/null
+  # The run still removes its own sandbox, unreadable directory included.
+  locked=$(sed -n 's/^sandbox //p' "$CASE/locked.err")
+  if [ -z "$locked" ] || [ -e "$locked" ]; then
+    echo 'cli-differential left its sandbox behind' >&2; exit 1
+  fi
 fi
 # A corpus with an unknown placeholder or without steps is refused.
 printf '%s\n' '[{"name":"bad","steps":[{"args":["version"],"stdin":"{{NO_SUCH}}"}]}]' >"$CASE/bad-corpus.json"
@@ -307,11 +312,14 @@ jq -e '.differences == 0 and .cases[0].steps[0].command == "other"' "$CASE/parit
 if grep -q 'customer-file-name' "$CASE/parity-odd.json"; then
   echo 'a differential report holds a corpus argument' >&2; exit 1
 fi
-jq -c --arg dir "$CASE/outside" '[.[] | select(.name == "scanner-missing-open") | .env.AGENT_GUARD_WARNING_DIR = $dir]' \
-  tests/fixtures/cli-differential.json >"$CASE/outside-corpus.json"
-if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --corpus "$CASE/outside-corpus.json" --out "$CASE/parity-outside.json" >/dev/null 2>&1; then
-  echo 'cli-differential let a corpus write outside the sandbox' >&2; exit 1
-fi
+for dir in "$CASE/outside" '/nonexistent/../tmp/outside' 'relative/outside'; do
+  jq -c --arg dir "$dir" '[.[] | select(.name == "scanner-missing-open") | .env.AGENT_GUARD_WARNING_DIR = $dir]' \
+    tests/fixtures/cli-differential.json >"$CASE/outside-corpus.json"
+  if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --corpus "$CASE/outside-corpus.json" --out "$CASE/parity-outside.json" >/dev/null 2>&1; then
+    echo "cli-differential let a corpus name the path $dir" >&2; exit 1
+  fi
+  jq -e '(.complete | not)' "$CASE/parity-outside.json" >/dev/null
+done
 test ! -e "$CASE/outside"
 # Two builds that leave the same files with other permission bits differ.
 mkdir "$CASE/modes"
@@ -333,6 +341,32 @@ if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$CASE/unrun/agent-
   echo 'cli-differential missed a manifest command it did not run' >&2; exit 1
 fi
 jq -e '.different_cases == ["manifest-dispatch-codex"] and .manifest_commands_run == ["codex PreToolUse"]' "$CASE/parity-unrun.json" >/dev/null
+# A copy of the CLI that runs one more line first.
+mutant() {
+  mkdir "$CASE/$1"
+  cp -R plugins/agent-guard "$CASE/$1/agent-guard"
+  awk -v line="$2" 'NR == 2 { print; print line; next } { print }' "$GUARD" >"$CASE/$1/agent-guard/bin/agent-guard"
+}
+differs() {
+  if "$TOOLS" cli-differential --baseline "$CASE/$1/agent-guard/bin/agent-guard" --candidate "$CASE/$2/agent-guard/bin/agent-guard" --scanner "$MOCK" \
+      --case pre-read-clean --out "$CASE/parity-$2.json" >/dev/null 2>&1; then
+    echo "cli-differential missed the $2 change" >&2; exit 1
+  fi
+}
+# The scanner both sides share is not a place a build may write.
+mutant plain ':'
+mutant shared ': >"$AGENT_GUARD_GITLEAKS_BIN_DIR/litter"'
+differs plain shared
+jq -e '(.complete | not)' "$CASE/parity-shared.json" >/dev/null
+# The directories a reset rebuilds are compared themselves.
+mutant top 'chmod 700 "$HOME"'
+differs plain top
+jq -e '.differences == 1 and (.cases[0].steps[0].state.equal | not)' "$CASE/parity-top.json" >/dev/null
+# Only what is declared unstable is left out: a number in any other file counts.
+mutant stamp-one 'echo 1 >"$TMPDIR/stamp"'
+mutant stamp-two 'echo 2 >"$TMPDIR/stamp"'
+differs stamp-one stamp-two
+jq -e '.differences == 1 and (.cases[0].steps[0].state | (.equal | not) and .changes.baseline == .changes.candidate)' "$CASE/parity-stamp-two.json" >/dev/null
 # A repeated option keeps its last value.
 test ! -e "$CASE/ignored-out"
 printf 'Developer tools: option parsing, resource status, source-location and failed-partition contracts passed\n'
