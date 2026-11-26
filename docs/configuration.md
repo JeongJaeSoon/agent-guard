@@ -670,7 +670,7 @@ Hook modes:
 
 | Variable | Default / use |
 | --- | --- |
-| `AGENT_GUARD_INFRA_FAILURE_MODE` | Hook behavior when a dependency, policy or scanner fails: unset (default), `open` or `closed`. Unset is `closed` for a secret scan that did not run and `open` for every other infrastructure failure ([Infrastructure policy](#infrastructure-policy)). The shell integration refuses a wrapped command only under `closed`. |
+| `AGENT_GUARD_INFRA_FAILURE_MODE` | Hook behavior when a dependency, policy or scanner fails: unset (default), `open` or `closed`. Unset is `closed` for a secret scan that did not run and `open` for every other infrastructure failure ([Infrastructure policy](#infrastructure-policy)). The shell integration reads it only when it cannot locate the CLI or `agent-guard check` fails: `closed` then refuses the wrapped command, and otherwise it runs unmasked. |
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block` (default), `warn`, `off`, or the currently blocking `mask` fallback. |
 | `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
 | `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
@@ -765,14 +765,14 @@ do not recognize, and an empty value is not always the same as unset.
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block`, `warn`, `off`, `mask`; empty is `block` | Error: the prompt is blocked with exit status 2 |
 | `AGENT_GUARD_PII_HOOK_MODE` | `off`, `block`, `mask`; empty is `off` | Error: the affected hook exits with status 2 |
 | `AGENT_GUARD_PII_PROVIDER` | `regex`, `http`, `pleno`; empty is `regex` | Error where the provider is called ([PII handling](#pii-handling)) |
-| `AGENT_GUARD_PII_SKIP` | `EMAIL`, `PHONE`, `IP_ADDRESS` | Error |
+| `AGENT_GUARD_PII_SKIP` | Empty, or a comma- or space-separated list of `EMAIL`, `PHONE` and `IP_ADDRESS`, with the `regex` provider | Error, also for such a list with `http` or `pleno` |
 | `AGENT_GUARD_PII_LANGUAGE` (`pleno`) | `en`, `ja`; empty is `en` | Error |
 | `AGENT_GUARD_PII_TIMEOUT_SECONDS` (`http`, `pleno`) | A positive integer; empty is `30` | Error |
 | `AGENT_GUARD_OUTPUT_REDACT` | `off` turns masking off | Masking stays on, also for `OFF`, `0` and `false` |
 | `AGENT_GUARD_DENY_READ_MODE` | `block`, `mask`; empty is `block` | The read is blocked without a masked view |
 | `AGENT_GUARD_LOG_MODE` | `on`, `off`; empty is `on` | No event record and no local caches; stderr reports an invalid log mode |
 | `AGENT_GUARD_SESSION_ROLE` | `review` | No effect, also for `Review` or `reviewer`: the environment does not restrict the session. A Claude agent type containing `review` still does |
-| `AGENT_GUARD_COMMAND_WRAPPING` | `off`, `OFF`, `0`, `false`, `FALSE`, `no`, `NO` turn wrapping off | Wrapping on; for the installer an empty value keeps the recorded choice |
+| `AGENT_GUARD_COMMAND_WRAPPING` | `off`, `OFF`, `0`, `false`, `FALSE`, `no`, `NO` turn wrapping off | Installed wrappers stay active; no value restores wrappers that `setup-shell --no-command-wrapping` left out. The installer installs them for any other non-empty value and keeps the recorded choice for an empty one |
 | `AGENT_GUARD_KEY_NAME_REDACT` | `off` or empty keeps the default | Counts as `on` (stricter), also `0` and `false` |
 | `AGENT_GUARD_TRACKED_FILE_EXCEPTION` | `on`, or unset | Counts as `off` (stricter), also an empty value |
 | `AGENT_GUARD_KNOWN_VALUE_REDACT` | `off` turns it off | Stays on |
