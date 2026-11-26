@@ -35,6 +35,26 @@ extern "C" fn interrupted(signal: i32) {
         libc::_exit(128 + signal);
     }
 }
+/// Remove a directory this run made, with whatever a child left unreadable
+/// inside it: only its owner can give the permissions back.
+pub fn remove_tree(path: &Path) -> std::io::Result<()> {
+    fn open(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_dir());
+        if !directory {
+            return;
+        }
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
+        for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
+            open(&entry.path());
+        }
+    }
+    open(path);
+    match std::fs::remove_dir_all(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
+    }
+}
 /// Remove a temporary directory when SIGINT or SIGTERM ends the run, which a
 /// destructor would not: the handler leaves through _exit.
 pub fn remove_on_interrupt(path: PathBuf) -> Result<()> {
@@ -52,7 +72,7 @@ pub fn remove_on_interrupt(path: PathBuf) -> Result<()> {
             // A child started as the signal arrived may still be writing.
             for _ in 0..40 {
                 kill_groups();
-                if std::fs::remove_dir_all(&path).is_ok() || !path.exists() {
+                if remove_tree(&path).is_ok() {
                     break;
                 }
                 std::thread::sleep(Duration::from_millis(50));
