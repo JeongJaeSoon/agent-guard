@@ -1506,7 +1506,8 @@ RUNDIR_REAP_AGE_MINUTES=61
 RUNDIR_REAP_LEGACY_AGE_MINUTES=10080
 
 # The marker holds one "<seconds> <directory>" line per temp directory, so a
-# busy TMPDIR does not use up the interval of another one, at most 8 lines.
+# busy TMPDIR does not use up the interval of another one. A rewrite puts its
+# own line last and keeps the 7 latest others, so the least recent goes first.
 # Reading it is a builtin loop. A first line is created with noclobber (no
 # process); a change is written to a new file and renamed over the marker, so
 # neither follows a symlink.
@@ -1530,10 +1531,15 @@ rundir_reap() {
       [ "${#ag_rr_time}" -le 12 ] || continue
       if [ "${ag_rr_line#* }" = "$ag_rr_dir" ]; then
         ag_rr_last=$ag_rr_time
-      elif [ "$ag_rr_lines" -lt 7 ]; then
+      else
         ag_rr_keep="$ag_rr_keep$ag_rr_line
 "
-        ag_rr_lines=$((ag_rr_lines + 1))
+        if [ "$ag_rr_lines" -lt 7 ]; then
+          ag_rr_lines=$((ag_rr_lines + 1))
+        else
+          ag_rr_keep=${ag_rr_keep#*"
+"}
+        fi
       fi
     done <"$ag_rr_marker" 2>/dev/null
     # A marker from the future (a clock set back) is due.
@@ -1562,50 +1568,46 @@ rundir_reap() {
 }
 
 # Works inside the directory it lists (cd -P, CDPATH cleared), so a TMPDIR
-# symlink that changes between listing and removal cannot move rm elsewhere.
-# A glob lists names without a stat per entry (a TMPDIR can hold 100,000
-# entries); the loop keeps this CLI's mktemp names only, which hold no blank
-# or newline, and skips a live owner (kill -0 fails for another user's
-# process, which owns no directory of this user). find then stats only those
-# names, does not descend, and keeps directories that are no symlink, owned
-# by this user, mode 0700 and old enough. rm -rf does not follow symlinks
-# inside. At most 2,000 names a pass. MODE remove deletes them; count prints
-# how many there are and changes nothing (doctor).
+# symlink that changes between listing and removal cannot move rm elsewhere,
+# and only in one where no other user can replace an entry between the check
+# and rm: sticky, or writable by its owner alone, and owned by this user or
+# root. A glob lists names without a stat per entry (a TMPDIR can hold
+# 100,000 entries); the loops keep this CLI's mktemp names only, which hold
+# no blank or newline, and skip a live owner (kill -0 fails for another
+# user's process, which owns no directory of this user). find stats only
+# those names, in batches, does not descend, and keeps directories that are
+# no symlink, owned by this user, mode 0700 and old enough. rm -rf does not
+# follow symlinks inside. MODE remove deletes them; count prints how many
+# there are and changes nothing (doctor).
+# GNU xargs runs it once on empty input, and find with no operand lists ".".
+# The run's own directory keeps "." too new to match, but no list means none.
+RUNDIR_STALE_FIND='u=$1 a=$2; shift 2; [ "$#" -gt 0 ] || exit 0; find "$@" -prune -type d -user "$u" -perm 700 -mmin "+$a" -print'
+
 rundir_stale() ( # DIR MODE
   CDPATH= cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo 0; exit 0; }
-  ag_rs_new= ag_rs_old= ag_rs_n=0
-  for ag_rs_name in agent-guard-run.*; do
-    [ "$ag_rs_n" -lt 2000 ] || break
-    ag_rs_rest=${ag_rs_name#agent-guard-run.}
-    ag_rs_pid=
-    case "$ag_rs_rest" in
-      *.*)
-        ag_rs_pid=${ag_rs_rest%%.*}
-        ag_rs_rest=${ag_rs_rest#*.}
-        case "$ag_rs_pid" in ''|0*|*[!0123456789]*) continue ;; esac
-        [ "${#ag_rs_pid}" -le 10 ] || continue
-        ;;
-    esac
-    case "$ag_rs_rest" in
-      ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) continue ;;
-    esac
-    [ "${#ag_rs_rest}" -eq 6 ] || continue
-    if [ -n "$ag_rs_pid" ]; then
-      ! kill -0 "$ag_rs_pid" 2>/dev/null || continue
-      ag_rs_new="$ag_rs_new ./$ag_rs_name"
-    else
-      ag_rs_old="$ag_rs_old ./$ag_rs_name"
-    fi
-    ag_rs_n=$((ag_rs_n + 1))
-  done
-  set -f
+  [ -n "$(find . -prune \( -user "$AG_UID" -o -user 0 \) \
+      \( -perm -1000 -o \( ! -perm -0020 ! -perm -0002 \) \) -print 2>/dev/null)" ] \
+    || { [ "$2" = remove ] || echo 0; exit 0; }
   {
-    # shellcheck disable=SC2086 # names hold no blank, newline or glob character
-    [ -z "$ag_rs_new" ] || find $ag_rs_new -prune -type d -user "$AG_UID" -perm 700 \
-      -mmin "+$RUNDIR_REAP_AGE_MINUTES" -print 2>/dev/null
-    # shellcheck disable=SC2086
-    [ -z "$ag_rs_old" ] || find $ag_rs_old -prune -type d -user "$AG_UID" -perm 700 \
-      -mmin "+$RUNDIR_REAP_LEGACY_AGE_MINUTES" -print 2>/dev/null
+    for ag_rs_name in agent-guard-run.*.*; do
+      ag_rs_pid=${ag_rs_name#agent-guard-run.}
+      ag_rs_rest=${ag_rs_pid#*.}
+      ag_rs_pid=${ag_rs_pid%%.*}
+      case "$ag_rs_pid" in ''|0*|*[!0123456789]*) continue ;; esac
+      [ "${#ag_rs_pid}" -le 10 ] || continue
+      case "$ag_rs_rest" in
+        ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) continue ;;
+      esac
+      [ "${#ag_rs_rest}" -eq 6 ] || continue
+      ! kill -0 "$ag_rs_pid" 2>/dev/null || continue
+      printf './%s\n' "$ag_rs_name"
+    done | xargs sh -c "$RUNDIR_STALE_FIND" sh "$AG_UID" "$RUNDIR_REAP_AGE_MINUTES" 2>/dev/null
+    for ag_rs_name in agent-guard-run.??????; do
+      case "${ag_rs_name#agent-guard-run.}" in
+        *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) continue ;;
+      esac
+      printf './%s\n' "$ag_rs_name"
+    done | xargs sh -c "$RUNDIR_STALE_FIND" sh "$AG_UID" "$RUNDIR_REAP_LEGACY_AGE_MINUTES" 2>/dev/null
   } | if [ "$2" = remove ]; then
     xargs rm -rf -- 2>/dev/null
   else
@@ -23914,12 +23916,29 @@ doctor_rundir_report() {
     info "$PROGRAM: temp: no stale run directories in $doctor_rundir_dir"
     return 0
   fi
-  # The same settings under which audit_begin prepares the private state.
+  # The settings under which audit_begin prepares the private state, a state
+  # directory that is missing (the next run makes it) or passes its checks,
+  # and a marker rundir_reap would use.
+  doctor_rundir_why='the private state directory is off, as with AGENT_GUARD_LOG_MODE=off'
   case "${AGENT_GUARD_LOG_MODE:-on}:${AGENT_GUARD_SCAN_CACHE:-}" in
     on:*|off:on)
+      doctor_rundir_why=
+      doctor_rundir_state=$(audit_location)
+      if [ -e "$doctor_rundir_state" ] || [ -L "$doctor_rundir_state" ]; then
+        if ! audit_directory >/dev/null 2>&1; then
+          doctor_rundir_why='the private state directory fails its ownership or mode check'
+        elif [ -L "$doctor_rundir_state/rundir-reap" ] \
+            || { [ -e "$doctor_rundir_state/rundir-reap" ] && [ ! -f "$doctor_rundir_state/rundir-reap" ]; }; then
+          doctor_rundir_why='its marker in the private state directory is not a regular file'
+        fi
+      fi
+      ;;
+  esac
+  case "$doctor_rundir_why" in
+    '')
     info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; a later hook or scan removes them, at most once an hour)" ;;
     *)
-    info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; nothing removes them while the private state directory is off, as with AGENT_GUARD_LOG_MODE=off; remove them by hand or turn logging on)" ;;
+    info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; nothing removes them while $doctor_rundir_why; remove them by hand or fix that)" ;;
   esac
 }
 

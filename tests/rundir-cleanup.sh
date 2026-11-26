@@ -34,6 +34,9 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
+# The reaper refuses a parent that its group can write, so fixture
+# directories must not depend on the caller's umask (002 on some systems).
+umask 022
 pass=0 fail=0
 ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$1"; }
 not_ok() { fail=$((fail + 1)); printf 'not ok - %s\n' "$1"; }
@@ -352,6 +355,74 @@ else
   not_ok "a symlinked marker is not followed, replaced or used (status $status)"
 fi
 
+# stale_in TMP NAME: a stale private run directory TMP/NAME.
+stale_in() { mkdir -p "$1" && mkdir -m 700 "$1/$2" && touch -t "$OLD" "$1/$2"; }
+# due_run TMP STATE: one run in TMP with its interval already over.
+due_run() {
+  mkdir -p "$2/agent-guard" && chmod 700 "$2/agent-guard"
+  printf '%s %s\n' "$((NOW - 3601))" "$1" >"$2/agent-guard/rundir-reap"
+  reap_run "$first_shell" "$1" "$2"
+}
+
+# A parent where another user could swap an entry between the check and rm
+# is not reaped; a sticky one is.
+stale_in "$CASE/shared-tmp" agent-guard-run.Sh12Rd
+chmod 777 "$CASE/shared-tmp"
+due_run "$CASE/shared-tmp" "$CASE/shared-state"
+stale_in "$CASE/sticky-tmp" agent-guard-run.St12Ky
+chmod 1777 "$CASE/sticky-tmp"
+due_run "$CASE/sticky-tmp" "$CASE/sticky-state"
+if expect_kept "$CASE/shared-tmp" agent-guard-run.Sh12Rd && expect_gone "$CASE/sticky-tmp" agent-guard-run.St12Ky; then
+  ok "reaping skips a shared parent without the sticky bit and works in a sticky one"
+else
+  not_ok "reaping skips a shared parent without the sticky bit and works in a sticky one"
+fi
+chmod 755 "$CASE/shared-tmp" "$CASE/sticky-tmp"
+
+# Ineligible names, however many, do not hide an eligible directory.
+mkdir -p "$CASE/many-tmp"
+i=0
+while [ "$i" -lt 2100 ]; do
+  : >"$CASE/many-tmp/agent-guard-run.A$(printf '%05d' "$i")"
+  i=$((i + 1))
+done
+stale_in "$CASE/many-tmp" agent-guard-run.zz99Zz
+due_run "$CASE/many-tmp" "$CASE/many-state"
+if expect_gone "$CASE/many-tmp" agent-guard-run.zz99Zz && expect_kept "$CASE/many-tmp" agent-guard-run.A00000; then
+  ok "2,100 ineligible names do not keep an eligible directory from being reaped"
+else
+  not_ok "2,100 ineligible names do not keep an eligible directory from being reaped"
+fi
+rm -rf "$CASE/many-tmp"
+
+# Seven retired directories in the marker and two in use, alternating: the
+# least recent line goes, so both in use keep their clocks and get reaped.
+mkdir -p "$CASE/lru-state/agent-guard"
+chmod 700 "$CASE/lru-state/agent-guard"
+: >"$CASE/lru-state/agent-guard/rundir-reap"
+for i in 1 2 3 4 5 6 7; do
+  printf '%s %s\n' "$NOW" "$CASE/retired-$i" >>"$CASE/lru-state/agent-guard/rundir-reap"
+done
+for d in a b; do
+  mkdir -p "$CASE/lru-$d"
+  reap_run "$first_shell" "$CASE/lru-$d" "$CASE/lru-state"
+done
+for d in a b; do
+  stale_in "$CASE/lru-$d" "agent-guard-run.Lr12$d$d"
+done
+# Make both clocks due, keeping the order of the lines.
+sed "s|^[0-9]* \($CASE/lru-\)|$((NOW - 3601)) \1|" "$CASE/lru-state/agent-guard/rundir-reap" >"$CASE/lru-marker"
+cat "$CASE/lru-marker" >"$CASE/lru-state/agent-guard/rundir-reap"
+reap_run "$first_shell" "$CASE/lru-a" "$CASE/lru-state"
+reap_run "$first_shell" "$CASE/lru-b" "$CASE/lru-state"
+if expect_gone "$CASE/lru-a" agent-guard-run.Lr12aa && expect_gone "$CASE/lru-b" agent-guard-run.Lr12bb \
+    && [ "$(grep -c . "$CASE/lru-state/agent-guard/rundir-reap")" -le 8 ]; then
+  ok "the marker drops its least recent directory, not one in use"
+else
+  not_ok "the marker drops its least recent directory, not one in use"
+  sed "s|$CASE|<case>|; s/^/  /" "$CASE/lru-state/agent-guard/rundir-reap"
+fi
+
 # doctor counts what the reaper would remove and removes nothing; with no
 # private state directory it says that nothing will.
 DOC_TMP="$CASE/doctor-tmp"
@@ -373,6 +444,21 @@ for mode in on off; do
     grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
   fi
 done
+for p in $LIVE_PIDS; do kill -KILL "$p" 2>/dev/null || :; done
+LIVE_PIDS=
+# A state directory that fails its checks stops reaping, and doctor says so.
+mkdir -p "$CASE/doctor-bad-state/agent-guard"
+chmod 755 "$CASE/doctor-bad-state/agent-guard"
+fixture "$CASE/doctor-bad-tmp"
+env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-bad-state" TMPDIR="$CASE/doctor-bad-tmp" AGENT_GUARD_LOG_MODE=on \
+  AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+  sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
+if grep -q 'nothing removes them while the private state directory fails its ownership or mode check' "$CASE/doctor-out"; then
+  ok "doctor says a state directory that fails its checks stops reaping"
+else
+  not_ok "doctor says a state directory that fails its checks stops reaping"
+  grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+fi
 for p in $LIVE_PIDS; do kill -KILL "$p" 2>/dev/null || :; done
 LIVE_PIDS=
 mkdir "$CASE/doctor-empty"
