@@ -260,6 +260,7 @@ jobs:
   long-input:
     name: Large hook inputs (${{ matrix.awk }})
     needs: secret-guard
+    if: ${{ !cancelled() && needs.secret-guard.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:

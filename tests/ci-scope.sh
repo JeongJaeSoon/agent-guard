@@ -548,6 +548,14 @@ grep -Fq "if: \${{ !cancelled() && needs.secret-guard.result == 'success' && nee
 grep -Fq "if: \${{ !cancelled() && needs.release-evidence.outputs.reuse != 'true' }}" "$ci_yml" || fail 'Lint runs when evidence fails'
 printf '%s\n' "$evidence" | grep -Fxq "    if: github.event_name == 'push' || github.event_name == 'schedule'" || fail 'only main pushes and nightly runs look up evidence'
 printf '%s\n' "$evidence" | grep -Fq "fetch-depth: \${{ github.event_name == 'push' && '0' || '1' }}" || fail 'a main push keeps full history'
+# release-evidence is skipped on PRs, and a skip passes down every needs
+# chain: a job with needs and no status function never reports its check.
+unguarded=$(awk '
+  /^  [a-z][a-z0-9-]*:[[:space:]]*$/ { if (job != "" && needs && !guarded) print job; job = $1; needs = 0; guarded = 0; next }
+  /^    needs:/ { needs = 1 }
+  /^    if:/ && (/!cancelled\(\)/ || /always\(\)/) { guarded = 1 }
+  END { if (job != "" && needs && !guarded) print job }' "$ci_yml" | grep -v '^push:$\|^schedule:$' || :)
+[ -z "$unguarded" ] || fail "jobs skipped on PRs with release-evidence: $unguarded"
 # Agent Guard must report even when the evidence job fails.
 printf '%s\n' "$guard" | grep -Fxq '    if: ${{ !cancelled() }}' || fail 'Agent Guard does not depend on evidence success'
 for gated in native-redaction legacy-tools; do
