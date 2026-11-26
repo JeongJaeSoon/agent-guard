@@ -1516,7 +1516,10 @@ rundir_reap() {
   case "$AG_UID" in ''|*[!0123456789]*) return 0 ;; esac
   case "$AG_AUDIT_START" in ''|0|*[!0123456789]*) return 0 ;; esac
   ag_rr_dir=${AGENT_GUARD_RUNDIR%/*}
-  case "$ag_rr_dir" in ''|*'
+  # The marker is keyed by this path: a relative one would name a different
+  # directory from each working directory.
+  case "$ag_rr_dir" in /*) ;; *) return 0 ;; esac
+  case "$ag_rr_dir" in *'
 '*) return 0 ;; esac
   ag_rr_marker="$AG_STATE_DIR/rundir-reap"
   ag_rr_last= ag_rr_keep= ag_rr_lines=0
@@ -1559,9 +1562,11 @@ rundir_reap() {
     set -C
     { printf '%s %s\n' "$AG_AUDIT_START" "$ag_rr_dir" >"$ag_rr_marker"; } 2>/dev/null || :
     [ -n "$ag_rr_noclobber" ] || set +C
+    # A new marker only starts the clock (no process on a first run). A
+    # directory missing from an existing one, as after its line was dropped,
+    # is due.
+    return 0
   fi
-  # A directory's first line only starts its clock.
-  [ -n "$ag_rr_last" ] || return 0
   # Where this run's directory went: TMPDIR, or /tmp when TMPDIR could not
   # hold it, so a setting that keeps falling back is reaped where it leaves.
   rundir_stale "$ag_rr_dir" remove </dev/null >/dev/null 2>&1 || :
@@ -1581,13 +1586,20 @@ rundir_reap() {
 # there are and changes nothing (doctor).
 # GNU xargs runs it once on empty input, and find with no operand lists ".".
 # The run's own directory keeps "." too new to match, but no list means none.
+# Succeeds when no other user can add, rename or remove an entry of the
+# current directory: owned by this user or root, sticky or writable by its
+# owner alone, and no ACL that lets anyone else in (mask_allow_acl).
+rundir_parent_safe() {
+  [ -n "$(find . -prune \( -user "$AG_UID" -o -user 0 \) \
+      \( -perm -1000 -o \( ! -perm -0020 ! -perm -0002 \) \) -print 2>/dev/null)" ] \
+    && mask_allow_acl .
+}
+
 RUNDIR_STALE_FIND='u=$1 a=$2; shift 2; [ "$#" -gt 0 ] || exit 0; find "$@" -prune -type d -user "$u" -perm 700 -mmin "+$a" -print'
 
 rundir_stale() ( # DIR MODE
   CDPATH= cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo 0; exit 0; }
-  [ -n "$(find . -prune \( -user "$AG_UID" -o -user 0 \) \
-      \( -perm -1000 -o \( ! -perm -0020 ! -perm -0002 \) \) -print 2>/dev/null)" ] \
-    || { [ "$2" = remove ] || echo 0; exit 0; }
+  [ "$2" != remove ] || rundir_parent_safe || exit 0
   {
     for ag_rs_name in agent-guard-run.*.*; do
       ag_rs_pid=${ag_rs_name#agent-guard-run.}
@@ -23934,6 +23946,9 @@ doctor_rundir_report() {
       fi
       ;;
   esac
+  if [ -z "$doctor_rundir_why" ] && ! (CDPATH= cd -P -- "$doctor_rundir_dir" && rundir_parent_safe) 2>/dev/null; then
+    doctor_rundir_why='other users can change entries in that directory'
+  fi
   case "$doctor_rundir_why" in
     '')
     info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; a later hook or scan removes them, at most once an hour)" ;;

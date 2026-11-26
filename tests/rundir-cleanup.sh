@@ -276,18 +276,19 @@ for sh_ in $SHELLS; do
     not_ok "$sh_: the due run restarts the interval (marker: $stamp)"
   fi
 
-  # A marker with a leading zero is octal to shell arithmetic (dash aborts
-  # on 08): it is read as no marker, and the hook still runs.
+  # A time with a leading zero is octal to shell arithmetic (dash aborts on
+  # 08): the line is ignored, so the directory counts as missing (due), and
+  # the hook still runs.
   mkdir -m 700 "$tmp/agent-guard-run.Oc08Zz"
   touch -t "$OLD" "$tmp/agent-guard-run.Oc08Zz"
   printf '08 %s\n' "$tmp" >"$marker"
   reap_run "$sh_" "$tmp" "$state"
   status=$?
   read -r stamp _ <"$marker" || stamp=
-  if [ "$status" -eq 0 ] && [ "${stamp:-0}" -ge "$NOW" ] 2>/dev/null && expect_kept "$tmp" agent-guard-run.Oc08Zz; then
-    ok "$sh_: a marker with a leading zero restarts the clock and the hook passes"
+  if [ "$status" -eq 0 ] && [ "${stamp:-0}" -ge "$NOW" ] 2>/dev/null && expect_gone "$tmp" agent-guard-run.Oc08Zz; then
+    ok "$sh_: a time with a leading zero is ignored and the hook passes"
   else
-    not_ok "$sh_: a marker with a leading zero restarts the clock and the hook passes (status $status, marker $stamp)"
+    not_ok "$sh_: a time with a leading zero is ignored and the hook passes (status $status, marker $stamp)"
   fi
   rm -rf "$tmp/agent-guard-run.Oc08Zz"
 
@@ -379,6 +380,45 @@ else
 fi
 chmod 755 "$CASE/shared-tmp" "$CASE/sticky-tmp"
 
+# A directory missing from an existing marker (its line was dropped, or it
+# is new) is due at once.
+stale_in "$CASE/missing-tmp" agent-guard-run.Mi12Ss
+mkdir -p "$CASE/missing-state/agent-guard" && chmod 700 "$CASE/missing-state/agent-guard"
+printf '%s %s\n' "$NOW" "$CASE/elsewhere" >"$CASE/missing-state/agent-guard/rundir-reap"
+reap_run "$first_shell" "$CASE/missing-tmp" "$CASE/missing-state"
+if expect_gone "$CASE/missing-tmp" agent-guard-run.Mi12Ss; then
+  ok "a directory missing from an existing marker is reaped at once"
+else
+  not_ok "a directory missing from an existing marker is reaped at once"
+fi
+
+# A relative TMPDIR names a different directory from each working directory,
+# so it is not reaped.
+stale_in "$CASE/rel/tmp" agent-guard-run.Re12La
+mkdir -p "$CASE/rel-state/agent-guard" && chmod 700 "$CASE/rel-state/agent-guard"
+printf '%s %s\n' "$NOW" "$CASE/elsewhere" >"$CASE/rel-state/agent-guard/rundir-reap"
+(cd "$CASE/rel" && reap_run "$first_shell" tmp "$CASE/rel-state")
+if expect_kept "$CASE/rel/tmp" agent-guard-run.Re12La; then
+  ok "a relative TMPDIR is not reaped"
+else
+  not_ok "a relative TMPDIR is not reaped"
+fi
+
+# macOS: an ACL that lets others add or delete entries makes the parent
+# unsafe even at mode 0755.
+if [ "$(uname -s)" = Darwin ]; then
+  stale_in "$CASE/acl-tmp" agent-guard-run.Ac12Ls
+  if chmod +a "everyone allow add_subdirectory,delete_child" "$CASE/acl-tmp" 2>/dev/null; then
+    due_run "$CASE/acl-tmp" "$CASE/acl-state"
+    if expect_kept "$CASE/acl-tmp" agent-guard-run.Ac12Ls; then
+      ok "a parent with an allow ACL is not reaped"
+    else
+      not_ok "a parent with an allow ACL is not reaped"
+    fi
+    chmod -N "$CASE/acl-tmp" 2>/dev/null || :
+  fi
+fi
+
 # Ineligible names, however many, do not hide an eligible directory.
 mkdir -p "$CASE/many-tmp"
 i=0
@@ -446,6 +486,19 @@ for mode in on off; do
 done
 for p in $LIVE_PIDS; do kill -KILL "$p" 2>/dev/null || :; done
 LIVE_PIDS=
+# A shared parent is counted (read-only) and doctor says why it stays.
+chmod 777 "$CASE/shared-tmp"
+env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/shared-tmp" AGENT_GUARD_LOG_MODE=on \
+  AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+  sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
+chmod 755 "$CASE/shared-tmp"
+if grep -q 'temp: 1 stale run directories in .*nothing removes them while other users can change entries in that directory' "$CASE/doctor-out"; then
+  ok "doctor counts a shared parent's leftovers and says why they stay"
+else
+  not_ok "doctor counts a shared parent's leftovers and says why they stay"
+  grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+fi
+
 # A state directory that fails its checks stops reaping, and doctor says so.
 mkdir -p "$CASE/doctor-bad-state/agent-guard"
 chmod 755 "$CASE/doctor-bad-state/agent-guard"
