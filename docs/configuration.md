@@ -733,7 +733,7 @@ so point it only at one you built or verified.
 | Variable | Default / use |
 | --- | --- |
 | `AGENT_GUARD_GITLEAKS_BIN` | Select a gitleaks executable. |
-| `AGENT_GUARD_GITLEAKS_BIN_DIR` | Select the private gitleaks directory (default `$HOME/.agent-guard/bin`), where the CLI looks for gitleaks and `setup --install` puts it. When it is unset, the CLI uses `AGENT_GUARD_BIN_DIR` if that is set; the installer reads that name with [another meaning](#installer-options). |
+| `AGENT_GUARD_GITLEAKS_BIN_DIR` | Select the private gitleaks directory (default `$HOME/.agent-guard/bin`), where the CLI looks for gitleaks and `setup --install` puts it. `AGENT_GUARD_BIN_DIR` (the installer's [link directory](#installer-options)) is deprecated here: the CLI still uses it as the gitleaks directory, with a notice, only while this variable is unset and a gitleaks or warm helper is already in it. A later release stops reading it. |
 | `AGENT_GUARD_GITLEAKS_HELPER` | Unset (default): use the [warm gitleaks helper](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) when `agent-guard setup --install` or `agent-guard setup --install-gitleaks-helper` installed it. `off` (any value that is not an absolute path) never uses it, and `setup --install` run with the variable set does not install it. An absolute path selects your own built `agent-guard-scan`. Ignored when `AGENT_GUARD_GITLEAKS_BIN` is set or `AGENT_GUARD_LOG_MODE=off`. A helper failure runs the real gitleaks. |
 | `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` / `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` | Read when a warm helper starts: idle exit time (default `600`) and peak resident-memory cap (default `160` MiB, at least `96`). |
 | `AGENT_GUARD_GITLEAKS_HELPER_TRACE` | Diagnosis: an absolute path to which the helper client appends fixed words, one per line; a scan that starts a helper writes two ([Warm gitleaks helper](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md)). |
@@ -749,7 +749,7 @@ applies to it.
 | --- | --- |
 | `AGENT_GUARD_VERSION` | Release to install (default: the latest). |
 | `AGENT_GUARD_HOME` | Install directory (default `$HOME/.agent-guard`). The CLI does not read it; `agent-guard update` passes its own install directory. |
-| `AGENT_GUARD_BIN_DIR` | Directory of the `agent-guard` symlink (default `$HOME/.local/bin`). When unset, `agent-guard update` keeps the directory it was run from. The CLI also reads it as a [gitleaks directory](#scanner-and-native-parts). |
+| `AGENT_GUARD_BIN_DIR` | Directory of the `agent-guard` symlink (default `$HOME/.local/bin`). When unset, `agent-guard update` keeps the directory it was run from. The CLI's reading of it as a [gitleaks directory](#scanner-and-native-parts) is deprecated. |
 
 ### Internal names
 

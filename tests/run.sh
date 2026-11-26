@@ -239,6 +239,7 @@ for file in \
   "$ROOT/tests/deny-read-mask-allow.sh" \
   "$ROOT/tests/gitleaks-resolution.sh" \
   "$ROOT/tests/test-only-sources.sh" \
+  "$ROOT/tests/gitleaks-bin-dir-deprecation.sh" \
   "$ROOT/tests/scan-failure-default.sh" \
   "$ROOT/tests/gitleaks-probe-cache.sh" \
   "$ROOT/tests/gitleaks-clean-cache.sh" \
@@ -8621,6 +8622,8 @@ run_expect 0 "regular and linked executable paths select the same payload" \
   "$REAL_SH" "$ROOT/tests/script-location.sh"
 run_expect 0 "deterministic gitleaks resolution and capability diagnostics" \
   "$REAL_SH" "$ROOT/tests/gitleaks-resolution.sh"
+run_expect 0 "AGENT_GUARD_BIN_DIR is read as the gitleaks directory only while deprecated, with a notice" \
+  "$REAL_SH" "$ROOT/tests/gitleaks-bin-dir-deprecation.sh"
 run_expect 0 "a secret scan that did not run blocks by default and other infrastructure failures stay open" \
   "$REAL_SH" "$ROOT/tests/scan-failure-default.sh"
 run_expect 0 "completed scanner probes retain their status after parent scheduling delay" \
