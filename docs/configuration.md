@@ -609,6 +609,13 @@ check applies to a Bash command only in:
 - a Claude Code agent whose `agent_type` contains `review` (a reviewer
   subagent, or `claude --agent` with such a name).
 
+`AGENT_GUARD_SESSION_ROLE` accepts only `review`; unset or empty means no
+effect. Any other value, such as `Review` or `reveiw`, is an error that fails
+closed: every `docker`, `podman` or `nerdctl` command is refused
+(`reason=bash_container_session_role_invalid`) whatever the agent type, and
+`agent-guard doctor` reports it and exits non-zero. The message names the
+variable and the accepted values, never the value. Fix or unset the variable.
+
 Any other session is not affected. A session that is only told to review in
 its prompt carries neither marker; start it with
 `AGENT_GUARD_SESSION_ROLE=review`. Nothing marks a Codex session by itself:
@@ -687,7 +694,7 @@ call that has a container `exec`.
 | `AGENT_GUARD_SCAN_CACHE` | `on` (default) or `off`; with `AGENT_GUARD_LOG_MODE=off` the default is off and only an explicit `on` enables it. When on, the PreToolUse Bash command-text scan (the one that repeats, such as `ls -la` or `git status`) skips gitleaks only for a command that was already scanned clean within the last 10 minutes under the same gitleaks executable (a native binary, not a script shim), configuration file contents, `GITLEAKS_CONFIG`/`GITLEAKS_CONFIG_TOML`, scan flags, and agent-guard version. Prompts, file edits, patches, MCP and network input, and `scan-staged`/`scan-working-tree` are always scanned directly. Entries are SHA-256 hashes in the private state directory, at most 256 of them; the scanned text is never stored. Findings, scanner errors, and scans that could not run are never cached. A `.gitleaksignore` in the scan directory, a configuration that names `extend` anywhere except a plain `[extend]` table holding only `useDefault` and a one-line `disabledRules` with no multiline string before or inside it, a configuration with a double-quoted key or table name, `AGENT_GUARD_LOG_MODE=off` without an explicit `AGENT_GUARD_SCAN_CACHE=on`, no root-owned, non-writable `/usr/bin/sha256sum`, `/bin/sha256sum`, or `/usr/bin/shasum` (the hash tool is never taken from `PATH`) or one that fails a known-answer check, and any value other than `on` disable it. With logging on, `off` disables only this cache. With `AGENT_GUARD_LOG_MODE=off`, only an explicit `on` prepares the private state directory, under the same ownership, mode, and symlink checks, and enables this cache together with the readiness and protected-path regex caches; no event record is written. An `AGENT_GUARD_LOG_MODE` value other than `on` or `off` leaves all three caches off whatever this variable says. |
 | `AGENT_GUARD_RELEASE_CHECK` | `on` (default) or `off`; `doctor`, `plugin status`, and the `plugin update` no-op skip the latest-release lookup when off. |
 | `AGENT_GUARD_CODEX_TRUST_CHECK` | `on` (default) or `off`; when off, `doctor` and the Codex `plugin status`/`install`/`update` output skip the `codex app-server` hook-trust query and report it as unverified. |
-| `AGENT_GUARD_SESSION_ROLE` | Set to `review` in the environment of a review session to hold it to the container boundary ([Containers other sessions own](#containers-other-sessions-own)). Unset or any other value: no effect. |
+| `AGENT_GUARD_SESSION_ROLE` | Set to `review` in the environment of a review session to hold it to the container boundary ([Containers other sessions own](#containers-other-sessions-own)). Unset or empty: no effect. Any other value is an error: container runtime commands are refused and `doctor` fails until it is fixed. |
 
 `AGENT_GUARD_HOME`, `AGENT_GUARD_BIN`, `AGENT_GUARD_HOOK_HOST`,
 `AGENT_GUARD_RUNDIR`, `AGENT_GUARD_SESSION_ID`, `AGENT_GUARD_SHELL_INIT_VERSION`,

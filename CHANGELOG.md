@@ -1,3 +1,11 @@
+## Unreleased
+
+- fix: 두 설정의 오타가 보호를 조용히 약하게 만들지 않고 오류가 됩니다. 지금까지는 정확히 `review`만 `AGENT_GUARD_SESSION_ROLE`로 인정되어 `Review`·`reveiw` 같은 값은 아무 효과가 없었고, GitHub Action의 `require-checksum`은 정확히 `true`가 아닌 값(`True`·`yes` 등)이면 체크섬 요구를 건너뛰고 HTTPS만 믿고 gitleaks를 설치했습니다.
+  - 동작 변경: (1) `AGENT_GUARD_SESSION_ROLE`은 비어 있거나 없으면 지금처럼 효과가 없고, `review`면 지금처럼 컨테이너 경계를 적용합니다. 그 밖의 값이 있으면 agent 타입과 상관없이 `docker`·`podman`·`nerdctl` 명령을 모두 거부합니다(`reason=bash_container_session_role_invalid`). 메시지는 값이 아니라 변수 이름과 받는 값을 알려 줍니다. 컨테이너 런타임을 부르지 않는 명령은 영향이 없습니다. `agent-guard doctor`도 이를 보고하고 0이 아닌 종료 코드로 끝납니다. reviewer `agent_type` 검사는 바뀌지 않습니다. (2) Action 입력 `require-checksum`은 `true`와 `false`만 받습니다. 그 밖의 값이면 무엇도 내려받기 전에, gitleaks가 이미 설치되어 있어도 step이 exit 2로 실패합니다. 기본값은 지금처럼 `true`입니다.
+  - 영향받는 사용자: `AGENT_GUARD_SESSION_ROLE`에 `review` 아닌 값(대소문자 차이 포함)을 넣어 둔 세션은 컨테이너 명령이 막힙니다. 워크플로에서 `require-checksum`에 `true`·`false` 아닌 값을 쓰는 저장소는 Action step이 실패합니다.
+  - 사용자가 할 일: 값을 `review`로 고치거나 변수를 지웁니다. 워크플로의 `require-checksum`을 `true` 또는 `false`로 고칩니다.
+  - 운영자가 할 일: 없습니다.
+
 ## v3.13.9 - 2026-11-26
 
 - feat(bash): 리뷰 세션이 다른 세션 소유 컨테이너에 들어가지 못하게 한다 (#677)
