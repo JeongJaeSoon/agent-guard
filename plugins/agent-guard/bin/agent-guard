@@ -248,8 +248,8 @@ else
   DENY_READ_PATHS="$ROOT_DIR/config/deny-read-paths.txt"
 fi
 DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash-patterns.txt"}
-# AGENT_GUARD_BIN_DIR is the installer's public link directory. Until its
-# CLI meaning is removed (CHANGELOG "Deprecated"), a gitleaks already in it is
+# AGENT_GUARD_BIN_DIR is the installer's public link directory. Until a later
+# release removes its CLI meaning, a gitleaks already in it is
 # (or a helper installed there) still makes it the private one when
 # AGENT_GUARD_GITLEAKS_BIN_DIR is unset (state 1);
 # otherwise it no longer selects the directory (state 2: set but ignored).
