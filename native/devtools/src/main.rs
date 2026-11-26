@@ -1,5 +1,6 @@
 mod common;
 mod contracts;
+mod hooks;
 mod measure;
 mod scanner;
 mod verification;
@@ -67,6 +68,22 @@ const COMMANDS: &[Subcommand] = &[
             "--baseline-packaged-native",
         ],
         run: measure::latency,
+    },
+    Subcommand {
+        name: "hook-latency",
+        options: Some(&[
+            "--binary",
+            "--scanner",
+            "--helper",
+            "--entry",
+            "--runs",
+            "--timeout",
+            "--case",
+            "--arm",
+            "--out",
+        ]),
+        flags: &["--unverified"],
+        run: hooks::latency,
     },
     Subcommand {
         name: "kernel",
