@@ -34,7 +34,11 @@ SIGINT on Ctrl-C, and SIGHUP when the terminal closes. An un-trappable SIGKILL
 (Codex ends a hook that reaches its timeout with one) leaves the directory
 behind; a later Agent Guard run that has its local state directory removes
 such a directory once it is more than 61 minutes old and the process that made
-it has ended, checking at most once an hour. Agent Guard does not write inspected tool content to its own
+it has ended (a week old for a directory from an earlier version, whose name
+does not record that process), checking at most once an hour. With
+`AGENT_GUARD_LOG_MODE=off` and no `AGENT_GUARD_SCAN_CACHE=on` there is no
+local state directory and nothing removes them; `agent-guard doctor` reports
+how many there are. Agent Guard does not write inspected tool content to its own
 log or database. The host application may independently retain tool inputs and
 outputs under its own privacy policy.
 
