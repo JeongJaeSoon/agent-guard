@@ -339,8 +339,15 @@ expect_tested() { # $1 expected reuse/ordinary lines, $2 description
   [ "$(grep -E '^(reuse|ordinary)=' "$case_dir/tested" | tr '\n' ' ')" = "$1" ] \
     || fail "$2: $(tr '\n' ' ' < "$case_dir/tested")"
 }
-edit_fixture() { # $1 file, $2 jq program
-  jq "$2" "$case_dir/$1" > "$case_dir/changed" && mv "$case_dir/changed" "$case_dir/$1"
+edit_fixture() { # $1 file, $2 jq program; a run list is edited as one page
+  if [ "$1" = ci.yml.json ]; then
+    jq ".[0] | $2" "$case_dir/$1" > "$case_dir/changed" && mv "$case_dir/changed" "$case_dir/$1" && pages
+  else
+    jq "$2" "$case_dir/$1" > "$case_dir/changed" && mv "$case_dir/changed" "$case_dir/$1"
+  fi
+}
+pages() { # gh --paginate --slurp: the run list is an array of pages
+  jq -s '.' "$case_dir/ci.yml.json" > "$case_dir/changed" && mv "$case_dir/changed" "$case_dir/ci.yml.json"
 }
 git checkout -q --detach "$base"
 printf 'feature\n' > feature
@@ -357,6 +364,7 @@ ordinary_pr() { # $1 the tree the PR run recorded
     '{workflow_runs:[{id:5,head_sha:$head,event:"pull_request",path:".github/workflows/ci.yml",
        head_branch:"feature/x",head_repository:{full_name:"test/repo"},run_started_at:"2026-11-20T00:00:00Z",status:"completed",conclusion:"success"}]}' \
     > "$case_dir/ci.yml.json"
+  pages
   printf '{"artifacts":[{"name":"tested-tree","expired":false}]}\n' > "$case_dir/artifacts.json"
   mkdir -p "$case_dir/evidence/tested-tree"
   printf '%s\n' "${1:-$(git rev-parse "$merge^{tree}")}" > "$case_dir/evidence/tested-tree/tree"
@@ -371,6 +379,11 @@ expect_tested 'reuse=false ordinary=true ' 'a run that tested another tree runs 
 ordinary_pr
 edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 6 | .run_started_at = "2026-11-21T00:00:00Z" | .conclusion = "failure"]'
 expect_tested 'reuse=false ordinary=true ' 'a newer failed run on the head is not evidence'
+# A re-run on a later page still decides.
+ordinary_pr
+jq '. + [{workflow_runs:[.[0].workflow_runs[0] | .id = 3 | .run_started_at = "2026-11-22T00:00:00Z" | .conclusion = "failure"]}]' \
+  "$case_dir/ci.yml.json" > "$case_dir/changed" && mv "$case_dir/changed" "$case_dir/ci.yml.json"
+expect_tested 'reuse=false ordinary=true ' 'a failed re-run on another page is not hidden'
 # An older run re-run later and failed keeps its id but starts again.
 ordinary_pr
 edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 4 | .run_started_at = "2026-11-21T00:00:00Z" | .conclusion = "failure"]'
@@ -441,6 +454,7 @@ export GITHUB_EVENT_NAME=schedule
 nightly() { # $1 jq edit of the one schedule run
   jq -n --arg sha "$merge" '{workflow_runs:[{id:8,head_sha:$sha,event:"schedule",path:".github/workflows/ci.yml",run_started_at:"2026-11-20T00:00:00Z",status:"completed",conclusion:"success"}]}' \
     | jq ".workflow_runs[0] |= ($1)" > "$case_dir/ci.yml.json"
+  pages
 }
 nightly .
 expect_tested 'reuse=true ordinary=false ' 'an unchanged main skips the nightly run'

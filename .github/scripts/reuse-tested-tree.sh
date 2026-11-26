@@ -40,11 +40,12 @@ pr_tree_passed() {
   head=$(jq -er '.head.sha | select(test("^[0-9a-f]{40}$"))' "$work/pr") || return 2
   ref=$(jq -er '.head.ref' "$work/pr") || return 2
   tree=$(git rev-parse --verify "$sha^{tree}") || return 2
-  gh api "repos/$repo/actions/workflows/$workflow/runs?head_sha=$head&event=pull_request&per_page=100" > "$work/runs" || return 2
-  jq -e '.workflow_runs | type == "array"' "$work/runs" > /dev/null || return 2
+  # Every page: a re-run keeps its place in the list but starts again.
+  gh api --paginate --slurp "repos/$repo/actions/workflows/$workflow/runs?head_sha=$head&event=pull_request&per_page=100" > "$work/runs" || return 2
+  jq -e 'type == "array" and all(.[]; .workflow_runs | type == "array")' "$work/runs" > /dev/null || return 2
   # jq prints a run id or "none"; a jq error is unreadable evidence.
   run=$(jq -r --arg sha "$head" --arg ref "$ref" --arg repo "$repo" --arg path ".github/workflows/$workflow" '
-    [.workflow_runs[] | select(.head_sha == $sha and .event == "pull_request" and .path == $path
+    [.[].workflow_runs[] | select(.head_sha == $sha and .event == "pull_request" and .path == $path
       and .head_branch == $ref and .head_repository.full_name == $repo)]
     | max_by([.run_started_at, .id]) | if . != null and .status == "completed" and .conclusion == "success" then .id else "none" end' "$work/runs") || return 2
   [ "$run" != none ] || return 1
@@ -63,12 +64,12 @@ pr_tree_passed() {
 schedule_passed() {
   # A re-run keeps the run id; it must run, not find an older success.
   [ "${GITHUB_RUN_ATTEMPT:-1}" = 1 ] || return 1
-  gh api "repos/$repo/actions/workflows/$workflow/runs?head_sha=$sha&event=schedule&per_page=100" > "$work/runs" || return 2
-  jq -e '.workflow_runs | type == "array"' "$work/runs" > /dev/null || return 2
+  gh api --paginate --slurp "repos/$repo/actions/workflows/$workflow/runs?head_sha=$sha&event=schedule&per_page=100" > "$work/runs" || return 2
+  jq -e 'type == "array" and all(.[]; .workflow_runs | type == "array")' "$work/runs" > /dev/null || return 2
   # The most recently started earlier nightly decides (a re-run keeps its id
   # but starts again): a later failure is never hidden by an older success.
   passed=$(jq -r --arg sha "$sha" --arg path ".github/workflows/$workflow" --argjson self "${GITHUB_RUN_ID:?}" '
-    [.workflow_runs[] | select(.head_sha == $sha and .event == "schedule" and .path == $path and .id != $self)]
+    [.[].workflow_runs[] | select(.head_sha == $sha and .event == "schedule" and .path == $path and .id != $self)]
     | max_by([.run_started_at, .id]) | . != null and .status == "completed" and .conclusion == "success"' "$work/runs") || return 2
   [ "$passed" = true ] || return 1
   printf 'source_sha=%s\n' "$sha"
