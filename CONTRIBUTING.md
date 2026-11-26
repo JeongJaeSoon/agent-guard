@@ -176,10 +176,10 @@ not among the policy settings, and add its row to
 
 CI runs on pull requests, pushes to `main` and nightly on `main`: the first
 validates a proposed change, the second validates the merged tree. A main
-push of an ordinary PR merge reuses that PR's successful CI run when the merge
-has one parent, the PR head contains it and the trees are equal (the PR run's
-merge ref then held the same tree); otherwise it runs every suite on Linux
-only, under `Main subset test` names. The nightly run covers the macOS legs
+push of an ordinary PR merge reuses the newest CI run at that PR's head when
+it succeeded and its `tested-tree` artifact (the tree of the merge commit the
+run checked out, recorded only when its suites ran) equals the pushed tree;
+otherwise it runs every suite on Linux only, under `Main subset test` names. The nightly run covers the macOS legs
 and is skipped when `main` has not changed since the last green nightly run.
 Any failed lookup runs everything. Plugin Validation and HOL scan
 have the same triggers but own different checks; they are not duplicate suite

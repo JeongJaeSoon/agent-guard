@@ -530,6 +530,15 @@ printf '%s\n' "$evidence" | grep -Fq 'ordinary: ${{ steps.tested.outputs.ordinar
 guard=$(awk '/^  secret-guard:$/ { on = 1; next } on && /^  [a-z-]+:$/ { exit } on' "$ci_yml")
 printf '%s\n' "$guard" | grep -Fq 'ORDINARY: ${{ needs.release-evidence.outputs.ordinary }}' || fail 'scope reads the ordinary merge'
 printf '%s\n' "$guard" | grep -Fq 'sh .github/scripts/ci-scope.sh "$EVENT_NAME" "$HEAD_REF" "$ORDINARY"' || fail 'scope receives the ordinary merge'
+# Only a PR run whose suites ran records the tree its main push may reuse.
+printf '%s\n' "$guard" | grep -Fq "if: github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true'" || fail 'only a tested PR run records its tree'
+printf '%s\n' "$guard" | grep -Fq 'name: tested-tree' || fail 'the PR run uploads the tested tree'
+for gated in native-redaction legacy-tools; do
+  grep -Fq 'name: tested-tree' "$ROOT/.github/workflows/$gated.yml" || fail "$gated PR runs record the tested tree"
+done
+# A failed evidence job reuses nothing.
+grep -Fq "if: \${{ !cancelled() && needs.secret-guard.result == 'success' && needs.release-evidence.outputs.reuse != 'true' }}" "$ci_yml" || fail 'shards run when evidence fails'
+grep -Fq "if: \${{ !cancelled() && needs.release-evidence.outputs.reuse != 'true' }}" "$ci_yml" || fail 'Lint runs when evidence fails'
 # Agent Guard must report even when the evidence job fails.
 printf '%s\n' "$guard" | grep -Fxq '    if: ${{ !cancelled() }}' || fail 'Agent Guard does not depend on evidence success'
 for gated in native-redaction legacy-tools; do

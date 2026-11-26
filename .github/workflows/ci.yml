@@ -95,6 +95,21 @@ jobs:
           fi
           sh .github/scripts/ci-scope.sh "$EVENT_NAME" "$HEAD_REF" "$ORDINARY" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"
 
+      # The tree this run tests (a PR run checks out its merge commit); the main
+      # push of the same tree reuses this run only through this record.
+      - name: Record the tested tree
+        if: github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/tested-tree"
+          git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/tested-tree/tree"
+      - name: Upload the tested tree
+        if: github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: tested-tree
+          path: ${{ runner.temp }}/tested-tree/tree
+          retention-days: 30
+
       - name: Scan for secrets
         uses: ./
         with:
@@ -105,7 +120,8 @@ jobs:
   test-shard:
     name: ${{ matrix.suite }} (${{ matrix.os }})
     needs: [secret-guard, release-evidence]
-    if: needs.release-evidence.outputs.reuse != 'true'
+    # A failed evidence job reuses nothing: the shards still run.
+    if: ${{ !cancelled() && needs.secret-guard.result == 'success' && needs.release-evidence.outputs.reuse != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -256,7 +272,7 @@ jobs:
   lint:
     name: Lint
     needs: release-evidence
-    if: needs.release-evidence.outputs.reuse != 'true'
+    if: ${{ !cancelled() && needs.release-evidence.outputs.reuse != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:

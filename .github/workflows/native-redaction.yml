@@ -52,6 +52,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: sh .github/scripts/reuse-tested-tree.sh native-redaction.yml >> "$GITHUB_OUTPUT"
+      # The tree this run tests (a PR run checks out its merge commit); the main
+      # push of the same tree reuses this run only through this record.
+      - name: Record the tested tree
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p "$RUNNER_TEMP/tested-tree"
+          git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/tested-tree/tree"
+      - name: Upload the tested tree
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: tested-tree
+          path: ${{ runner.temp }}/tested-tree/tree
+          retention-days: 30
   contracts:
     name: Native redactor contracts
     needs: evidence
