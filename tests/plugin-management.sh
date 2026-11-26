@@ -16,8 +16,35 @@ export AG_PLUGIN_TEST_EXPECTED_TAG="$CLI_TAG"
 export AG_PLUGIN_TEST_OLD_VERSION="$OLD_VERSION"
 export AG_PLUGIN_TEST_OLD_TAG="$OLD_TAG"
 CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-plugin-test.XXXXXX")
-trap 'rm -rf "$CASE_ROOT"' EXIT INT TERM
+
+# Ends what a Codex stub left running: the stub by its recorded PID and, when
+# the probe has a process group other than this suite's, that group. A PID is
+# signalled only while its command line still names this run's private
+# directory, so a PID the system has reused is never touched.
+reap_trust_servers() {
+  reap_own_group=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
+  for reap_pidfile in "$CASE_ROOT"/*/server-pids; do
+    [ -f "$reap_pidfile" ] || continue
+    while IFS= read -r reap_pid; do
+      case "$reap_pid" in ''|*[!0-9]*) continue ;; esac
+      case "$(ps -o command= -p "$reap_pid" 2>/dev/null)" in
+        *"$CASE_ROOT/"*) ;;
+        *) continue ;;
+      esac
+      reap_group=$(ps -o pgid= -p "$reap_pid" 2>/dev/null | tr -d ' ')
+      case "$reap_own_group:$reap_group" in
+        :*|*:|*[!0-9:]*|"$reap_group:$reap_group") ;;
+        *) kill -KILL -"$reap_group" 2>/dev/null ;;
+      esac
+      kill -KILL "$reap_pid" 2>/dev/null
+    done <"$reap_pidfile"
+  done
+  return 0
+}
+
+trap 'reap_trust_servers; rm -rf "$CASE_ROOT"' EXIT INT TERM
 REAL_JQ=$(command -v jq)
+REAL_PERL=$(command -v perl)
 REAL_MKTEMP=$(command -v mktemp)
 REAL_RM=$(command -v rm)
 pass=0
@@ -1112,6 +1139,50 @@ for trust_mode in hang linger spawn; do
     not_ok "doctor bounds a $trust_mode Codex app-server and leaves no probe process behind (elapsed ${elapsed}s, child_gone $child_gone)"
     sed 's/^/  stderr: /' "$case_dir/err"
   fi
+  reap_trust_servers
+done
+
+# SIGKILL of the guard's whole process group runs no exit cleanup and takes
+# the guard's watchdog with it, as when a runner ends a timed-out job. The
+# probe has a session of its own, so it has to end itself.
+for trust_mode in hang linger; do
+  trust_case "doctor_trust_${trust_mode}_guard_killed" "$trust_mode"
+  export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=1
+  (cd "$case_dir" && PATH="$case_bin:/usr/bin:/bin" exec "$REAL_PERL" -e 'setpgrp(0, 0); exec @ARGV; exit 126' \
+    "$GUARD" doctor >"$case_dir/out" 2>"$case_dir/err") &
+  guard_pid=$!
+  tries=0
+  while [ ! -s "$case_dir/server-pids" ] && [ "$tries" -lt 100 ]; do
+    sleep 0.1; tries=$((tries + 1))
+  done
+  server_pid=$(sed -n 1p "$case_dir/server-pids")
+  guard_group=$(ps -o pgid= -p "$guard_pid" 2>/dev/null | tr -d ' ')
+  probe_group=$(ps -o pgid= -p "${server_pid:-0}" 2>/dev/null | tr -d ' ')
+  # Without a guard in its own group and a probe outside it, the kill below
+  # would not be the case under test.
+  staged=0
+  case "$probe_group" in
+    ''|*[!0-9]*|"$guard_group") ;;
+    *) [ "$guard_group" != "$guard_pid" ] || staged=1 ;;
+  esac
+  if [ "$staged" -eq 1 ]; then
+    kill -KILL -"$guard_pid" 2>/dev/null
+  else
+    kill -KILL "$guard_pid" 2>/dev/null
+  fi
+  wait "$guard_pid" 2>/dev/null
+  status=$?
+  tries=0
+  while [ "$staged" -eq 1 ] && kill -0 -"$probe_group" 2>/dev/null && [ "$tries" -lt 100 ]; do
+    sleep 0.1; tries=$((tries + 1))
+  done
+  if [ "$staged" -eq 1 ] && [ "$status" -eq 137 ] \
+     && ! kill -0 -"$probe_group" 2>/dev/null && no_server_left; then
+    ok "a $trust_mode Codex app-server ends with its probe group after the guard's process group is killed"
+  else
+    not_ok "a $trust_mode Codex app-server ends with its probe group after the guard's process group is killed (staged $staged, guard status $status, waited $tries)"
+  fi
+  reap_trust_servers
 done
 
 trust_case plugin_status_trust modified
