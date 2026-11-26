@@ -258,16 +258,17 @@ if [ -n "${AGENT_GUARD_GITLEAKS_BIN_DIR:-}" ]; then
   GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_GITLEAKS_BIN_DIR
 elif [ -n "${AGENT_GUARD_BIN_DIR:-}" ]; then
   if [ -e "$AGENT_GUARD_BIN_DIR/gitleaks" ] || [ -L "$AGENT_GUARD_BIN_DIR/gitleaks" ] \
-      || [ -e "$AGENT_GUARD_BIN_DIR/gitleaks-helper" ]; then
+      || [ -f "$AGENT_GUARD_BIN_DIR/gitleaks-helper/SHA256SUMS" ]; then
     GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_BIN_DIR
     GITLEAKS_BIN_DIR_LEGACY=1
   elif [ -n "${HOME:-}" ]; then
     GITLEAKS_PRIVATE_BIN_DIR=$HOME/.agent-guard/bin
     GITLEAKS_BIN_DIR_LEGACY=2
   else
-    # No home directory to default to: keep the old reading, which finds no
-    # gitleaks here, so resolution goes on to PATH as before.
+    # No home directory to default to: lookups keep the old reading, which
+    # finds no gitleaks here and goes on to PATH; setup refuses to install.
     GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_BIN_DIR
+    GITLEAKS_BIN_DIR_LEGACY=3
   fi
 else
   GITLEAKS_PRIVATE_BIN_DIR=$HOME/.agent-guard/bin
@@ -3416,6 +3417,8 @@ EOF
   done
 
   if [ "$install" -eq 1 ] || [ "$helper_install" -eq 1 ]; then
+    [ "$GITLEAKS_BIN_DIR_LEGACY" != 3 ] \
+      || die "setup: no gitleaks install directory: HOME is unset and AGENT_GUARD_BIN_DIR no longer selects one; set AGENT_GUARD_GITLEAKS_BIN_DIR"
     gitleaks_bin_dir_notice install >&2 || :
   else
     gitleaks_bin_dir_notice >&2 || :
