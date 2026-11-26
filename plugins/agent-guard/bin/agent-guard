@@ -23846,6 +23846,8 @@ doctor_settings_report() {
   printf '%s\n' "$DOCTOR_SETTINGS" | { set -f; while read -r ds_name ds_kind ds_default ds_accepted; do
     # Names come from the fixed table above, never from input.
     eval "ds_isset=\${AGENT_GUARD_$ds_name+x} ds_value=\${AGENT_GUARD_$ds_name-}"
+    # Logging off turns the scan cache off unless it is set on explicitly.
+    [ "$ds_name:${AGENT_GUARD_LOG_MODE:-}" != SCAN_CACHE:off ] || ds_default=off
     if [ -z "$ds_isset" ]; then
       [ "$ds_kind" = mode ] || continue
       ds_shown="$ds_default (default)"
@@ -23875,6 +23877,13 @@ doctor_settings_report() {
           case ${AGENT_GUARD_PII_PROVIDER:-regex} in regex) ;; *) ds_ok=0 ;; esac
           ;;
         number)
+          # The runtime parsers drop leading zeros; the helper's Go Atoi also
+          # reads a leading plus sign.
+          case $ds_name:$ds_value in GITLEAKS_HELPER_*:+*) ds_value=${ds_value#+} ;; esac
+          ds_value=${ds_value#"${ds_value%%[!0]*}"}
+          case $ds_value in
+            '') ds_value=0 ;;
+          esac
           case $ds_value in
             *[!0-9]*) ;;
             *)
@@ -23898,7 +23907,7 @@ doctor_settings_report() {
         helper) case $ds_value in /*) ds_shown=set ;; *) ds_shown="off (not an absolute path)" ;; esac ;;
         *)
           if [ "$ds_ok" -eq 0 ]; then
-            ds_shown="unrecognized value (default: $ds_default)"
+            ds_shown="unrecognized value; docs/configuration.md says how this setting treats one"
           elif [ "$ds_value" = "$ds_default" ]; then
             ds_shown=$ds_value
           else

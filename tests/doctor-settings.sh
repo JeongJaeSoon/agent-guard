@@ -93,6 +93,18 @@ doctor $OFFLINE AGENT_GUARD_PII_SKIP='EMAIL PHONE'
 expect "a space-separated skip list is accepted, as at runtime" '! line PII_SKIP | grep -qF unrecognized'
 doctor $OFFLINE AGENT_GUARD_PII_SKIP='*'
 expect "a list value is not expanded as a pathname pattern" 'line PII_SKIP | grep -qF unrecognized'
+doctor $OFFLINE AGENT_GUARD_KEY_NAME_REDACT=false
+expect "an unrecognized value does not claim the default applies, since each setting treats one its own way" \
+  'line KEY_NAME_REDACT | grep -qF unrecognized && ! line KEY_NAME_REDACT | grep -qF default && line KEY_NAME_REDACT | grep -qF docs/configuration.md'
+doctor $OFFLINE AGENT_GUARD_LOG_MODE=off AGENT_GUARD_SCAN_CACHE=on
+expect "with logging off the cache defaults to off, so an explicit on differs" 'line SCAN_CACHE | grep -qF "differs from the default: off"'
+doctor $OFFLINE AGENT_GUARD_LOG_MODE=off AGENT_GUARD_SCAN_CACHE=off
+expect "and an explicit off with logging off is the default" 'line SCAN_CACHE | grep -qF off && ! line SCAN_CACHE | grep -qF differs'
+doctor $OFFLINE AGENT_GUARD_SCAN_INPUT_MAX_BYTES=000000000000000000000020971520 AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS=+120
+expect "leading zeros are dropped, as at runtime" 'line SCAN_INPUT_MAX_BYTES | grep -qF " 20971520 " && ! line SCAN_INPUT_MAX_BYTES | grep -qF unrecognized'
+expect "the helper reads a leading plus sign, as Go's Atoi does" 'line GITLEAKS_HELPER_IDLE_SECONDS | grep -qF " 120 " && ! line GITLEAKS_HELPER_IDLE_SECONDS | grep -qF unrecognized'
+doctor $OFFLINE AGENT_GUARD_SCAN_INPUT_MAX_BYTES=+20971520
+expect "but the shell parser of the scan limit does not" 'line SCAN_INPUT_MAX_BYTES | grep -qF unrecognized'
 
 # P-5: the top-level usage lists every user-facing form, and no internal one.
 "$GUARD" --help 2>"$CASE/usage"
