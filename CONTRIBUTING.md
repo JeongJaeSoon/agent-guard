@@ -142,6 +142,44 @@ summary. `--scanner` must be the official gitleaks release build for the
 helper arms; `--unverified` accepts a test double whose runs cannot be
 told from a hook without a scan, and the report then says `verified: false`.
 
+## CLI differential
+
+`cli-differential` runs two builds of the CLI over a corpus of hook inputs
+and fails on any difference. It is the parity check for a change that must
+not alter a decision: another interpreter, a launcher change, a refactor.
+
+```sh
+sh scripts/devtools.sh cli-differential --baseline /abs/base/plugins/agent-guard/bin/agent-guard \
+  --candidate "$PWD/plugins/agent-guard/bin/agent-guard" --scanner /abs/gitleaks \
+  --out bench/local/cli-differential.json
+```
+
+Each case of `tests/fixtures/cli-differential.json` (or `--corpus`) is a
+list of steps run in order in one fresh sandbox: the repository, home, state
+and temporary directories are rebuilt at the same path before each side
+runs, so both start from the same state and neither sees the caller's
+variables. Compared for every step: exit status, the decision the host is
+told, standard output and standard error byte for byte, the audit events
+written, and the files left behind. `--baseline-shell` and
+`--candidate-shell` run a side under a named interpreter;
+`--entry manifest` runs the host's plugin manifest command.
+
+What two runs of one build may differ in is not compared and is listed in the
+report as `not_compared`: times, run identifiers, file identities and hashes
+in file names, and the content of the CLI's cache files. A new entry there
+needs a reason; a difference is otherwise a bug in the change.
+
+The report holds names, sizes, equality and the first differing offset, never
+the text of an input or an output, so the same command is safe on a corpus
+that is not synthetic. Corpus strings may use `{{REPO}}`, `{{TOKEN}}`,
+`{{HEX}}` and `{{KEY_BLOCK}}`; the last three are values built at run time
+that a scanner must report, so the corpus itself holds none.
+
+Before trusting a result, qualify the comparison on the machine at hand: a
+build against itself must report no difference (run it twice), and
+`tests/devtools.sh` shows that a changed message and a changed deny list are
+both found.
+
 ## Rule mutation check
 
 `tests/mutations.json` lists hand-written mutants of the core detection rules:

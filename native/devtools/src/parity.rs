@@ -442,14 +442,14 @@ pub fn differential(args: &Args) -> Result<()> {
     let describe = |side: &Side| -> Result<Value> {
         Ok(json!({"sha256": hash(&side.cli)?, "shell": side.shell}))
     };
-    let mut report = json!({
+    let report = json!({
         "tool": "cli-differential",
         "platform": version(&["uname", "-a"])?,
         "entry": entry,
         "baseline": describe(&sides[0])?,
         "candidate": describe(&sides[1])?,
         "scanner_version": sandbox.version(&[&bin.join("gitleaks").display().to_string(), "version"])?,
-        "scanner_sha256": hash(&scanner)?,
+        "scanner_sha256": hash(bin.join("gitleaks"))?,
         "corpus_sha256": hash(&corpus_path)?,
         "compared": "exit status, decision, standard output and standard error byte for byte, audit events and the files each step left",
         "not_compared": UNSTABLE,
@@ -457,9 +457,16 @@ pub fn differential(args: &Args) -> Result<()> {
         "differences": different.len(),
         "different_cases": different,
     });
-    emit(&report)?;
-    report["cases"] = json!(rows);
-    write_json(&out_path, &report)?;
+    // The report is stored first: a closed standard output must not lose it.
+    let mut full = report.clone();
+    full["cases"] = json!(rows);
+    write_json(&out_path, &full)?;
+    {
+        use std::io::Write;
+        let mut text = serde_json::to_string_pretty(&report)?;
+        text.push('\n');
+        let _ = std::io::stdout().write_all(text.as_bytes());
+    }
     ensure(
         report["differences"] == 0,
         "the two builds differ; see different_cases",
