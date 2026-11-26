@@ -361,7 +361,7 @@ grep -Fxq 'workflow run mutation-check.yml --ref main' "$case_dir/dispatch.log" 
 # A retried publication does not dispatch a workflow that already passed there.
 current=$(git -C "$pub" rev-parse HEAD)
 : > "$case_dir/check-rows"
-grep '^mutation-check.yml	' "$ROOT/.github/release-checks.tsv" | cut -f2 | while IFS= read -r name; do
+awk -F '\t' '$1 == "mutation-check.yml" { print $2 }' "$ROOT/.github/release-checks.tsv" | while IFS= read -r name; do
   jq -nc --arg name "$name" --arg sha "$current" \
     '{id:1,name:$name,head_sha:$sha,check_suite:{id:77},app:{slug:"github-actions"},status:"completed",conclusion:"success"}' >> "$case_dir/check-rows"
 done

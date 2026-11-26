@@ -519,7 +519,7 @@ groups=$(sed -n 's/^        group: \[\(.*\)\]$/\1/p' "$mutation_workflow" | tr -
 # Exactly the matrix groups: a missing one is never required, a stale one
 # never reports and times the release out.
 expected_mutation_checks=$(printf '%s\n' "$groups" | sed 's/.*/Rule mutations fail a test (&)/' | LC_ALL=C sort)
-listed_mutation_checks=$(sed -n 's/^mutation-check[.]yml\t//p' "$ROOT/.github/release-checks.tsv" | LC_ALL=C sort)
+listed_mutation_checks=$(awk -F '\t' '$1 == "mutation-check.yml" { print $2 }' "$ROOT/.github/release-checks.tsv" | LC_ALL=C sort)
 [ "$listed_mutation_checks" = "$expected_mutation_checks" ] \
   || fail "release requires exactly the mutation groups: $listed_mutation_checks"
 grep -Fq "name: Rule mutations fail a test (\${{ matrix.group }})" "$mutation_workflow" || fail 'mutation check names follow the group'
