@@ -163,6 +163,14 @@ expect "setup --install puts gitleaks in the default private directory, not the 
   '[ "$(cat "$CASE/status")" = 0 ] && [ -x "$H/.agent-guard/bin/gitleaks" ] && [ ! -e "$LINKS/gitleaks" ]'
 expect "and says that AGENT_GUARD_BIN_DIR no longer chooses where it goes" \
   'notice_is_value_free "$CASE/err" && notice "$CASE/err" | grep -qF "setup --install"'
+H="$CASE/home-install-helper-only"
+HELPER_ONLY="$CASE/helper-only-bin"
+mkdir -p "$HELPER_ONLY/gitleaks-helper"
+run "$H" AGENT_GUARD_BIN_DIR="$HELPER_ONLY" AGENT_GUARD_GITLEAKS_HELPER=off \
+  "$GUARD" setup --install --gitleaks-version 8.30.1 --gitleaks-checksum "$SUM"
+expect "deprecated: a directory with only a helper installed earlier stays the gitleaks directory, with the notice" \
+  '[ "$(cat "$CASE/status")" = 0 ] && [ -x "$HELPER_ONLY/gitleaks" ] && [ ! -e "$H/.agent-guard/bin/gitleaks" ] \
+   && notice_is_value_free "$CASE/err" && notice "$CASE/err" | grep -qF "is deprecated"'
 H="$CASE/home-install-new"
 run "$H" AGENT_GUARD_BIN_DIR="$LINKS" AGENT_GUARD_GITLEAKS_BIN_DIR="$NEW-install" AGENT_GUARD_GITLEAKS_HELPER=off \
   "$GUARD" setup --install --gitleaks-version 8.30.1 --gitleaks-checksum "$SUM"
