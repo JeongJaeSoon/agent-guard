@@ -1505,78 +1505,112 @@ RUNDIR_REAP_AGE_MINUTES=61
 # retention) instead.
 RUNDIR_REAP_LEGACY_AGE_MINUTES=10080
 
+# The marker holds one "<seconds> <directory>" line per temp directory, so a
+# busy TMPDIR does not use up the interval of another one, at most 8 lines.
+# Reading it is a builtin loop. A first line is created with noclobber (no
+# process); a change is written to a new file and renamed over the marker, so
+# neither follows a symlink.
 rundir_reap() {
   [ -n "$AG_STATE_DIR" ] && [ -n "$AGENT_GUARD_RUNDIR" ] || return 0
   case "$AG_UID" in ''|*[!0123456789]*) return 0 ;; esac
   case "$AG_AUDIT_START" in ''|0|*[!0123456789]*) return 0 ;; esac
+  ag_rr_dir=${AGENT_GUARD_RUNDIR%/*}
+  case "$ag_rr_dir" in ''|*'
+'*) return 0 ;; esac
   ag_rr_marker="$AG_STATE_DIR/rundir-reap"
-  ag_rr_last=
-  if [ -f "$ag_rr_marker" ] && [ ! -L "$ag_rr_marker" ]; then
-    IFS= read -r ag_rr_last <"$ag_rr_marker" 2>/dev/null || :
-  fi
-  # A leading zero would be octal to shell arithmetic, and dash aborts on 8 or 9.
-  case "$ag_rr_last" in ''|0*|*[!0123456789]*) ag_rr_last= ;; esac
-  [ "${#ag_rr_last}" -le 12 ] || ag_rr_last=
-  # A marker from the future (a clock set back) is due.
-  if [ -n "$ag_rr_last" ] && [ "$ag_rr_last" -le "$AG_AUDIT_START" ] \
-      && [ "$((AG_AUDIT_START - ag_rr_last))" -lt "$RUNDIR_REAP_INTERVAL_SECONDS" ]; then
+  ag_rr_last= ag_rr_keep= ag_rr_lines=0
+  if [ -L "$ag_rr_marker" ] || { [ -e "$ag_rr_marker" ] && [ ! -f "$ag_rr_marker" ]; }; then
     return 0
   fi
-  # Restarted before the pass, so concurrent runs mostly skip it.
-  { printf '%s\n' "$AG_AUDIT_START" >"$ag_rr_marker"; } 2>/dev/null || return 0
+  if [ -f "$ag_rr_marker" ]; then
+    while IFS= read -r ag_rr_line; do
+      ag_rr_time=${ag_rr_line%% *}
+      # A leading zero would be octal to shell arithmetic; dash aborts on 8 or 9.
+      case "$ag_rr_time" in ''|0*|*[!0123456789]*) continue ;; esac
+      [ "${#ag_rr_time}" -le 12 ] || continue
+      if [ "${ag_rr_line#* }" = "$ag_rr_dir" ]; then
+        ag_rr_last=$ag_rr_time
+      elif [ "$ag_rr_lines" -lt 7 ]; then
+        ag_rr_keep="$ag_rr_keep$ag_rr_line
+"
+        ag_rr_lines=$((ag_rr_lines + 1))
+      fi
+    done <"$ag_rr_marker" 2>/dev/null
+    # A marker from the future (a clock set back) is due.
+    if [ -n "$ag_rr_last" ] && [ "$ag_rr_last" -le "$AG_AUDIT_START" ] \
+        && [ "$((AG_AUDIT_START - ag_rr_last))" -lt "$RUNDIR_REAP_INTERVAL_SECONDS" ]; then
+      return 0
+    fi
+    # Restarted before the pass, so concurrent runs mostly skip it.
+    ag_rr_tmp=$(umask 077; mktemp "$ag_rr_marker.XXXXXX" 2>/dev/null) || return 0
+    if ! { printf '%s%s %s\n' "$ag_rr_keep" "$AG_AUDIT_START" "$ag_rr_dir" >"$ag_rr_tmp" \
+        && mv -f "$ag_rr_tmp" "$ag_rr_marker"; } 2>/dev/null; then
+      rm -f "$ag_rr_tmp" 2>/dev/null
+      return 0
+    fi
+  else
+    case $- in *C*) ag_rr_noclobber=1 ;; *) ag_rr_noclobber= ;; esac
+    set -C
+    { printf '%s %s\n' "$AG_AUDIT_START" "$ag_rr_dir" >"$ag_rr_marker"; } 2>/dev/null || :
+    [ -n "$ag_rr_noclobber" ] || set +C
+  fi
+  # A directory's first line only starts its clock.
   [ -n "$ag_rr_last" ] || return 0
   # Where this run's directory went: TMPDIR, or /tmp when TMPDIR could not
   # hold it, so a setting that keeps falling back is reaped where it leaves.
-  rundir_stale "${AGENT_GUARD_RUNDIR%/*}" remove </dev/null >/dev/null 2>&1 || :
+  rundir_stale "$ag_rr_dir" remove </dev/null >/dev/null 2>&1 || :
 }
 
-# Lists one directory and nothing below it, from inside it (cd -P), so a
-# TMPDIR symlink that changes between listing and removal cannot move rm
-# elsewhere. find selects names of this CLI's characters only (a newline
-# cannot split a record), directories that are no symlink, owned by this
-# user, mode 0700 and old enough; the loop keeps only this CLI's mktemp
-# names and skips a live owner (kill -0 fails for another user's process,
-# which owns no directory of this user). rm -rf does not follow symlinks
-# inside. The listing is bounded like audit_prune's. MODE remove deletes them;
-# count prints how many there are and changes nothing (doctor).
+# Works inside the directory it lists (cd -P, CDPATH cleared), so a TMPDIR
+# symlink that changes between listing and removal cannot move rm elsewhere.
+# A glob lists names without a stat per entry (a TMPDIR can hold 100,000
+# entries); the loop keeps this CLI's mktemp names only, which hold no blank
+# or newline, and skips a live owner (kill -0 fails for another user's
+# process, which owns no directory of this user). find then stats only those
+# names, does not descend, and keeps directories that are no symlink, owned
+# by this user, mode 0700 and old enough. rm -rf does not follow symlinks
+# inside. At most 2,000 names a pass. MODE remove deletes them; count prints
+# how many there are and changes nothing (doctor).
 rundir_stale() ( # DIR MODE
-  cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo 0; exit 0; }
+  CDPATH= cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo 0; exit 0; }
+  ag_rs_new= ag_rs_old= ag_rs_n=0
+  for ag_rs_name in agent-guard-run.*; do
+    [ "$ag_rs_n" -lt 2000 ] || break
+    ag_rs_rest=${ag_rs_name#agent-guard-run.}
+    ag_rs_pid=
+    case "$ag_rs_rest" in
+      *.*)
+        ag_rs_pid=${ag_rs_rest%%.*}
+        ag_rs_rest=${ag_rs_rest#*.}
+        case "$ag_rs_pid" in ''|0*|*[!0123456789]*) continue ;; esac
+        [ "${#ag_rs_pid}" -le 10 ] || continue
+        ;;
+    esac
+    case "$ag_rs_rest" in
+      ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) continue ;;
+    esac
+    [ "${#ag_rs_rest}" -eq 6 ] || continue
+    if [ -n "$ag_rs_pid" ]; then
+      ! kill -0 "$ag_rs_pid" 2>/dev/null || continue
+      ag_rs_new="$ag_rs_new ./$ag_rs_name"
+    else
+      ag_rs_old="$ag_rs_old ./$ag_rs_name"
+    fi
+    ag_rs_n=$((ag_rs_n + 1))
+  done
+  set -f
   {
-    find . -mindepth 1 -maxdepth 1 -name 'agent-guard-run.*.*' \
-      ! -name '*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-]*' -type d \
-      -user "$AG_UID" -perm 700 -mmin "+$RUNDIR_REAP_AGE_MINUTES" -print 2>/dev/null
-    find . -mindepth 1 -maxdepth 1 -name 'agent-guard-run.??????' \
-      ! -name '*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-]*' -type d \
-      -user "$AG_UID" -perm 700 -mmin "+$RUNDIR_REAP_LEGACY_AGE_MINUTES" -print 2>/dev/null
-  } \
-    | head -n 2000 \
-    | while IFS= read -r ag_rr_path; do
-        ag_rr_rest=${ag_rr_path#./agent-guard-run.}
-        [ "$ag_rr_rest" != "$ag_rr_path" ] || continue
-        ag_rr_pid=
-        case "$ag_rr_rest" in
-          *.*)
-            ag_rr_pid=${ag_rr_rest%%.*}
-            ag_rr_rest=${ag_rr_rest#*.}
-            case "$ag_rr_pid" in ''|0*|*[!0123456789]*) continue ;; esac
-            [ "${#ag_rr_pid}" -le 10 ] || continue
-            ;;
-        esac
-        case "$ag_rr_rest" in
-          ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) continue ;;
-        esac
-        [ "${#ag_rr_rest}" -eq 6 ] || continue
-        if [ -n "$ag_rr_pid" ] && kill -0 "$ag_rr_pid" 2>/dev/null; then
-          continue
-        fi
-        [ -d "$ag_rr_path" ] && [ ! -L "$ag_rr_path" ] || continue
-        printf '%s\0' "$ag_rr_path"
-      done \
-    | if [ "$2" = remove ]; then
-        xargs -0 rm -rf -- 2>/dev/null
-      else
-        tr -cd '\000' | wc -c | tr -d ' '
-      fi
+    # shellcheck disable=SC2086 # names hold no blank, newline or glob character
+    [ -z "$ag_rs_new" ] || find $ag_rs_new -prune -type d -user "$AG_UID" -perm 700 \
+      -mmin "+$RUNDIR_REAP_AGE_MINUTES" -print 2>/dev/null
+    # shellcheck disable=SC2086
+    [ -z "$ag_rs_old" ] || find $ag_rs_old -prune -type d -user "$AG_UID" -perm 700 \
+      -mmin "+$RUNDIR_REAP_LEGACY_AGE_MINUTES" -print 2>/dev/null
+  } | if [ "$2" = remove ]; then
+    xargs rm -rf -- 2>/dev/null
+  else
+    wc -l | tr -d ' '
+  fi
 )
 
 audit_begin() {

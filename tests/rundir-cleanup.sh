@@ -184,7 +184,7 @@ fixture() {
   live=$!
   LIVE_PIDS="$LIVE_PIDS $live"
   mkdir -m 700 "$t/agent-guard-run.$live.Ij56Kl" "$t/agent-guard-run.Mn78Op"
-  mkdir -m 755 "$t/agent-guard-run.Qr90St"
+  mkdir -m 755 "$t/agent-guard-run.Qr90St" "$t/agent-guard-run.999999996.Pm75Xx"
   mkdir -m 700 "$out/agent-guard-run.Uv12Wx"
   ln -s "$out/agent-guard-run.Uv12Wx" "$t/agent-guard-run.Yz34Ab"
   : >"$t/agent-guard-run.Cd56Ef"
@@ -203,7 +203,7 @@ fixture() {
 1.Xy12Zw"
   mkdir -m 700 "$t/agent-guard-runner.Gh78Ij" "$t/agent-guard-run.Kl90" "$t/agent-guard.Mn12Op" "$t/agent-guard-run.12x.Qr34St"
   for e in agent-guard-run.Ab12Cd agent-guard-run.999999999.Ef34Gh "agent-guard-run.$live.Ij56Kl" \
-      agent-guard-run.Qr90St agent-guard-runner.Gh78Ij agent-guard-run.Kl90 agent-guard.Mn12Op \
+      agent-guard-run.Qr90St agent-guard-run.999999996.Pm75Xx agent-guard-runner.Gh78Ij agent-guard-run.Kl90 agent-guard.Mn12Op \
       agent-guard-run.12x.Qr34St agent-guard-run.Cd56Ef; do
     touch -t "$OLD" "$t/$e"
   done
@@ -241,7 +241,7 @@ for sh_ in $SHELLS; do
   fi
 
   # Due: the marker is an interval old.
-  printf '%s\n' "$((NOW - 3601))" >"$marker"
+  printf '%s %s\n' "$((NOW - 3601))" "$tmp" >"$marker"
   reap_run "$sh_" "$tmp" "$state"
   bad=
   for e in agent-guard-run.Ab12Cd agent-guard-run.999999999.Ef34Gh agent-guard-run.999999998.Hh22Jj ${KILLED:+"${KILLED##*/}"}; do
@@ -255,18 +255,18 @@ for sh_ in $SHELLS; do
   bad=
   for e in "agent-guard-run.$live.Ij56Kl" agent-guard-run.Mn78Op agent-guard-run.Qr90St agent-guard-run.Yz34Ab \
       agent-guard-run.Cd56Ef agent-guard-runner.Gh78Ij agent-guard-run.Kl90 agent-guard.Mn12Op agent-guard-run.12x.Qr34St \
-      agent-guard-run.999999997.Nw30Mn agent-guard-run.Lg12Cy agent-guard-run.Fr12Sh "agent-guard-run.Fr12Sh
+      agent-guard-run.999999997.Nw30Mn agent-guard-run.Lg12Cy agent-guard-run.Fr12Sh agent-guard-run.999999996.Pm75Xx "agent-guard-run.Fr12Sh
 1.Xy12Zw"; do
     expect_kept "$tmp" "$e" || bad="$bad $e"
   done
   [ -f "$tmp-outside/keep" ] && [ -d "$tmp-outside/agent-guard-run.Uv12Wx" ] || bad="$bad <symlink target>"
-  [ -z "$(run_dirs "$tmp" | grep -v -e Ij56Kl -e Mn78Op -e Qr90St -e Yz34Ab -e Cd56Ef -e Kl90 -e 12x -e Nw30Mn -e Lg12Cy -e Fr12Sh -e '^1.Xy12Zw$')" ] || bad="$bad <a run directory that should be gone>"
+  [ -z "$(run_dirs "$tmp" | grep -v -e Ij56Kl -e Mn78Op -e Qr90St -e Yz34Ab -e Cd56Ef -e Kl90 -e 12x -e Nw30Mn -e Lg12Cy -e Fr12Sh -e Pm75Xx -e '^1.Xy12Zw$')" ] || bad="$bad <a run directory that should be gone>"
   if [ -z "$bad" ]; then
     ok "$sh_: it keeps live, new, non-private, symlinked, non-directory and other-named entries and symlink targets"
   else
     not_ok "$sh_: it keeps live, new, non-private, symlinked, non-directory and other-named entries and symlink targets (wrong:$bad)"
   fi
-  IFS= read -r stamp <"$marker" || stamp=
+  read -r stamp _ <"$marker" || stamp=
   if [ "${stamp:-0}" -ge "$NOW" ] 2>/dev/null; then
     ok "$sh_: the due run restarts the interval"
   else
@@ -277,10 +277,10 @@ for sh_ in $SHELLS; do
   # on 08): it is read as no marker, and the hook still runs.
   mkdir -m 700 "$tmp/agent-guard-run.Oc08Zz"
   touch -t "$OLD" "$tmp/agent-guard-run.Oc08Zz"
-  printf '08\n' >"$marker"
+  printf '08 %s\n' "$tmp" >"$marker"
   reap_run "$sh_" "$tmp" "$state"
   status=$?
-  IFS= read -r stamp <"$marker" || stamp=
+  read -r stamp _ <"$marker" || stamp=
   if [ "$status" -eq 0 ] && [ "${stamp:-0}" -ge "$NOW" ] 2>/dev/null && expect_kept "$tmp" agent-guard-run.Oc08Zz; then
     ok "$sh_: a marker with a leading zero restarts the clock and the hook passes"
   else
@@ -291,7 +291,7 @@ for sh_ in $SHELLS; do
   # A clock set back (marker in the future) is due once, then waits again.
   mkdir -m 700 "$tmp/agent-guard-run.Zz99Yy"
   touch -t "$OLD" "$tmp/agent-guard-run.Zz99Yy"
-  printf '%s\n' "$((NOW + 86400))" >"$marker"
+  printf '%s %s\n' "$((NOW + 86400))" "$tmp" >"$marker"
   reap_run "$sh_" "$tmp" "$state"
   if expect_gone "$tmp" agent-guard-run.Zz99Yy; then
     ok "$sh_: a marker from the future does not stop reaping"
@@ -309,12 +309,47 @@ ln -s "$CASE/real-tmp" "$CASE/link-tmp"
 mkdir -m 700 "$CASE/real-tmp/agent-guard-run.Ln12Kt"
 touch -t "$OLD" "$CASE/real-tmp/agent-guard-run.Ln12Kt"
 reap_run "$first_shell" "$CASE/link-tmp" "$CASE/link-state"
-printf '%s\n' "$((NOW - 3601))" >"$CASE/link-state/agent-guard/rundir-reap"
+printf '%s %s\n' "$((NOW - 3601))" "$CASE/link-tmp" >"$CASE/link-state/agent-guard/rundir-reap"
 reap_run "$first_shell" "$CASE/link-tmp" "$CASE/link-state"
 if expect_gone "$CASE/real-tmp" agent-guard-run.Ln12Kt && [ -L "$CASE/link-tmp" ]; then
   ok "a TMPDIR that is a symlink is reaped through and stays a symlink"
 else
   not_ok "a TMPDIR that is a symlink is reaped through and stays a symlink"
+fi
+
+# Each temp directory keeps its own interval: a due run in one does not use
+# up the other's.
+mkdir -p "$CASE/pair-a" "$CASE/pair-b" "$CASE/pair-state/agent-guard"
+chmod 700 "$CASE/pair-state/agent-guard"
+for d in a b; do
+  mkdir -m 700 "$CASE/pair-$d/agent-guard-run.Pr12$d$d"
+  touch -t "$OLD" "$CASE/pair-$d/agent-guard-run.Pr12$d$d"
+done
+printf '%s %s\n%s %s\n' "$((NOW - 3601))" "$CASE/pair-a" "$((NOW - 3601))" "$CASE/pair-b" >"$CASE/pair-state/agent-guard/rundir-reap"
+reap_run "$first_shell" "$CASE/pair-a" "$CASE/pair-state"
+reap_run "$first_shell" "$CASE/pair-b" "$CASE/pair-state"
+if expect_gone "$CASE/pair-a" agent-guard-run.Pr12aa && expect_gone "$CASE/pair-b" agent-guard-run.Pr12bb \
+    && [ "$(grep -c . "$CASE/pair-state/agent-guard/rundir-reap")" -eq 2 ]; then
+  ok "each temp directory has its own reap interval"
+else
+  not_ok "each temp directory has its own reap interval"
+fi
+
+# A marker that is a symlink is neither followed nor replaced, and nothing
+# is reaped through it.
+mkdir -p "$CASE/sym-tmp" "$CASE/sym-state/agent-guard"
+chmod 700 "$CASE/sym-state/agent-guard"
+printf 'victim\n' >"$CASE/victim"
+ln -s "$CASE/victim" "$CASE/sym-state/agent-guard/rundir-reap"
+mkdir -m 700 "$CASE/sym-tmp/agent-guard-run.Sy12Mk"
+touch -t "$OLD" "$CASE/sym-tmp/agent-guard-run.Sy12Mk"
+reap_run "$first_shell" "$CASE/sym-tmp" "$CASE/sym-state"
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat "$CASE/victim")" = victim ] && [ -L "$CASE/sym-state/agent-guard/rundir-reap" ] \
+    && expect_kept "$CASE/sym-tmp" agent-guard-run.Sy12Mk; then
+  ok "a symlinked marker is not followed, replaced or used"
+else
+  not_ok "a symlinked marker is not followed, replaced or used (status $status)"
 fi
 
 # doctor counts what the reaper would remove and removes nothing; with no
