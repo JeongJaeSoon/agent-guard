@@ -117,6 +117,11 @@ expect "the PII timeout takes any positive integer, without the scan limit's dig
 env $UNSET HOME="$CASE/home" AGENT_GUARD_GITLEAKS_BIN="$CASE/gl/gitleaks" $OFFLINE AGENT_GUARD_PROMPT_GUARD_MODE=warn \
   "$GUARD" doctor --help >"$CASE/out" 2>"$CASE/err" </dev/null
 expect "doctor --help prints usage without the settings section" 'grep -qF "Usage:" "$CASE/err" && ! grep -qF "setting  " "$CASE/err"'
+doctor $OFFLINE AGENT_GUARD_SESSION_ROLE=zq9-role-Value
+expect "an unrecognized session role is listed only as unrecognized, and its value is never printed" \
+  'line SESSION_ROLE | grep -qF unrecognized && ! grep -qF zq9-role "$CASE/err" && ! grep -qF zq9-role "$CASE/out"'
+doctor $OFFLINE AGENT_GUARD_SESSION_ROLE=review
+expect "the accepted review role is listed as is" 'line SESSION_ROLE | grep -qF " review"'
 
 # P-5: the top-level usage lists every user-facing form, and no internal one.
 "$GUARD" --help 2>"$CASE/usage"
