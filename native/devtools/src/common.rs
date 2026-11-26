@@ -243,12 +243,35 @@ pub fn invoke(
     cwd: Option<&Path>,
     timeout: f64,
 ) -> Result<(f64, Output)> {
+    run(command, input, env, cwd, timeout, true)
+}
+/// Like invoke, but the child sees env alone: nothing of the caller's session.
+pub fn invoke_isolated(
+    command: &[String],
+    input: &[u8],
+    env: &Env,
+    cwd: Option<&Path>,
+    timeout: f64,
+) -> Result<(f64, Output)> {
+    run(command, input, env, cwd, timeout, false)
+}
+fn run(
+    command: &[String],
+    input: &[u8],
+    env: &Env,
+    cwd: Option<&Path>,
+    timeout: f64,
+    inherit: bool,
+) -> Result<(f64, Output)> {
     ensure(
         !command.is_empty() && timeout.is_finite() && timeout > 0.0,
         "invalid command/timeout",
     )?;
     let start = Instant::now();
     let mut builder = Command::new(&command[0]);
+    if !inherit {
+        builder.env_clear();
+    }
     builder
         .args(&command[1..])
         .envs(env)

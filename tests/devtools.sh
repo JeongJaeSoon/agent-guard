@@ -4,6 +4,8 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 cd "$ROOT"
 TOOLS=${1:?absolute devtools binary required}
+# Optional: an official gitleaks, for the contracts a mock cannot show.
+SCANNER=${2:-}
 CASE=$(mktemp -d)
 trap 'rm -rf "$CASE"' 0
 "$TOOLS" --help >"$CASE/help"
@@ -57,6 +59,41 @@ fi
 jq -e '.stable and .results[0].status == 7 and .results[1].status == 0' "$CASE/failed-partitions/verification.json" >/dev/null
 grep -q 'failed: 1' "$CASE/failed-partitions/shell-1.log"
 grep -q 'passed: 1' "$CASE/failed-partitions/native-4.log"
+# Hook latency: every arm that needs no helper runs with the mock scanner, each
+# run is stored as a sample, and the summary on standard output holds none.
+"$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 2 --out "$CASE/latency.json" >"$CASE/latency-summary.json"
+jq -e '.arms == ["helper-off", "repeat-input"] and (.samples | length) == 20 and (.problems | length) == 0
+  and ([.samples[] | select(.status != 0 or .seconds <= 0 or .max_child_peak_rss_kib <= 0)] | length) == 0
+  and ([.samples[] | [.case, .arm]] | unique | length) == 10
+  and ([.samples[] | select((.scanner | type) != "string" or (.cache | type) != "string" or (.probe | type) != "string" or (.client | type) != "array")] | length) == 0
+  and ([.controls[] | select(.status != 2)] | length) == 0 and (.controls | length) == 1
+  and (.cells | length) == 10 and ([.cells[] | select(.n != 2 or .median_ms <= 0 or .p95_ms < .median_ms)] | length) == 0' "$CASE/latency.json" >/dev/null
+jq -e 'has("samples") | not' "$CASE/latency-summary.json" >/dev/null
+jq -e '(.cells | length) == 10' "$CASE/latency-summary.json" >/dev/null
+"$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 1 --case pre-read --arm helper-off --entry manifest --out "$CASE/latency-manifest.json" >/dev/null
+jq -e '.entry == "manifest" and (.samples | length) == 1 and .samples[0].status == 0' "$CASE/latency-manifest.json" >/dev/null
+# With the real scanner the samples say which scanner ran and what the
+# clean-scan cache did: a scan without the helper is gitleaks, a hook with no
+# scan is none, and only a repeated Bash command is a cache hit.
+if [ -n "$SCANNER" ]; then
+  "$TOOLS" hook-latency --scanner "$SCANNER" --runs 2 --out "$CASE/latency-real.json" >/dev/null
+  jq -e '.scanner_evidence.threshold_kib > 0 and (.problems | length) == 0
+    and ([.cells[] | select(.arm == "helper-off" and .case != "pre-read") | .scanner == {"gitleaks": 2}] | all)
+    and ([.cells[] | select(.case == "pre-read") | .scanner == {"none": 2} and .cache == {"none": 2}] | all)
+    and ([.cells[] | select(.arm == "helper-off" and .case == "pre-bash") | .cache == {"stored": 2}] | all)
+    and ([.cells[] | select(.arm == "repeat-input") | .cache == (if .case == "pre-bash" then {"hit": 2} else {"none": 2} end)] | all)
+    and ([.cells[] | select(.arm == "repeat-input" and .case == "pre-bash") | .scanner == {"none": 2}] | all)
+    and (.cells | length) == 10' "$CASE/latency-real.json" >/dev/null
+fi
+# A helper arm without helper binaries, an unknown arm and a missing sample
+# file are refused before anything is measured.
+for bad in '--arm warm-helper --out latency-bad.json' '--arm no-such-arm --out latency-bad.json' '--case no-such-case --out latency-bad.json' '--runs 1'; do
+  # shellcheck disable=SC2086 # each row is a list of options
+  if (cd "$CASE" && "$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" $bad) >"$CASE/latency-bad-output" 2>"$CASE/latency-bad-error"; then
+    echo "hook-latency accepted: $bad" >&2; exit 1
+  fi
+  test ! -e "$CASE/latency-bad.json"
+done
 # A repeated option keeps its last value.
 test ! -e "$CASE/ignored-out"
 printf 'Developer tools: option parsing, resource status, source-location and failed-partition contracts passed\n'
