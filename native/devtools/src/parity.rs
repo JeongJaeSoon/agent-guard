@@ -11,6 +11,7 @@ const UNSTABLE: &[&str] = &[
     "audit events: run_id, time and duration_seconds",
     "names of state and temporary files: every run of digits and every run of 8 or more hexadecimal characters (times, process and file identities, hashes), and the random suffix of an audit event file",
     "content of the CLI's cache files in the state directory (times and file identities)",
+    "a line of digits only in any other file the CLI leaves (a warning marker holds the time it was written)",
     "each side's own plugin root in output, read as one placeholder",
 ];
 
@@ -138,7 +139,17 @@ fn transition(
         } else if path.starts_with("s/") {
             out.push((stable_name(path), Vec::new()));
         } else {
-            out.push((stable_name(path), bytes.clone()));
+            let lines: Vec<&[u8]> = bytes
+                .split(|byte| *byte == b'\n')
+                .map(|line| {
+                    if !line.is_empty() && line.iter().all(u8::is_ascii_digit) {
+                        b"#".as_slice()
+                    } else {
+                        line
+                    }
+                })
+                .collect();
+            out.push((stable_name(path), lines.join(&b'\n')));
         }
     }
     for path in before.keys().filter(|path| !after.contains_key(*path)) {
@@ -254,17 +265,18 @@ pub fn differential(args: &Args) -> Result<()> {
         "--scanner",
         version(&["sh", "-c", "command -v gitleaks"]).unwrap_or_default(),
     ))?;
-    let corpus_path = args.opt(
-        "--corpus",
-        root()?
+    let corpus_path = match args.get("--corpus") {
+        Ok(path) => path,
+        Err(_) => root()?
             .join("tests/fixtures/cli-differential.json")
             .display()
             .to_string(),
-    );
+    };
     let corpus = read_json(&corpus_path)?;
     let selected = args.all("--case");
 
     let sandbox = Sandbox::new()?;
+    eprintln!("sandbox {}", sandbox.base.display());
     // Outside the directories a reset rebuilds, so both sides run one file.
     let bin = sandbox.base.join("bin");
     std::fs::create_dir(&bin)?;
@@ -325,6 +337,10 @@ pub fn differential(args: &Args) -> Result<()> {
         )?;
     }
     ensure(!cases.is_empty(), "the corpus has no case")?;
+    // Made before anything runs: a comparison must not end without its report.
+    if let Some(parent) = out_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
 
     let run_case = |case: &Value, side: &Side| -> Result<Vec<Outcome>> {
         sandbox.reset()?;
@@ -432,7 +448,7 @@ pub fn differential(args: &Args) -> Result<()> {
         "entry": entry,
         "baseline": describe(&sides[0])?,
         "candidate": describe(&sides[1])?,
-        "scanner_version": version(&[&scanner, "version"])?,
+        "scanner_version": sandbox.version(&[&bin.join("gitleaks").display().to_string(), "version"])?,
         "scanner_sha256": hash(&scanner)?,
         "corpus_sha256": hash(&corpus_path)?,
         "compared": "exit status, decision, standard output and standard error byte for byte, audit events and the files each step left",
@@ -448,4 +464,151 @@ pub fn differential(args: &Args) -> Result<()> {
         report["differences"] == 0,
         "the two builds differ; see different_cases",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn names_lose_only_what_changes_between_runs() {
+        for (path, stable) in [
+            (
+                "s/agent-guard/gitleaks-probe",
+                "s/agent-guard/gitleaks-probe",
+            ),
+            (
+                "s/agent-guard/gitleaks-clean/17e87020352c6b96dec6906e458c6db6",
+                "s/agent-guard/gitleaks-clean/#",
+            ),
+            (
+                "s/agent-guard/deny-path-regex-literal-3.13.9:16777230:1795711893.046232510:L::",
+                "s/agent-guard/deny-path-regex-literal-#.#.#:#:#.#:L::",
+            ),
+            (
+                "t/agent-guard-warnings-501/infrastructure-parity",
+                "t/agent-guard-warnings-#/infrastructure-parity",
+            ),
+            ("t/feed/decade", "t/feed/decade"),
+        ] {
+            assert_eq!(stable_name(path), stable);
+        }
+    }
+    #[test]
+    fn decisions_are_fixed_words() {
+        for (status, stdout, word) in [
+            (2, "", "block"),
+            (0, "", "allow"),
+            (7, "partial", "exit-7"),
+            (0, "plain text", "text"),
+            (
+                0,
+                r#"{"decision":"block","hookSpecificOutput":{"additionalContext":"x"}}"#,
+                "block+context",
+            ),
+            (
+                0,
+                r#"{"hookSpecificOutput":{"permissionDecision":"deny"}}"#,
+                "permission-deny",
+            ),
+            (
+                0,
+                r#"{"hookSpecificOutput":{"permissionDecision":"a value"}}"#,
+                "permission-other",
+            ),
+            (
+                0,
+                r#"{"hookSpecificOutput":{"updatedToolOutput":{"stdout":"x"}}}"#,
+                "rewrite-output",
+            ),
+            (0, r#"{"systemMessage":"x"}"#, "message"),
+            (0, "{}", "json"),
+        ] {
+            assert_eq!(decision(status, stdout.as_bytes()), word);
+        }
+    }
+    #[test]
+    fn a_step_is_what_it_changed_without_times_and_identities() {
+        let files = |rows: &[(&str, &str)]| -> BTreeMap<String, Vec<u8>> {
+            rows.iter()
+                .map(|(path, text)| (path.to_string(), text.as_bytes().to_vec()))
+                .collect()
+        };
+        let event = |id: &str, time: u32, outcome: &str| {
+            format!(
+                r#"{{"schema":1,"run_id":"{id}","time":{time},"command":"hook-pre-tool","outcome":"{outcome}","duration_seconds":{}}}"#,
+                time % 3
+            )
+        };
+        let before = files(&[("s/agent-guard/gitleaks-probe", "old"), ("t/gone", "x")]);
+        let step = |id: &str, time: u32, outcome: &str, marker: &str, notice: &str| {
+            transition(
+                &before,
+                &files(&[
+                    ("s/agent-guard/gitleaks-probe", "new"),
+                    (
+                        &format!("s/agent-guard/event-{time}-{id}"),
+                        &event(id, time, outcome),
+                    ),
+                    ("t/agent-guard-warnings-501/infrastructure-s1", marker),
+                    ("t/agent-guard-warnings-501/blocked-injection-1", notice),
+                ]),
+            )
+        };
+        let a = step(
+            "1795713608-FzTsrM",
+            1795713608,
+            "blocked",
+            "1795713608
+",
+            "notice text
+",
+        );
+        assert_eq!(
+            a,
+            step(
+                "1795713609-2dTrm2",
+                1795713609,
+                "blocked",
+                "1795713609
+",
+                "notice text
+"
+            )
+        );
+        assert_ne!(
+            a,
+            step(
+                "1795713608-FzTsrM",
+                1795713608,
+                "pass",
+                "1795713608
+",
+                "notice text
+"
+            )
+        );
+        assert_ne!(
+            a,
+            step(
+                "1795713608-FzTsrM",
+                1795713608,
+                "blocked",
+                "1795713608
+",
+                "other text
+"
+            )
+        );
+        let names: Vec<_> = a.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "removed t/gone",
+                "s/agent-guard/event",
+                "s/agent-guard/gitleaks-probe",
+                "t/agent-guard-warnings-#/blocked-injection-#",
+                "t/agent-guard-warnings-#/infrastructure-s#",
+            ]
+        );
+    }
 }
