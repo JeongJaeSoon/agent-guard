@@ -123,6 +123,39 @@ It preserves the selected lines and other metadata, and refuses to run when
 refreshes the repository's pins. The command requires the existing Rust
 developer toolchain.
 
+## Hook latency measurement
+
+`hook-latency` times the hook events an agent session fires most (PreToolUse
+for Bash, Write and Read, PostToolUse for Bash, UserPromptSubmit) on synthetic
+inputs. It builds a temporary repository, home and state directory and passes
+the hooks only that environment, so it reads no user settings and no caller
+variables:
+
+```sh
+sh scripts/devtools.sh hook-latency --scanner /abs/gitleaks \
+  --helper /abs/dir-with-agent-guard-scan --runs 30 --out bench/local/hook-latency.json
+```
+
+One run interleaves these arms: `helper-off` (no warm helper installed),
+`first-call` (a helper is installed and none is running), `warm-helper`,
+`repeat-input` (the same input again, where the clean-scan cache can hit)
+and `fallback` (a helper is installed and the client hands every scan to
+gitleaks). Without `--helper` only `helper-off` and `repeat-input` run.
+`--entry manifest` runs the Claude plugin manifest's command, so the launcher
+is timed too; `--binary` measures another checkout's CLI.
+
+The file named by `--out` holds every sample with what was observed, not
+assumed: `scanner` (the scan client's trace, or the peak memory of the hook's
+children where no client is selected), `cache` (whether the clean-scan cache
+gained an entry or answered) and `probe` (whether the readiness probe ran).
+Standard output is the per-arm summary. The command fails when a sample did
+not run the path its arm names, so a helper that silently fell back, or a
+hook that passed without scanning, is never reported as measured. A sample
+that also ran the readiness probe is kept in the file and left out of the
+summary. `--scanner` must be the official gitleaks release build for the
+helper arms; `--unverified` accepts a test double whose runs cannot be
+told from a hook without a scan, and the report then says `verified: false`.
+
 ## Rule mutation check
 
 `tests/mutations.json` lists hand-written mutants of the core detection rules:
