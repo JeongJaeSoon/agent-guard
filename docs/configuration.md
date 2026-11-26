@@ -670,7 +670,7 @@ Hook modes:
 
 | Variable | Default / use |
 | --- | --- |
-| `AGENT_GUARD_INFRA_FAILURE_MODE` | Hook behavior when a dependency, policy or scanner fails: unset (default), `open` or `closed`. Unset is `closed` for a secret scan that did not run and `open` for every other infrastructure failure. Not every event can or does block, and the plugin hook launcher has its own startup rules: see [Infrastructure policy](#infrastructure-policy) and [Integrations](integrations.md). The shell integration (wrapped commands and `agx`) reads it only when it cannot locate the CLI or `agent-guard check` fails: `closed` then refuses the command, and otherwise it runs unmasked. |
+| `AGENT_GUARD_INFRA_FAILURE_MODE` | Claude Code and Codex hook behavior (the native Git hook and the GitHub Action fail on an unavailable scan whatever the value) when a dependency, policy or scanner fails: unset (default), `open` or `closed`. Unset is `closed` for a secret scan that did not run and `open` for every other infrastructure failure. Not every event can or does block, and the plugin hook launcher has its own startup rules: see [Infrastructure policy](#infrastructure-policy) and [Integrations](integrations.md). The shell integration (wrapped commands and `agx`) reads it only when it cannot locate the CLI or `agent-guard check` fails: `closed` then refuses the command, and otherwise it runs unmasked. |
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block` (default), `warn`, `off`, or the currently blocking `mask` fallback. |
 | `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
 | `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
@@ -783,7 +783,7 @@ do not recognize, and an empty value is not always the same as unset.
 | `AGENT_GUARD_EXPERIMENTAL_REDACTOR` | `rust` or unset (native), `shell` | Shell redaction, also for an empty value |
 | `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` | `1` to `86400` | The default, `600` |
 | `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` | `96` to `4096` | The default, `160` |
-| GitHub Action input `require-checksum` | `true` (empty is `true`), `false` | A checksum is **not** required, also for `True` or `yes`. A `gitleaks-checksum` that is given is still verified. Both inputs apply only when the Action installs gitleaks: one already on `PATH` is used unchecked |
+| GitHub Action input `require-checksum` | `true` (empty is `true`), `false` | A checksum is **not** required, also for `True` or `yes`. A `gitleaks-checksum` that is given is still verified. Both inputs cover only the archive the Action downloads when no gitleaks is on `PATH`; they do not verify the executable that scans, which can be one already installed or selected by `AGENT_GUARD_GITLEAKS_BIN` |
 
 ## Policy files and shell integration
 
