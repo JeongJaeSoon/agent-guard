@@ -23801,8 +23801,8 @@ doctor_shell_integration_report() {
 # it is an accepted spelling or a plain number; a path or URL prints as "set"
 # and anything unrecognized is never echoed. Kinds: mode (always listed),
 # enum, list, number (accepted = min-max), helper, path, deprecated (accepted =
-# what is deprecated). The entries of the deprecated kind come from the
-# CHANGELOG "Deprecated" section.
+# what is deprecated). The deprecated entries are the ones whose warning
+# period runs now; drop each one when its setting is removed.
 DOCTOR_SETTINGS='INFRA_FAILURE_MODE mode unset open,closed
 PROMPT_GUARD_MODE mode block block,warn,off,mask
 OUTPUT_REDACT mode mask mask,off
@@ -23905,9 +23905,9 @@ doctor_settings_report() {
         path) ds_shown=set ;;
         deprecated)
           case $ds_accepted in
-            gitleaks-dir) ds_shown="set; deprecated as the gitleaks directory, still the installer link directory (see CHANGELOG)" ;;
-            outside-tests) ds_shown="set; deprecated outside tests (see CHANGELOG)" ;;
-            *) ds_shown="set; internal and deprecated (see CHANGELOG)" ;;
+            gitleaks-dir) ds_shown="set; deprecated as the gitleaks directory, still the installer link directory" ;;
+            outside-tests) ds_shown="set; deprecated outside tests" ;;
+            *) ds_shown="set; internal and deprecated" ;;
           esac
           ;;
         helper) case $ds_value in /*) ds_shown=set ;; *) ds_shown="off (not an absolute path)" ;; esac ;;
