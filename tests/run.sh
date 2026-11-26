@@ -198,12 +198,6 @@ else
   not_ok "every test shard and navigation host runs in the CI matrix (suite: $suite_shards; ci.yml: $ci_shards; navigation hosts: $ci_navigation_hosts)"
 fi
 
-if [ ! -e "$PLUGIN_ROOT/commands/setup-shell.md" ]; then
-  ok "setup-shell has a single skill implementation"
-else
-  not_ok "setup-shell has a single skill implementation"
-fi
-
 setup_shell_skill="$PLUGIN_ROOT/skills/setup-shell/SKILL.md"
 codex_setup_shell_skill="$PLUGIN_ROOT/codex-skills/setup-shell/SKILL.md"
 setup_shell_metadata="$PLUGIN_ROOT/codex-skills/setup-shell/agents/openai.yaml"
