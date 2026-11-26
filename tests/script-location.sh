@@ -117,6 +117,21 @@ for mark in '' AG_SCRIPT_PID=1 AG_SCRIPT_FD=9; do
   count=$((count + 1))
   printf 'ok - script location contract %s (descriptor 9 is the caller'"'"'s%s)\n' "$count" "${mark:+, $mark set}"
 done
+# A path that names another file by the time the handover looks: the shell
+# that already reads the first file keeps running it.
+mkdir -p "$CASE/swap/bin" "$CASE/swap/scripts"
+cp "$CASE/payload with spaces/scripts/gitleaks-checksum.sh" "$CASE/swap/scripts/gitleaks-checksum.sh"
+awk 'NR == 2 { print; print "mv \"$0.next\" \"$0\""; next } { print }' "$ROOT/plugins/agent-guard/bin/agent-guard" >"$CASE/swap/bin/agent-guard"
+printf '%s\n' '#!/bin/sh' 'echo replaced' >"$CASE/swap/bin/agent-guard.next"
+chmod 755 "$CASE/swap/bin/agent-guard" "$CASE/swap/bin/agent-guard.next"
+check "$CASE/swap/bin/agent-guard"
+if [ "$want" = dash ]; then
+  # Read from standard input, the script's own name is the shell's.
+  sh -s -- version <"$CASE/payload with spaces/bin/agent-guard" >"$CASE/out"
+  grep -q '^agent-guard [0-9]' "$CASE/out"
+  count=$((count + 1))
+  printf 'ok - script location contract %s (read from standard input)\n' "$count"
+fi
 # A relative path that starts with a hyphen is a path, not shell options.
 mkdir -p "$CASE/-payload/bin" "$CASE/-payload/scripts"
 cp "$CASE/payload with spaces/bin/agent-guard" "$CASE/-payload/bin/agent-guard"
