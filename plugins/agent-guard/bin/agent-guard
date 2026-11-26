@@ -1610,6 +1610,16 @@ RUNDIR_STALE_FIND='u=$1 a=$2; shift 2; [ "$#" -gt 0 ] || exit 0; find "$@" -prun
 
 rundir_stale() ( # DIR MODE
   # count prints "unreadable" when it cannot list or check the directory.
+  # Tools come from absolute PATH entries only: after the cd an empty or
+  # relative entry names the temp directory, where another user can plant one.
+  ag_rs_path= ag_rs_rest=$PATH:
+  while [ -n "$ag_rs_rest" ]; do
+    ag_rs_dir=${ag_rs_rest%%:*}
+    ag_rs_rest=${ag_rs_rest#*:}
+    case "$ag_rs_dir" in /*) ag_rs_path=${ag_rs_path:+$ag_rs_path:}$ag_rs_dir ;; esac
+  done
+  PATH=$ag_rs_path
+  export PATH
   CDPATH= cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo unreadable; exit 0; }
   [ -r . ] || { [ "$2" = remove ] || echo unreadable; exit 0; }
   [ "$2" != remove ] || rundir_parent_safe || exit 0
@@ -1626,13 +1636,13 @@ rundir_stale() ( # DIR MODE
       [ "${#ag_rs_rest}" -eq 6 ] || continue
       ! kill -0 "$ag_rs_pid" 2>/dev/null || continue
       printf './%s\n' "$ag_rs_name"
-    done | xargs sh -c "$RUNDIR_STALE_FIND" sh "$AG_UID" "$RUNDIR_REAP_AGE_MINUTES" 2>/dev/null
+    done | xargs sh -c "$RUNDIR_STALE_FIND" sh "$AG_UID" "$RUNDIR_REAP_AGE_MINUTES" 2>/dev/null || echo "!"
     for ag_rs_name in agent-guard-run.??????; do
       case "${ag_rs_name#agent-guard-run.}" in
         *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) continue ;;
       esac
       printf './%s\n' "$ag_rs_name"
-    done | xargs sh -c "$RUNDIR_STALE_FIND" sh "$AG_UID" "$RUNDIR_REAP_LEGACY_AGE_MINUTES" 2>/dev/null
+    done | xargs sh -c "$RUNDIR_STALE_FIND" sh "$AG_UID" "$RUNDIR_REAP_LEGACY_AGE_MINUTES" 2>/dev/null || echo "!"
   } | if [ "$2" = remove ]; then
     grep '^\./agent-guard-run\.' | xargs rm -rf -- 2>/dev/null
   else

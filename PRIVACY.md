@@ -37,8 +37,11 @@ such a directory once it is more than 61 minutes old and the process that made
 it has ended (a week old for a directory from an earlier version, whose name
 does not record that process), checking at most once an hour. With
 `AGENT_GUARD_LOG_MODE=off` and no `AGENT_GUARD_SCAN_CACHE=on` there is no
-local state directory and nothing removes them; `agent-guard doctor` reports
-how many there are. Agent Guard does not write inspected tool content to its own
+local state directory and nothing removes them. Nothing removes them either
+from a relative temp path or from a temp directory where another user could
+replace an entry (writable by others without the sticky bit, or through an
+ACL); in each of these cases `agent-guard doctor` reports how many there are
+and why, so they can be removed by hand. Agent Guard does not write inspected tool content to its own
 log or database. The host application may independently retain tool inputs and
 outputs under its own privacy policy.
 

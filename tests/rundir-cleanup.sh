@@ -180,7 +180,7 @@ reap_run() {
   printf '{"session_id":"rundir-reap-%s-%s","tool_name":"Read","tool_input":{"file_path":"%s/plain.txt"}}' "$$" "$n" "$CASE" \
     | { # shellcheck disable=SC2086
         env HOME="$CASE/home" XDG_STATE_HOME="$3" TMPDIR="$2" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
-          PATH="$CASE/launch-bin:$PATH" AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+          PATH="${RR_PATH_PREFIX:-}$CASE/launch-bin:$PATH" AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
           $sh_ "$GUARD" hook-pre-tool >"$CASE/reap-out" 2>"$CASE/reap-err"; }
 }
 : >"$CASE/plain.txt"
@@ -589,10 +589,35 @@ else
   not_ok "the first reap marker is created with mode 0600"
 fi
 
+# A relative or empty PATH entry must not resolve the cleanup's tools from
+# the temp directory it works in: another user can plant them in a sticky one.
+stale_in "$CASE/planted-tmp" agent-guard-run.Pl12Nt
+for tool in find xargs sh grep awk rm ls id perl; do
+  printf '#!/bin/sh\n: >"%s/planted-ran-%s"\nexit 1\n' "$CASE" "$tool" >"$CASE/planted-tmp/$tool"
+  chmod 755 "$CASE/planted-tmp/$tool"
+done
+RR_PATH_PREFIX=':.:' due_run "$CASE/planted-tmp" "$CASE/planted-state"
+env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/planted-tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
+  PATH=":.:$PATH" AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+  sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
+if ! ls "$CASE"/planted-ran-* >/dev/null 2>&1 && expect_gone "$CASE/planted-tmp" agent-guard-run.Pl12Nt \
+  && grep -q 'temp: no stale run directories in' "$CASE/doctor-out"; then
+  ok "cleanup and doctor run no tool planted in the temp directory through a relative PATH entry"
+else
+  not_ok "cleanup and doctor run no tool planted in the temp directory through a relative PATH entry"
+  ls "$CASE"/planted-ran-* 2>/dev/null | sed 's/^/  ran: /'
+  grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+fi
+
 # A TMPDIR that cannot be listed is reported as such, not as clean.
 mkdir -p "$CASE/unlisted-tmp"
 stale_in "$CASE/unlisted-tmp" agent-guard-run.Un12Ls
 chmod 300 "$CASE/unlisted-tmp"
+if ls "$CASE/unlisted-tmp" >/dev/null 2>&1; then
+  # root lists a mode 0300 directory anyway; the case cannot be set up.
+  chmod 755 "$CASE/unlisted-tmp"
+  ok "doctor says when it cannot check the temp directory (skipped: this user can list a mode 0300 directory)"
+else
 env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/unlisted-tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
   AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
   sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
@@ -601,6 +626,22 @@ if grep -q 'temp: could not check .* for stale run directories' "$CASE/doctor-ou
   ok "doctor says when it cannot check the temp directory"
 else
   not_ok "doctor says when it cannot check the temp directory"
+  grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+fi
+fi
+# An xargs that fails before it runs the check makes the count unknown, not 0.
+mkdir -p "$CASE/badxargs-bin"
+real_xargs=$(command -v xargs)
+printf '#!/bin/sh\n[ "$1" = sh ] && exit 1\nexec "%s" "$@"\n' "$real_xargs" >"$CASE/badxargs-bin/xargs"
+chmod +x "$CASE/badxargs-bin/xargs"
+fixture "$CASE/badxargs-tmp"
+env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/badxargs-tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
+  PATH="$CASE/badxargs-bin:$PATH" AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+  sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
+if grep -q 'temp: could not check .* for stale run directories' "$CASE/doctor-out"; then
+  ok "doctor says when a failed xargs leaves the check incomplete"
+else
+  not_ok "doctor says when a failed xargs leaves the check incomplete"
   grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
 fi
 # A find that fails while checking candidates makes the count unknown, not 0.
