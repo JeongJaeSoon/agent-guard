@@ -387,18 +387,19 @@ CODEX_TRUST_WATCHDOG_PID=
 CODEX_TRUST_CLIENT='codex=$1 out=$2 cwd=$3 limit=$4 version=$5
 deadline=$(( $(date +%s) + limit ))
 (
+  # TERM reaches this group from the guard as well; only the leader below
+  # cancels the timer, so it has a signal of its own.
+  trap "" TERM
   nap=
   stop() {
-    trap "" TERM
     [ -z "$nap" ] || { kill -KILL "$nap"; wait "$nap"; }
     exit 0
   }
-  trap stop TERM
+  trap stop USR1
   sleep "$((limit + 2))" &
   nap=$!
-  wait "$nap" || exit 0
+  wait "$nap" || stop
   nap=
-  trap "" TERM
   kill -TERM -"$$"
   sleep 1
   kill -KILL -"$$"
@@ -421,7 +422,7 @@ await() {
   await 2 || :
 } | "$codex" app-server >"$out" 2>/dev/null
 # Stop and reap the timer, so a finished probe leaves nothing in its group.
-kill -TERM "$watch"
+kill -USR1 "$watch"
 wait "$watch"'
 
 clear_codex_trust_probe_processes() {
