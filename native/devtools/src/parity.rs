@@ -1,8 +1,9 @@
 use crate::common::*;
-use crate::hooks::{hook_command, key_block, Sandbox};
+use crate::hooks::{hook_command, hook_event, key_block, Sandbox};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 
 // What two runs of one build may differ in, and what is therefore left out of
@@ -21,9 +22,11 @@ struct Side {
     root: String,
     shell: Option<String>,
 }
-/// One thing a step changed: a label safe to publish, the name compared,
-/// and the bytes compared (empty where only the name is).
-type Change = (&'static str, String, Vec<u8>);
+/// One thing a step changed: a label safe to publish, the name compared, the
+/// permission bits, and the bytes compared (empty where only the name is).
+type Change = (&'static str, String, u32, Vec<u8>);
+/// An entry of the sandbox: its permission bits and what it holds.
+type Entry = (u32, Vec<u8>);
 struct Outcome {
     status: i32,
     stdout: Vec<u8>,
@@ -87,7 +90,8 @@ fn stable_name(path: &str) -> String {
 /// A directory is an entry of its own (named with a trailing slash): an
 /// empty one can be state. Anything that cannot be read fails the
 /// comparison; only an entry that vanished meanwhile is skipped.
-fn tree(base: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
+fn tree(base: &Path) -> Result<BTreeMap<String, Entry>> {
+    use std::os::unix::fs::PermissionsExt;
     fn gone<T>(result: std::io::Result<T>) -> Result<Option<T>> {
         match result {
             Ok(value) => Ok(Some(value)),
@@ -95,29 +99,34 @@ fn tree(base: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
             Err(error) => Err(format!("cannot read the state a step left: {error}").into()),
         }
     }
-    fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Vec<u8>>) -> Result<()> {
+    fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Entry>) -> Result<()> {
         let Some(entries) = gone(std::fs::read_dir(dir))? else {
             return Ok(());
         };
         for entry in entries {
             let Some(entry) = gone(entry)? else { continue };
             let name = format!("{prefix}/{}", entry.file_name().to_string_lossy());
-            let Some(kind) = gone(entry.file_type())? else {
+            let Some(meta) = gone(std::fs::symlink_metadata(entry.path()))? else {
                 continue;
             };
+            let mode = meta.permissions().mode() & 0o7777;
+            let kind = meta.file_type();
             if kind.is_dir() {
-                out.insert(format!("{name}/"), Vec::new());
+                out.insert(format!("{name}/"), (mode, Vec::new()));
                 walk(&entry.path(), &name, out)?;
             } else if kind.is_file() {
                 if let Some(bytes) = gone(std::fs::read(entry.path()))? {
-                    out.insert(name, bytes);
+                    out.insert(name, (mode, bytes));
                 }
             } else if kind.is_symlink() {
                 if let Some(target) = gone(std::fs::read_link(entry.path()))? {
-                    out.insert(name, format!("link to {}", target.display()).into_bytes());
+                    out.insert(
+                        name,
+                        (0, format!("link to {}", target.display()).into_bytes()),
+                    );
                 }
             } else {
-                out.insert(name, b"not a regular file".to_vec());
+                out.insert(name, (mode, b"not a regular file".to_vec()));
             }
         }
         Ok(())
@@ -130,93 +139,96 @@ fn tree(base: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
 }
 
 /// How one path is compared, and the label the report may show for it.
-fn change(path: &str, bytes: &[u8]) -> Change {
+fn change(path: &str, entry: &Entry) -> Change {
     const CACHES: [&str; 4] = [
         "s/agent-guard/gitleaks-probe",
         "s/agent-guard/gitleaks-clean/",
         "s/agent-guard/deny-path-regex-",
         "s/agent-guard/gitleaks-helper/",
     ];
+    // The index and the logs hold times; an object is named by its content.
+    const GIT_VOLATILE: [&str; 3] = ["repo/.git/index", "repo/.git/logs/", "repo/.git/objects/"];
+    let (mode, bytes) = (entry.0, entry.1.as_slice());
     let directory = path.ends_with('/');
     let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
-    if path.starts_with("s/") && name.starts_with("event-") {
-        let events: Vec<String> = String::from_utf8_lossy(bytes)
-            .lines()
-            .map(|line| match parse(line.as_bytes()) {
-                Ok(Value::Object(mut event)) => {
-                    for key in ["run_id", "time", "duration_seconds"] {
-                        event.remove(key);
+    let (label, name, bytes): (&'static str, String, Vec<u8>) =
+        if path.starts_with("s/") && name.starts_with("event-") {
+            let events: Vec<String> = String::from_utf8_lossy(bytes)
+                .lines()
+                .map(|line| match parse(line.as_bytes()) {
+                    Ok(Value::Object(mut event)) => {
+                        for key in ["run_id", "time", "duration_seconds"] {
+                            event.remove(key);
+                        }
+                        Value::Object(event).to_string()
                     }
-                    Value::Object(event).to_string()
-                }
-                _ => line.to_owned(),
-            })
-            .collect();
-        (
-            "audit-event",
-            format!("{dir}/event"),
-            events.join("\n").into_bytes(),
-        )
-    } else if CACHES.iter().any(|cache| path.starts_with(cache)) {
-        ("cache", stable_name(path), Vec::new())
-    } else if path.starts_with("s/") {
-        let label = if directory {
-            "state-directory"
+                    _ => line.to_owned(),
+                })
+                .collect();
+            (
+                "audit-event",
+                format!("{dir}/event"),
+                events.join("\n").into_bytes(),
+            )
+        } else if CACHES.iter().any(|cache| path.starts_with(cache)) {
+            ("cache", stable_name(path), Vec::new())
+        } else if path.starts_with("s/") {
+            let label = if directory {
+                "state-directory"
+            } else {
+                "state-file"
+            };
+            (label, stable_name(path), bytes.to_vec())
+        } else if path.starts_with("t/") {
+            let lines: Vec<&[u8]> = bytes
+                .split(|byte| *byte == b'\n')
+                .map(|line| {
+                    if !line.is_empty() && line.iter().all(u8::is_ascii_digit) {
+                        b"#".as_slice()
+                    } else {
+                        line
+                    }
+                })
+                .collect();
+            let label = if directory {
+                "temporary-directory"
+            } else {
+                "temporary-file"
+            };
+            (label, stable_name(path), lines.join(&b'\n'))
+        } else if path.starts_with("repo/.git/") {
+            let volatile = GIT_VOLATILE.iter().any(|prefix| path.starts_with(prefix));
+            (
+                "git-internal",
+                path.to_owned(),
+                if volatile { Vec::new() } else { bytes.to_vec() },
+            )
+        } else if path.starts_with("repo/") {
+            ("repository-file", path.to_owned(), bytes.to_vec())
         } else {
-            "state-file"
+            ("home-file", path.to_owned(), bytes.to_vec())
         };
-        (label, stable_name(path), bytes.to_vec())
-    } else if path.starts_with("t/") {
-        let lines: Vec<&[u8]> = bytes
-            .split(|byte| *byte == b'\n')
-            .map(|line| {
-                if !line.is_empty() && line.iter().all(u8::is_ascii_digit) {
-                    b"#".as_slice()
-                } else {
-                    line
-                }
-            })
-            .collect();
-        let label = if directory {
-            "temporary-directory"
-        } else {
-            "temporary-file"
-        };
-        (label, stable_name(path), lines.join(&b'\n'))
-    } else if path.starts_with("repo/.git/") {
-        let compared = path == "repo/.git/HEAD" || path.starts_with("repo/.git/refs/");
-        (
-            "git-internal",
-            path.to_owned(),
-            if compared { bytes.to_vec() } else { Vec::new() },
-        )
-    } else if path.starts_with("repo/") {
-        ("repository-file", path.to_owned(), bytes.to_vec())
-    } else {
-        ("home-file", path.to_owned(), bytes.to_vec())
-    }
+    (label, name, mode, bytes)
 }
 
 /// What one step changed, in a fixed order.
-fn transition(
-    before: &BTreeMap<String, Vec<u8>>,
-    after: &BTreeMap<String, Vec<u8>>,
-) -> Vec<Change> {
+fn transition(before: &BTreeMap<String, Entry>, after: &BTreeMap<String, Entry>) -> Vec<Change> {
     let mut out: Vec<Change> = after
         .iter()
-        .filter(|(path, bytes)| before.get(*path) != Some(bytes))
-        .map(|(path, bytes)| change(path, bytes))
+        .filter(|(path, entry)| before.get(*path) != Some(entry))
+        .map(|(path, entry)| change(path, entry))
         .collect();
     for path in before.keys().filter(|path| !after.contains_key(*path)) {
-        out.push(("removed", change(path, b"").1, Vec::new()));
+        out.push(("removed", change(path, &(0, Vec::new())).1, 0, Vec::new()));
     }
     out.sort();
     out
 }
 
-/// The dispatch a host reads from a plugin manifest: everything but the
-/// command text, which is compared by running it.
-fn dispatch(root: &str, host: &str) -> Result<Value> {
+/// What a host reads from a plugin manifest. The command of an event that a
+/// step ran is left out: it was compared by running it. Every other command
+/// is compared as text, so a change this corpus did not exercise still shows.
+fn dispatch(root: &str, host: &str, ran: &[(String, String)]) -> Result<Value> {
     let file = if host == "codex" {
         "hooks.json"
     } else {
@@ -236,16 +248,21 @@ fn dispatch(root: &str, host: &str) -> Result<Value> {
                     .is_some_and(|hooks| hooks.len() == 1),
             format!("the {host} manifest has more than one command for {event}"),
         )?;
-        groups[0]["hooks"][0]
-            .as_object_mut()
-            .ok_or("invalid plugin manifest")?
-            .remove("command");
+        if ran.iter().any(|(h, e)| h == host && e == event) {
+            groups[0]["hooks"][0]
+                .as_object_mut()
+                .ok_or("invalid plugin manifest")?
+                .remove("command");
+        }
     }
     Ok(manifest)
 }
 
 /// A fixed word for what the host is told: never a value from the output.
 fn decision(status: i32, stdout: &[u8]) -> String {
+    if status < 0 {
+        return format!("signal-{}", -status);
+    }
     if status == 2 {
         return "block".into();
     }
@@ -317,8 +334,44 @@ fn compared(a: &[u8], b: &[u8]) -> Value {
     json!({"equal": a == b, "bytes": [a.len(), b.len()], "first_difference": first})
 }
 
+/// The report of a comparison that could not start or finish says so; an
+/// earlier report at the same path never outlives a failed run.
 pub fn differential(args: &Args) -> Result<()> {
     let out_path = std::path::PathBuf::from(args.get("--out")?);
+    match std::fs::remove_file(&out_path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+        _ => {}
+    }
+    if let Some(parent) = out_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    let result = compare(args, &out_path);
+    if let (Err(error), false) = (&result, out_path.exists()) {
+        write_json(
+            &out_path,
+            &json!({"tool": "cli-differential", "complete": false, "aborted": {"case": null, "error": error.to_string()}}),
+        )?;
+    }
+    result
+}
+
+/// The commands a report may name; any other first argument is "other".
+const COMMANDS: [&str; 12] = [
+    "hook-pre-tool",
+    "hook-post-tool",
+    "hook-post-tool-failure",
+    "hook-stop",
+    "hook-user-prompt",
+    "hook-session-start",
+    "scan-staged",
+    "scan-working-tree",
+    "scan-path",
+    "exec",
+    "pii-filter",
+    "version",
+];
+
+fn compare(args: &Args, out_path: &Path) -> Result<()> {
     let timeout: f64 = args.opt("--timeout", "60").parse()?;
     ensure(
         timeout.is_finite() && timeout > 0.0,
@@ -403,7 +456,14 @@ pub fn differential(args: &Args) -> Result<()> {
                 Some(Ok(fields)) => fields.iter().all(|(key, value)| {
                     value.is_string()
                         && if key_ok {
+                            // A path in the environment stays inside the
+                            // sandbox both sides are rebuilt from, or names
+                            // nothing at all.
+                            let path = value.as_str().unwrap_or_default();
                             key.starts_with("AGENT_GUARD_")
+                                && (!path.starts_with('/')
+                                    || path.starts_with("/nonexistent/")
+                                    || Path::new(path).starts_with(&sandbox.base))
                         } else {
                             !key.starts_with('/') && !key.split('/').any(|part| part == "..")
                         }
@@ -422,16 +482,6 @@ pub fn differential(args: &Args) -> Result<()> {
         )?;
     }
     ensure(!cases.is_empty(), "the corpus has no case")?;
-    // An earlier report must not outlive a comparison that fails to finish.
-    match std::fs::remove_file(&out_path) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
-        _ => {}
-    }
-    // Made before anything runs: a comparison must not end without its report.
-    if let Some(parent) = out_path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent)?;
-    }
-
     let run_case = |case: &Value, side: &Side| -> Result<Vec<Outcome>> {
         sandbox.reset()?;
         let repo = Path::new(&sandbox.repo);
@@ -488,7 +538,11 @@ pub fn differential(args: &Args) -> Result<()> {
             let state = transition(&before, &tree(&sandbox.base)?);
             let own = |bytes: &[u8]| replace(bytes, side.root.as_bytes(), b"<cli-root>");
             outcomes.push(Outcome {
-                status: out.status.code().unwrap_or(-1),
+                // A signal is its negative number: never a status a program exits with.
+                status: out
+                    .status
+                    .code()
+                    .unwrap_or_else(|| -out.status.signal().unwrap_or(0)),
                 stdout: own(&out.stdout),
                 stderr: own(&out.stderr),
                 state,
@@ -499,19 +553,6 @@ pub fn differential(args: &Args) -> Result<()> {
 
     let mut rows = Vec::new();
     let mut different = Vec::new();
-    if manifest {
-        for host in ["claude", "codex"] {
-            if dispatch(&sides[0].root, host)? != dispatch(&sides[1].root, host)? {
-                let name = if host == "codex" {
-                    "manifest-dispatch-codex"
-                } else {
-                    "manifest-dispatch-claude"
-                };
-                eprintln!("DIFFERENT {name}");
-                different.push(name);
-            }
-        }
-    }
     // A step that cannot run ends the comparison; the report then says it is
     // incomplete instead of leaving an earlier result in place.
     let mut aborted = Value::Null;
@@ -533,7 +574,7 @@ pub fn differential(args: &Args) -> Result<()> {
             let decisions = [decision(a.status, &a.stdout), decision(b.status, &b.stdout)];
             let labels = |o: &Outcome| {
                 let mut counts = BTreeMap::new();
-                for (label, _, _) in &o.state {
+                for (label, _, _, _) in &o.state {
                     *counts.entry(*label).or_insert(0) += 1;
                 }
                 json!(counts)
@@ -547,13 +588,17 @@ pub fn differential(args: &Args) -> Result<()> {
                 // Names can hold a session identifier: standard error only,
                 // and only when asked, for a synthetic corpus.
                 for (side, own, other) in [("baseline", a, b), ("candidate", b, a)] {
-                    for (label, name, _) in own.state.iter().filter(|c| !other.state.contains(c)) {
+                    for (label, name, _, _) in own.state.iter().filter(|c| !other.state.contains(c))
+                    {
                         eprintln!("  only {side}: {label} {name}");
                     }
                 }
             }
             steps.push(json!({
-                "command": case["steps"][index]["args"][0],
+                "command": COMMANDS
+                    .iter()
+                    .find(|known| case["steps"][index]["args"][0] == **known)
+                    .unwrap_or(&"other"),
                 "equal": same,
                 "status": [a.status, b.status],
                 "decision": decisions,
@@ -567,6 +612,37 @@ pub fn differential(args: &Args) -> Result<()> {
             different.push(name);
         }
         rows.push(json!({"name": name, "host": case["host"].as_str().unwrap_or("claude"), "equal": equal, "steps": steps}));
+    }
+    // Manifest commands a step ran were compared by running them; the rest
+    // of each manifest, the other commands included, is compared as text.
+    let mut commands_run = Vec::new();
+    if manifest && aborted.is_null() {
+        let mut ran: Vec<(String, String)> = Vec::new();
+        for case in &cases {
+            let host = case["host"].as_str().unwrap_or("claude");
+            for step in case["steps"].as_array().unwrap() {
+                let args = step["args"].as_array().unwrap();
+                if let (1, Some(event)) = (args.len(), args[0].as_str().and_then(hook_event)) {
+                    if !ran.iter().any(|(h, e)| h == host && e == event) {
+                        ran.push((host.to_owned(), event.to_owned()));
+                    }
+                }
+            }
+        }
+        for (host, name) in [
+            ("claude", "manifest-dispatch-claude"),
+            ("codex", "manifest-dispatch-codex"),
+        ] {
+            if dispatch(&sides[0].root, host, &ran)? != dispatch(&sides[1].root, host, &ran)? {
+                eprintln!("DIFFERENT {name}");
+                different.push(name);
+            }
+        }
+        commands_run = ran
+            .iter()
+            .map(|(host, event)| format!("{host} {event}"))
+            .collect();
+        commands_run.sort();
     }
     let describe = |side: &Side| -> Result<Value> {
         Ok(json!({"sha256": hash(&side.cli)?, "shell": side.shell}))
@@ -582,6 +658,7 @@ pub fn differential(args: &Args) -> Result<()> {
         "corpus_sha256": hash(&corpus_path)?,
         "compared": "exit status, decision, standard output and standard error byte for byte, audit events and the files each step left",
         "not_compared": UNSTABLE,
+        "manifest_commands_run": commands_run,
         "case_count": rows.len(),
         "complete": aborted.is_null(),
         "aborted": aborted,
@@ -591,7 +668,7 @@ pub fn differential(args: &Args) -> Result<()> {
     // The report is stored first: a closed standard output must not lose it.
     let mut full = report.clone();
     full["cases"] = json!(rows);
-    write_json(&out_path, &full)?;
+    write_json(out_path, &full)?;
     {
         use std::io::Write;
         let mut text = serde_json::to_string_pretty(&report)?;
@@ -670,9 +747,9 @@ mod tests {
     }
     #[test]
     fn a_step_is_what_it_changed_without_times_and_identities() {
-        let files = |rows: &[(&str, &str)]| -> BTreeMap<String, Vec<u8>> {
+        let files = |rows: &[(&str, &str)]| -> BTreeMap<String, Entry> {
             rows.iter()
-                .map(|(path, text)| (path.to_string(), text.as_bytes().to_vec()))
+                .map(|(path, text)| (path.to_string(), (0o600, text.as_bytes().to_vec())))
                 .collect()
         };
         let event = |id: &str, time: u32, outcome: &str| {
@@ -743,7 +820,7 @@ mod tests {
         );
         let names: Vec<_> = a
             .iter()
-            .map(|(label, name, _)| (*label, name.as_str()))
+            .map(|(label, name, _, _)| (*label, name.as_str()))
             .collect();
         assert_eq!(
             names,
@@ -764,7 +841,8 @@ mod tests {
     }
     #[test]
     fn what_is_compared_depends_on_where_a_file_is() {
-        // Content counts everywhere but in caches and Git's own bookkeeping.
+        let entry = |mode: u32, text: &str| (mode, text.as_bytes().to_vec());
+        // Content counts everywhere but in caches and where Git keeps times.
         for (path, compared) in [
             ("s/agent-guard/gitleaks-clean/17e87020352c6b96", false),
             ("s/agent-guard/deny-path-regex-literal-3.13.9:1:2", false),
@@ -773,16 +851,34 @@ mod tests {
             ("home/left-behind", true),
             ("repo/notes.md", true),
             ("repo/.git/index", false),
+            ("repo/.git/logs/HEAD", false),
+            ("repo/.git/objects/ab/cdef", false),
             ("repo/.git/HEAD", true),
+            ("repo/.git/config", true),
             ("repo/.git/refs/heads/main", true),
         ] {
             assert_eq!(
-                change(path, b"one") != change(path, b"two"),
+                change(path, &entry(0o600, "one")) != change(path, &entry(0o600, "two")),
                 compared,
                 "{path}"
             );
+            // Permission bits count everywhere, caches included.
+            assert_ne!(
+                change(path, &entry(0o600, "one")),
+                change(path, &entry(0o644, "one")),
+                "{path}"
+            );
         }
-        assert_eq!(change("t/left-empty/", b"").0, "temporary-directory");
-        assert_eq!(change("home/x", b"").0, "home-file");
+        assert_eq!(
+            change("t/left-empty/", &entry(0o700, "")).0,
+            "temporary-directory"
+        );
+        assert_eq!(change("home/x", &entry(0o600, "")).0, "home-file");
+    }
+    #[test]
+    fn a_signal_is_not_an_exit_status() {
+        assert_eq!(decision(-15, b""), "signal-15");
+        assert_ne!(decision(-15, b""), decision(-9, b""));
+        assert_eq!(decision(143, b""), "exit-143");
     }
 }

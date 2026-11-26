@@ -195,6 +195,19 @@ impl Sandbox {
     }
 }
 
+/// The host event a hook subcommand answers.
+pub fn hook_event(sub: &str) -> Option<&'static str> {
+    Some(match sub {
+        "hook-pre-tool" => "PreToolUse",
+        "hook-post-tool" => "PostToolUse",
+        "hook-post-tool-failure" => "PostToolUseFailure",
+        "hook-stop" => "Stop",
+        "hook-session-start" => "SessionStart",
+        "hook-user-prompt" => "UserPromptSubmit",
+        _ => return None,
+    })
+}
+
 /// The command a host runs for one hook: the CLI itself, or the host's
 /// plugin manifest command, which goes through the launcher.
 pub fn hook_command(
@@ -225,15 +238,7 @@ pub fn hook_command(
     } else {
         ("hooks/hooks.json", "CLAUDE_PLUGIN_ROOT")
     };
-    let event = match sub {
-        "hook-pre-tool" => "PreToolUse",
-        "hook-post-tool" => "PostToolUse",
-        "hook-post-tool-failure" => "PostToolUseFailure",
-        "hook-stop" => "Stop",
-        "hook-session-start" => "SessionStart",
-        "hook-user-prompt" => "UserPromptSubmit",
-        _ => return Err(format!("no hook event for {sub}").into()),
-    };
+    let event = hook_event(sub).ok_or_else(|| format!("no hook event for {sub}"))?;
     let hooks = read_json(root.join(file))?;
     let command = hooks["hooks"][event][0]["hooks"][0]["command"]
         .as_str()

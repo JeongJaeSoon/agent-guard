@@ -677,7 +677,7 @@
       "command": "make show"
      },
      "tool_response": {
-      "stdout": "build passed\nAPI_KEY={{HEX}}\ndone\n",
+      "stdout": "build passed\nAPI_KEY=[REDACTED]done\n",
       "stderr": "",
       "interrupted": false
      }
@@ -918,7 +918,7 @@
      "tool_input": {
       "id": 8
      },
-     "tool_response": "status ok\nAPI_KEY={{HEX}}\n"
+     "tool_response": "status ok\nAPI_KEY=[REDACTED]"
     }
    }
   ]
@@ -1222,7 +1222,7 @@
       "command": "make show"
      },
      "tool_response": {
-      "stdout": "build passed\nAPI_KEY={{HEX}}\n",
+      "stdout": "build passed\nAPI_KEY=[REDACTED]",
       "stderr": "",
       "interrupted": false
      }
@@ -1284,6 +1284,23 @@
      "hook_event_name": "Stop",
      "session_id": "parity",
      "cwd": "{{REPO}}"
+    }
+   }
+  ]
+ },
+ {
+  "name": "codex-session-start",
+  "host": "codex",
+  "steps": [
+   {
+    "args": [
+     "hook-session-start"
+    ],
+    "input": {
+     "hook_event_name": "SessionStart",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "source": "startup"
     }
    }
   ]
@@ -1402,7 +1419,7 @@
       "command": "make show"
      },
      "tool_response": {
-      "stdout": "API_KEY={{HEX}}\n",
+      "stdout": "API_KEY=[REDACTED]",
       "stderr": "",
       "interrupted": false
      }
@@ -1438,7 +1455,7 @@
  {
   "name": "cli-exec-assignment",
   "files": {
-   "out.txt": "build passed\nAPI_KEY={{HEX}}\n"
+   "out.txt": "build passed\nAPI_KEY=[REDACTED]"
   },
   "steps": [
    {
@@ -1518,6 +1535,370 @@
      "no-such-command"
     ],
     "stdin": ""
+   }
+  ]
+ },
+ {
+  "name": "unicode-pre-bash-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "echo \"한국어 메시지 😀\" > 메모.txt && ls 문서"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-pre-bash-protected-path",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "cat 설정/.env"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-pre-bash-key-block",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "printf '%s' '비밀: {{KEY_BLOCK}}'"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-pre-bash-long",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "echo \"가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하\""
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-pre-bash-git-commit",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "git commit -m \"문서 갱신: 日本語 😀\""
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-pre-write-token",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Write",
+     "tool_input": {
+      "file_path": "{{REPO}}/문서/설정.txt",
+      "content": "비밀 값: {{TOKEN}} 입니다\n"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-pre-write-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Write",
+     "tool_input": {
+      "file_path": "{{REPO}}/문서/메모.md",
+      "content": "# 메모\n日本語の行\n😀 이모지\n"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-pre-read-path",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Read",
+     "tool_input": {
+      "file_path": "{{REPO}}/문서/읽기.md"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-pre-read-protected-path",
+  "steps": [
+   {
+    "args": [
+     "hook-pre-tool"
+    ],
+    "input": {
+     "hook_event_name": "PreToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Read",
+     "tool_input": {
+      "file_path": "{{REPO}}/설정/.env"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-post-bash-assignment",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make show"
+     },
+     "tool_response": {
+      "stdout": "결과 😀\nAPI_KEY=[REDACTED]\n完了\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-post-bash-key-block",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make show"
+     },
+     "tool_response": {
+      "stdout": "출력 시작\n{{KEY_BLOCK}}끝 😀\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-post-bash-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make test"
+     },
+     "tool_response": {
+      "stdout": "빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n빌드 통과 😀\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-post-mcp-nested-token",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "mcp__notes__read",
+     "tool_input": {
+      "id": 9
+     },
+     "tool_response": {
+      "items": [
+       {
+        "text": "평문"
+       },
+       {
+        "text": "값 {{TOKEN}} 😀"
+       }
+      ]
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-prompt-clean",
+  "steps": [
+   {
+    "args": [
+     "hook-user-prompt"
+    ],
+    "input": {
+     "hook_event_name": "UserPromptSubmit",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "prompt": "日本語のプロンプト 😀 を要約して"
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-prompt-key-block",
+  "steps": [
+   {
+    "args": [
+     "hook-user-prompt"
+    ],
+    "input": {
+     "hook_event_name": "UserPromptSubmit",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "prompt": "이게 뭐죠?\n{{KEY_BLOCK}}"
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-prompt-assignment",
+  "steps": [
+   {
+    "args": [
+     "hook-user-prompt"
+    ],
+    "input": {
+     "hook_event_name": "UserPromptSubmit",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "prompt": "설정은 API_KEY=[REDACTED] 입니다"
+    }
+   }
+  ]
+ },
+ {
+  "name": "unicode-exec-assignment",
+  "files": {
+   "출력.txt": "결과 😀\nAPI_KEY=[REDACTED]\n"
+  },
+  "steps": [
+   {
+    "args": [
+     "exec",
+     "--",
+     "cat",
+     "출력.txt"
+    ],
+    "stdin": ""
+   }
+  ]
+ },
+ {
+  "name": "unicode-codex-post-bash-assignment",
+  "host": "codex",
+  "steps": [
+   {
+    "args": [
+     "hook-post-tool"
+    ],
+    "input": {
+     "hook_event_name": "PostToolUse",
+     "session_id": "parity",
+     "cwd": "{{REPO}}",
+     "tool_name": "Bash",
+     "tool_input": {
+      "command": "make show"
+     },
+     "tool_response": {
+      "stdout": "결과\nAPI_KEY=[REDACTED]\n",
+      "stderr": "",
+      "interrupted": false
+     }
+    }
    }
   ]
  }

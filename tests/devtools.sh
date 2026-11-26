@@ -291,8 +291,48 @@ for bad in bad-corpus.json empty-corpus.json; do
   if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --corpus "$CASE/$bad" --out "$CASE/parity-bad.json" >/dev/null 2>&1; then
     echo "cli-differential accepted $bad" >&2; exit 1
   fi
-  test ! -e "$CASE/parity-bad.json"
+  jq -e '(.complete | not) and (.aborted.error | type) == "string" and (has("cases") | not)' "$CASE/parity-bad.json" >/dev/null
 done
+# A request that fails before anything runs still replaces an earlier report.
+cp "$CASE/parity-same.json" "$CASE/parity-replaced.json"
+if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --case no-such-case --out "$CASE/parity-replaced.json" >/dev/null 2>&1; then
+  echo 'cli-differential accepted an unknown case' >&2; exit 1
+fi
+jq -e '(.complete | not)' "$CASE/parity-replaced.json" >/dev/null
+# The report names only commands it knows, and a corpus cannot point the CLI's
+# writes outside the sandbox both sides are rebuilt from.
+printf '%s\n' '[{"name":"odd","steps":[{"args":["customer-file-name.txt"],"stdin":""}]}]' >"$CASE/odd-corpus.json"
+"$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --corpus "$CASE/odd-corpus.json" --out "$CASE/parity-odd.json" >/dev/null 2>&1
+jq -e '.differences == 0 and .cases[0].steps[0].command == "other"' "$CASE/parity-odd.json" >/dev/null
+if grep -q 'customer-file-name' "$CASE/parity-odd.json"; then
+  echo 'a differential report holds a corpus argument' >&2; exit 1
+fi
+jq -c --arg dir "$CASE/outside" '[.[] | select(.name == "scanner-missing-open") | .env.AGENT_GUARD_WARNING_DIR = $dir]' \
+  tests/fixtures/cli-differential.json >"$CASE/outside-corpus.json"
+if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --corpus "$CASE/outside-corpus.json" --out "$CASE/parity-outside.json" >/dev/null 2>&1; then
+  echo 'cli-differential let a corpus write outside the sandbox' >&2; exit 1
+fi
+test ! -e "$CASE/outside"
+# Two builds that leave the same files with other permission bits differ.
+mkdir "$CASE/modes"
+cp -R plugins/agent-guard "$CASE/modes/agent-guard"
+awk 'NR == 2 { print; print ": >\"$HOME/mode-probe\"; chmod 644 \"$HOME/mode-probe\""; next } { print }' "$GUARD" >"$CASE/modes/agent-guard/bin/agent-guard"
+awk 'NR == 2 { print; print ": >\"$HOME/mode-probe\"; chmod 600 \"$HOME/mode-probe\""; next } { print }' "$GUARD" >"$CASE/litter/agent-guard/bin/agent-guard"
+if "$TOOLS" cli-differential --baseline "$CASE/litter/agent-guard/bin/agent-guard" --candidate "$CASE/modes/agent-guard/bin/agent-guard" --scanner "$MOCK" \
+    --case pre-read-clean --out "$CASE/parity-modes.json" >/dev/null 2>&1; then
+  echo 'cli-differential missed a permission change' >&2; exit 1
+fi
+jq -e '.differences == 1 and (.cases[0].steps[0] | .stdout.equal and .stderr.equal and (.state.equal | not)
+  and .state.changes.baseline == .state.changes.candidate)' "$CASE/parity-modes.json" >/dev/null
+# A manifest command no step ran is compared as text.
+mkdir "$CASE/unrun"
+cp -R plugins/agent-guard "$CASE/unrun/agent-guard"
+jq '.hooks.SessionStart[0].hooks[0].command += " # changed"' plugins/agent-guard/hooks.json >"$CASE/unrun/agent-guard/hooks.json"
+if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$CASE/unrun/agent-guard/bin/agent-guard" --scanner "$MOCK" --entry manifest \
+    --case codex-pre-bash-clean --out "$CASE/parity-unrun.json" >/dev/null 2>&1; then
+  echo 'cli-differential missed a manifest command it did not run' >&2; exit 1
+fi
+jq -e '.different_cases == ["manifest-dispatch-codex"] and .manifest_commands_run == ["codex PreToolUse"]' "$CASE/parity-unrun.json" >/dev/null
 # A repeated option keeps its last value.
 test ! -e "$CASE/ignored-out"
 printf 'Developer tools: option parsing, resource status, source-location and failed-partition contracts passed\n'
