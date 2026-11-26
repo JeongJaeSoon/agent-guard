@@ -31,7 +31,9 @@ security tiers or test-pyramid layers.
 The hook launcher and the CLI read these so that tests can isolate warning
 markers. They are not user settings. The CLI also keys the recovery notice it
 queues for a blocked injected prompt on both, so a test of that recovery keeps
-both the same across its hook calls.
+both the same across its hook calls. The notice is queued only in a directory
+that is private: let the CLI create it, or create it as a non-symlink owned by
+the current user with mode `0700`.
 
 | Variable | Use |
 | --- | --- |

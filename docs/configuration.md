@@ -702,7 +702,7 @@ PII settings, used with [PII handling](#pii-handling):
 | `AGENT_GUARD_PII_PROVIDER` | `regex` (default), `http`, or `pleno`. |
 | `AGENT_GUARD_PII_REDACT_URL` | Required user-controlled endpoint for the remote PII providers. |
 | `AGENT_GUARD_PII_SKIP` | Local-regex opt-out for `EMAIL`, `PHONE`, and `IP_ADDRESS` only. |
-| `AGENT_GUARD_PII_LANGUAGE` / `AGENT_GUARD_PII_TIMEOUT_SECONDS` | Provider language and positive timeout control. |
+| `AGENT_GUARD_PII_LANGUAGE` / `AGENT_GUARD_PII_TIMEOUT_SECONDS` | Provider language and positive timeout control (default `30` seconds). A hook request to the provider waits at most 5 seconds, whatever the value; `pii-filter` run directly uses the value. |
 
 ### Compatibility and hardening switches
 
