@@ -258,7 +258,7 @@ if [ -n "${AGENT_GUARD_GITLEAKS_BIN_DIR:-}" ]; then
   GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_GITLEAKS_BIN_DIR
 elif [ -n "${AGENT_GUARD_BIN_DIR:-}" ]; then
   if [ -e "$AGENT_GUARD_BIN_DIR/gitleaks" ] || [ -L "$AGENT_GUARD_BIN_DIR/gitleaks" ] \
-      || [ -f "$AGENT_GUARD_BIN_DIR/gitleaks-helper/SHA256SUMS" ]; then
+      || [ -x "$AGENT_GUARD_BIN_DIR/gitleaks-helper/agent-guard-scan" ]; then
     GITLEAKS_PRIVATE_BIN_DIR=$AGENT_GUARD_BIN_DIR
     GITLEAKS_BIN_DIR_LEGACY=1
   elif [ -n "${HOME:-}" ]; then

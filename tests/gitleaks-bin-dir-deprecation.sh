@@ -174,7 +174,8 @@ expect "and says that AGENT_GUARD_BIN_DIR no longer chooses where it goes" \
 H="$CASE/home-install-helper-only"
 HELPER_ONLY="$CASE/helper-only-bin"
 mkdir -p "$HELPER_ONLY/gitleaks-helper"
-: >"$HELPER_ONLY/gitleaks-helper/SHA256SUMS"
+printf '#!/bin/sh\nexit 0\n' >"$HELPER_ONLY/gitleaks-helper/agent-guard-scan"
+chmod +x "$HELPER_ONLY/gitleaks-helper/agent-guard-scan"
 run "$H" AGENT_GUARD_BIN_DIR="$HELPER_ONLY" AGENT_GUARD_GITLEAKS_HELPER=off \
   "$GUARD" setup --install --gitleaks-version 8.30.1 --gitleaks-checksum "$SUM"
 expect "deprecated: a directory with only a helper installed earlier stays the gitleaks directory, with the notice" \
@@ -187,6 +188,9 @@ make_gitleaks "$H/.agent-guard/bin"
 scan "$H" AGENT_GUARD_BIN_DIR="$EMPTY_HELPER"
 expect "an empty helper directory left in AGENT_GUARD_BIN_DIR does not make it the gitleaks directory" \
   'scanned_with "$H/.agent-guard/bin"'
+: >"$EMPTY_HELPER/gitleaks-helper/SHA256SUMS"
+scan "$H" AGENT_GUARD_BIN_DIR="$EMPTY_HELPER"
+expect "nor does a helper directory with only its sums left" 'scanned_with "$H/.agent-guard/bin"'
 NO_HOME_LINKS="$CASE/no-home-links"
 mkdir -p "$NO_HOME_LINKS"
 env -u HOME -u AGENT_GUARD_GITLEAKS_BIN_DIR PATH="$TOOLS" XDG_STATE_HOME="$CASE/state" AGENT_GUARD_LOG_MODE=off \
