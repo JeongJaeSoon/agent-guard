@@ -365,6 +365,21 @@ jobs:
           elif [ "$SOURCE_SHA" = "$RELEASE_SHA" ]; then
             git fetch origin main
             [ "$(git rev-parse origin/main)" = "$SOURCE_SHA" ] || exit 1
+            # The merge push starts the rest; a required workflow without a
+            # push trigger would otherwise never report on this SHA.
+            cut -f1 .github/release-checks.tsv | sort -u | while IFS= read -r workflow; do
+              if awk '/^on:$/ { on = 1; next } on && /^[a-z]/ { exit } on' ".github/workflows/$workflow" | grep -Eq '^  push:'; then
+                continue
+              fi
+              if sh .github/scripts/release-checks.sh "$SOURCE_SHA" 0 "$workflow" > /dev/null 2>&1; then
+                echo "$workflow already passed at $SOURCE_SHA; not dispatching again"
+              else
+                # A dispatch takes a branch, not a SHA: refuse once main moved.
+                git fetch origin main
+                [ "$(git rev-parse origin/main)" = "$SOURCE_SHA" ] || exit 1
+                gh workflow run "$workflow" --ref main
+              fi
+            done
             gh workflow run performance.yml --ref main
           fi
       - name: Wait for candidate checks and measurement
