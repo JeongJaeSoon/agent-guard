@@ -10,7 +10,9 @@ set -u
 #   plugins/agent-guard/scripts/gitleaks-checksum.sh [VERSION]
 #
 # When VERSION is omitted, defaults to the value pinned in action.yml.
-# Override the source URL via AGENT_GUARD_GITLEAKS_CHECKSUMS_URL (used by tests).
+# Tests override the source URL with AGENT_GUARD_GITLEAKS_CHECKSUMS_URL under
+# AG_PLUGIN_TEST_MODE=1. Outside that mode the override is deprecated: still
+# honored, with a warning, until a later release ignores it (CHANGELOG).
 
 DEFAULT_VERSION=8.30.1
 
@@ -41,6 +43,10 @@ case "$LOCAL_ARCH" in
 esac
 
 URL=${AGENT_GUARD_GITLEAKS_CHECKSUMS_URL:-"https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_checksums.txt"}
+# The warning names the setting, never its value.
+if [ -n "${AGENT_GUARD_GITLEAKS_CHECKSUMS_URL:-}" ] && [ "${AG_PLUGIN_TEST_MODE:-0}" != 1 ]; then
+  printf '%s\n' 'gitleaks-checksum: AGENT_GUARD_GITLEAKS_CHECKSUMS_URL is deprecated outside tests (AG_PLUGIN_TEST_MODE=1): it is still used now, but a later release ignores it and always fetches the published gitleaks checksums. Unset it to use them now.' >&2
+fi
 
 command -v curl >/dev/null 2>&1 || {
   printf 'gitleaks-checksum: curl is required\n' >&2

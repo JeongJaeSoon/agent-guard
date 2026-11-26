@@ -1,3 +1,8 @@
+### Deprecated
+
+- 테스트 밖에서 `AGENT_GUARD_GITLEAKS_CHECKSUMS_URL`로 `agent-guard checksum`이 해시를 받아 오는 주소를 바꾸는 것. 이제 `AG_PLUGIN_TEST_MODE=1` 아래의 테스트 이음매입니다. 폐기 기간에는 테스트 밖에서도 지금처럼 그 주소를 쓰되, 설정 이름만 적은 경고를 냅니다. 그 뒤로는 테스트 밖에서 무시하고 게시된 gitleaks checksums만 받습니다.
+- 테스트 밖에서 `AGENT_GUARD_REPO`로 `bootstrap.sh`가 설치할 저장소를 바꾸는 것. 포크 설치는 지원하지 않습니다(`agent-guard update`는 이미 프로젝트 저장소에서 받습니다). 이제 `AG_PLUGIN_TEST_MODE=1` 아래의 테스트 이음매이고, 폐기 기간에는 테스트 밖에서도 그 저장소를 쓰되 설정 이름만 적은 경고를 냅니다. 그 뒤로는 테스트 밖에서 무시하고 프로젝트 저장소에서 설치합니다.
+- 두 항목 모두 없애는 조건: 이 경고가 처음 들어간 릴리스 뒤로 minor 릴리스 2번과 30일이 모두 지난 뒤(둘 중 늦은 쪽). 그 릴리스의 CHANGELOG "Removed"에 적습니다.
 ## v3.13.9 - 2026-11-26
 
 - feat(bash): 리뷰 세션이 다른 세션 소유 컨테이너에 들어가지 못하게 한다 (#677)
