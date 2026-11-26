@@ -28,9 +28,11 @@ merged_pr() {
     [.[] | select(.merged_at != null and .merge_commit_sha == $sha
       and .base.ref == "main" and .head.repo.full_name == $repo)]
     | select(length == 1) | .[0]' "$work/prs" > "$work/pr" || return 2
-  if jq -e '(.labels | any(.name == "release")) or (.head.ref | startswith("release/"))' "$work/pr" > /dev/null; then
-    return 1
-  fi
+  kind=$(jq -er '
+    if (.labels | type) == "array" and (.head.ref | type) == "string" then
+      if (.labels | any(.name == "release")) or (.head.ref | startswith("release/")) then "release" else "ordinary" end
+    else error("malformed PR") end' "$work/pr") || return 2
+  [ "$kind" = ordinary ] || return 1
   ordinary=true
 }
 pr_tree_passed() {
@@ -56,9 +58,11 @@ pr_tree_passed() {
 schedule_passed() {
   gh api "repos/$repo/actions/workflows/$workflow/runs?head_sha=$sha&event=schedule&per_page=100" > "$work/runs" || return 2
   jq -e '.workflow_runs | type == "array"' "$work/runs" > /dev/null || return 2
+  # The newest earlier nightly decides: a later failure is never hidden by an
+  # older success at the same commit.
   jq -e --arg sha "$sha" --arg path ".github/workflows/$workflow" --argjson self "${GITHUB_RUN_ID:?}" '
-    any(.workflow_runs[]; .head_sha == $sha and .event == "schedule" and .path == $path
-      and .id != $self and .status == "completed" and .conclusion == "success")' "$work/runs" > /dev/null || return 1
+    [.workflow_runs[] | select(.head_sha == $sha and .event == "schedule" and .path == $path and .id != $self)]
+    | max_by(.id) | .status == "completed" and .conclusion == "success"' "$work/runs" > /dev/null || return 1
   printf 'source_sha=%s\n' "$sha"
 }
 reuse=false

@@ -36,6 +36,8 @@ env:
 jobs:
   release-evidence:
     runs-on: ubuntu-latest
+    # Agent Guard waits for this job; a stalled lookup must not hold it.
+    timeout-minutes: 5
     permissions:
       actions: read
       contents: read
@@ -47,7 +49,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 0
+          # Only a main push compares release history; other events read no
+          # history here.
+          fetch-depth: ${{ github.event_name == 'push' && 0 || 1 }}
           persist-credentials: false
       - id: release
         env:

@@ -408,6 +408,9 @@ expect_tested 'reuse=false ordinary=false ' 'a failed artifact download keeps th
 grep -Fq 'Tested-tree evidence unavailable' "$case_dir/tested.err" || fail 'a failed lookup is visible'
 # Unreadable evidence is a failed lookup, not a valid mismatch.
 ordinary_pr
+edit_fixture prs.json '.[0].labels = null'
+expect_tested 'reuse=false ordinary=false ' 'PR metadata without labels keeps the full matrix'
+ordinary_pr
 printf 'not json\n' > "$case_dir/ci.yml.json"
 expect_tested 'reuse=false ordinary=false ' 'malformed run JSON keeps the full matrix'
 ordinary_pr
@@ -428,6 +431,12 @@ nightly() { # $1 jq edit of the one schedule run
 }
 nightly .
 expect_tested 'reuse=true ordinary=false ' 'an unchanged main skips the nightly run'
+nightly '.'
+edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 10 | .conclusion = "failure"]'
+expect_tested 'reuse=false ordinary=false ' 'a later failed nightly at the same commit runs again'
+nightly '.'
+edit_fixture ci.yml.json '.workflow_runs += [.workflow_runs[0] | .id = 4 | .conclusion = "failure"]'
+expect_tested 'reuse=true ordinary=false ' 'an older failure before the green nightly does not count'
 for change in '.id = 9' '.conclusion = "failure"' '.status = "in_progress"' '.event = "push"' \
   '.head_sha = "0000000000000000000000000000000000000000"' '.path = ".github/workflows/other.yml"'; do
   nightly "$change"
