@@ -11,24 +11,32 @@ set -u
 # a plugin update removes meanwhile cannot end dash with a status that reads
 # as a verdict. If the file cannot be opened, descriptor 9 is the caller's, or
 # dash cannot start (execfail), this shell runs the script as before. The dash
-# started here is told so by a shell variable, which no child inherits, and
-# closes the descriptor at once, so nothing the CLI runs inherits that either.
-if [ "${AG_SCRIPT_FD:-}" = 9 ]; then
-  unset AG_SCRIPT_FD
+# started here is told so by a shell variable holding the process ID, which
+# exec keeps: no child inherits it, and a value from the environment does not
+# match by accident. It closes the descriptor at once, so nothing the CLI
+# runs inherits that either.
+if [ "${AG_SCRIPT_PID:-}" = "$$" ]; then
+  unset AG_SCRIPT_PID
   exec 9<&-
 else
   # shellcheck disable=SC3028,SC3044 # reached only by bash
   case "${BASH:-}:$0:${SHELLOPTS:-}" in
     */sh:*/*:braceexpand:hashall:interactive-comments:nounset:posix)
-      for ag_dash in /bin/dash /usr/bin/dash; do
-        [ -x "$ag_dash" ] || continue
-        if [ ! -e /dev/fd/9 ] && { command exec 9<"$0"; } 2>/dev/null; then
-          shopt -s execfail 2>/dev/null || :
-          [ ! -r /dev/fd/9 ] || exec "$ag_dash" -c 'AG_SCRIPT_FD=9; . /dev/fd/9' "$0" "$@"
-          exec 9<&-
-        fi
-        break
-      done
+      ag_dash=
+      # $SHELLOPTS does not hold shopt options: one that changes matching or
+      # expansion (sh -O nocasematch) is the caller's choice of bash as well.
+      if ! shopt -q nocasematch && ! shopt -q nocaseglob && ! shopt -q nullglob \
+          && ! shopt -q dotglob && ! shopt -q failglob && ! shopt -q extglob; then
+        for ag_dash in /bin/dash /usr/bin/dash; do
+          [ ! -x "$ag_dash" ] || break
+          ag_dash=
+        done
+      fi
+      if [ -n "$ag_dash" ] && [ ! -e /dev/fd/9 ] && { command exec 9<"$0"; } 2>/dev/null; then
+        shopt -s execfail 2>/dev/null || :
+        [ ! -r /dev/fd/9 ] || exec "$ag_dash" -c "AG_SCRIPT_PID=$$; . /dev/fd/9" "$0" "$@"
+        exec 9<&-
+      fi
       unset ag_dash
       ;;
   esac
