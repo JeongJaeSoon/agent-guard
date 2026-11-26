@@ -85,6 +85,40 @@ if [ -n "$SCANNER" ]; then
     and ([.cells[] | select(.arm == "repeat-input" and .case == "pre-bash") | .scanner == {"none": 2}] | all)
     and (.cells | length) == 10' "$CASE/latency-real.json" >/dev/null
 fi
+# What the samples claim must have evidence. A scanner that fails on the
+# control input blocks it too, with exit 2: that is not a detected secret.
+mkdir "$CASE/failing" "$CASE/unpinned"
+printf '%s\n' '#!/bin/sh' 'case "${1:-}" in version) echo 8.30.1; exit 0 ;; esac' \
+  'case "$(cat)" in *"PRIVATE KEY"*) exit 2 ;; esac' 'exit 0' >"$CASE/failing/gitleaks"
+chmod 755 "$CASE/failing/gitleaks"
+if "$TOOLS" hook-latency --scanner "$CASE/failing/gitleaks" --runs 1 --case pre-read --arm helper-off --out "$CASE/latency-failing.json" >/dev/null 2>&1; then
+  echo 'hook-latency took a scanner failure for a detected control' >&2; exit 1
+fi
+jq -e '.controls[0].status == 2 and .controls[0].outcome == "degraded" and (.problems | length) == 1' "$CASE/latency-failing.json" >/dev/null
+# Helper binaries the CLI does not pin are never run: the helper arms would
+# time gitleaks itself, so the run fails instead of naming it warm.
+for name in agent-guard-scan agent-guard-gitleaks-helper; do
+  printf '%s\n' '#!/bin/sh' 'exit 2' >"$CASE/unpinned/$name"
+  chmod 755 "$CASE/unpinned/$name"
+done
+if "$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" --helper "$CASE/unpinned" --runs 1 --case pre-write --arm warm-helper --out "$CASE/latency-unpinned.json" >/dev/null 2>&1; then
+  echo 'hook-latency named a run without the scan client warm' >&2; exit 1
+fi
+jq -e '(.problems | length) > 0 and .controls[0].client == []' "$CASE/latency-unpinned.json" >/dev/null
+# A script scanner has no probe cache record: its probe result is unknown.
+jq -e '[.samples[].probe] | unique == ["unknown"]' "$CASE/latency.json" >/dev/null
+jq -e '[.samples[].outcome] | unique == ["pass"]' "$CASE/latency.json" >/dev/null
+# An interrupted run removes its temporary directory.
+ls -d /tmp/agl* 2>/dev/null | sort >"$CASE/sandboxes-before" || :
+"$TOOLS" hook-latency --scanner "$ROOT/tests/fixtures/mock-gitleaks" --runs 50 --out "$CASE/latency-interrupted.json" >/dev/null 2>&1 &
+latency_pid=$!
+sleep 2
+kill -TERM "$latency_pid"
+status=0
+wait "$latency_pid" || status=$?
+test "$status" = 143
+ls -d /tmp/agl* 2>/dev/null | sort >"$CASE/sandboxes-after" || :
+cmp "$CASE/sandboxes-before" "$CASE/sandboxes-after"
 # A helper arm without helper binaries, an unknown arm and a missing sample
 # file are refused before anything is measured.
 for bad in '--arm warm-helper --out latency-bad.json' '--arm no-such-arm --out latency-bad.json' '--case no-such-case --out latency-bad.json' '--runs 1'; do
