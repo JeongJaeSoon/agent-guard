@@ -1,6 +1,7 @@
 [
   {
     "id": "jq-suffix-test",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a jq filter that tests a name for a key file suffix",
@@ -8,6 +9,7 @@
   },
   {
     "id": "jq-file-operand",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a protected file as the file operand of jq",
@@ -15,6 +17,7 @@
   },
   {
     "id": "jq-regex-suffix",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a jq regex with an escaped key file suffix",
@@ -22,6 +25,7 @@
   },
   {
     "id": "jq-substitution-filter",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a command substitution that reads a protected file in the filter position",
@@ -29,6 +33,7 @@
   },
   {
     "id": "jq-suffix-stderr-head",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a jq suffix test with stderr dropped, piped to a text filter",
@@ -36,6 +41,7 @@
   },
   {
     "id": "jq-redirect-to-file",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "an output redirection to a file leaves the segment unread",
@@ -141,6 +147,7 @@
   },
   {
     "id": "py-suffix-endswith",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "an inline python script that only mentions a key file suffix",
@@ -148,6 +155,7 @@
   },
   {
     "id": "py-open-dotenv",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "an inline python script that opens a dotenv file",
@@ -190,6 +198,7 @@
   },
   {
     "id": "py-suffix-file-exists",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "the suffix mention when a file of exactly that name exists in the workdir",
@@ -198,6 +207,7 @@
   },
   {
     "id": "py-suffix-prose-print",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "an inline python script that prints a sentence mentioning a key file suffix",
@@ -205,6 +215,7 @@
   },
   {
     "id": "py-suffix-prose",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a script that can open files keeps every suffix, also inside a longer literal",
@@ -233,6 +244,7 @@
   },
   {
     "id": "py-suffix-compare",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "an inline python script that compares an extension with a suffix literal",
@@ -240,6 +252,7 @@
   },
   {
     "id": "py-suffix-compare-os",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "the same comparison in a script that imports a module able to list directories",
@@ -289,6 +302,7 @@
   },
   {
     "id": "py-member-name",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "an inline python script whose code reads a .key attribute",
@@ -296,6 +310,7 @@
   },
   {
     "id": "py-fstring-name",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "an f-string that builds a key file name",
@@ -359,6 +374,7 @@
   },
   {
     "id": "node-member-name",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "an inline node script whose code reads a .key property",
@@ -366,6 +382,7 @@
   },
   {
     "id": "node-read-dotenv",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "an inline node script that reads a dotenv file",
@@ -394,6 +411,7 @@
   },
   {
     "id": "node-suffix-endswith",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "an inline node script that only mentions a certificate suffix",
@@ -401,6 +419,7 @@
   },
   {
     "id": "node-regex-source",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a regex literal used as a string, where quoting is not followed",
@@ -457,6 +476,7 @@
   },
   {
     "id": "perl-substitution-ansi",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a perl -pe program made only of s statements; its regexes strip terminal escapes",
@@ -464,6 +484,7 @@
   },
   {
     "id": "perl-substitution-file-operand",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "the same kind of program with a protected file as its file operand",
@@ -471,6 +492,7 @@
   },
   {
     "id": "perl-substitution-slurp",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "perl -0777 -pe with one s statement",
@@ -478,6 +500,7 @@
   },
   {
     "id": "perl-substitution-in-place",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "perl -pi rewrites its operand, so the program keeps every byte",
@@ -485,6 +508,7 @@
   },
   {
     "id": "perl-substitution-delimiter",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "perl -C -lpe with another fixed delimiter, stderr dropped, piped to head",
@@ -492,6 +516,7 @@
   },
   {
     "id": "perl-substitution-bracket-delimiter",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a bracketing delimiter nests, so the program keeps every byte",
@@ -611,6 +636,7 @@
   },
   {
     "id": "awk-regex-suffix",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "an awk program that matches a field against an escaped suffix",
@@ -618,6 +644,7 @@
   },
   {
     "id": "awk-concat-suffix",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "an awk program that builds key file names from a suffix literal",
@@ -660,6 +687,7 @@
   },
   {
     "id": "sed-in-place-regex",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "an in-place sed whose regex names a .key member",
@@ -667,6 +695,7 @@
   },
   {
     "id": "sed-in-place-file",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "an in-place sed on a dotenv file",
@@ -674,6 +703,7 @@
   },
   {
     "id": "sed-in-place-bsd",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "the BSD form with an empty in-place suffix",
@@ -681,6 +711,7 @@
   },
   {
     "id": "sed-read-command",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a sed r command that reads a dotenv file",
@@ -702,6 +733,7 @@
   },
   {
     "id": "sed-two-expressions",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "two -e scripts whose regexes look like protected names",
@@ -709,6 +741,7 @@
   },
   {
     "id": "sed-expression-file-operand",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a protected file as the file operand after -e",
@@ -744,6 +777,7 @@
   },
   {
     "id": "gh-log-grep-pattern",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a CI log from a gh query searched with a regex that names a dotenv suffix",
@@ -751,6 +785,7 @@
   },
   {
     "id": "gh-log-grep-pattern-file",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "grep -f reads its patterns from a dotenv file",
@@ -758,6 +793,7 @@
   },
   {
     "id": "gh-log-grep-name",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a CI log searched for a file name, piped to a text filter",
@@ -765,6 +801,7 @@
   },
   {
     "id": "gh-log-grep-o-xargs",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "matched text handed to a command that opens it",
@@ -828,6 +865,7 @@
   },
   {
     "id": "tracked-test-file-read",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "reading a committed test fixture whose name is on the deny list",
@@ -835,6 +873,7 @@
   },
   {
     "id": "protected-file-cat",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "cat of a real protected file",
@@ -842,6 +881,7 @@
   },
   {
     "id": "no-workdir-program-text",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "an event without a workdir gets no second reading",
@@ -850,6 +890,7 @@
   },
   {
     "id": "tracked-file-with-grep-pattern",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a grep pattern that looks like a key file name, on a committed test fixture",
@@ -857,6 +898,7 @@
   },
   {
     "id": "protected-file-redirect",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a protected file read through a redirection",

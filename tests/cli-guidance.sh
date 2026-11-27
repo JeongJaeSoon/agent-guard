@@ -79,7 +79,7 @@ else
   not_ok "setup-shell option error names the plugin executable (status $status): $(cat "$CASE_ROOT/err")"
 fi
 
-ag env AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="file://$ROOT/tests/fixtures/gitleaks-checksums-mock.txt" \
+ag env AG_PLUGIN_TEST_MODE=1 AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="file://$ROOT/tests/fixtures/gitleaks-checksums-mock.txt" \
   "$AG" checksum 8.30.1 >"$CASE_ROOT/out" 2>&1
 if grep -Fq "  $QUOTED setup --install --gitleaks-checksum" "$CASE_ROOT/out"; then
   ok "checksum prints a setup --install snippet with the plugin executable"
