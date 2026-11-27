@@ -260,8 +260,14 @@ not among the policy settings, and add its row to
 
 ## CI checks
 
-CI runs on pull requests and pushes to `main`: the first validates a proposed
-change, the second validates the merged tree. Plugin Validation and HOL scan
+CI runs on pull requests, pushes to `main` and nightly on `main`: the first
+validates a proposed change, the second validates the merged tree. A main
+push of an ordinary PR merge reuses the newest CI run at that PR's head when
+it succeeded and its `tested-tree` artifact (the tree of the merge commit the
+run checked out, recorded only when its suites ran) equals the pushed tree;
+otherwise it runs every suite on Linux only, under `Main subset test` names. The nightly run covers the macOS legs
+and is skipped when `main` has not changed since the last green nightly run.
+Any failed lookup runs everything. Plugin Validation and HOL scan
 have the same triggers but own different checks; they are not duplicate suite
 runs. The release workflow relies on the existing check names and does not
 rerun the suite itself. The required check/workflow mapping lives in
@@ -276,8 +282,9 @@ matrix can be verified before merging a CI change.
 | --- | --- |
 | Agent Guard | Real scanner against the checked-out tree |
 | Named suites (ubuntu-latest) | All suite partitions on Linux; real scanner integration and smoke test in partition 4 |
-| Named suites (macos-latest) | Core, host adapters and Git as three jobs (partition 1 under that name, partitions 3 and 6 as `Core, host adapters and Git (partition 3)` and `(partition 6)`) and Command policies as two (partition 2 under that name, partition 7 as `Command policies (partition 7)`), plus every other partition, on main and `release/` PRs, with the mock scanner |
-| Test (ubuntu-latest), Test (macos-latest) | Full-matrix aggregate on main, release PRs and manual dispatch; names consumed by release |
+| Named suites (macos-latest) | Core, host adapters and Git as three jobs (partition 1 under that name, partitions 3 and 6 as `Core, host adapters and Git (partition 3)` and `(partition 6)`) and Command policies as two (partition 2 under that name, partition 7 as `Command policies (partition 7)`), plus every other partition, on release merges, the nightly run, manual dispatch and `release/` PRs, with the mock scanner |
+| Test (ubuntu-latest), Test (macos-latest) | Full-matrix aggregate on release merges, the nightly run, release PRs and manual dispatch; names consumed by release |
+| Main subset test (ubuntu-latest), Main subset test (macos-latest) | Linux aggregate on a main push of an ordinary PR merge |
 | PR subset test (ubuntu-latest), PR subset test (macos-latest) | Ordinary PR aggregate of every selected shard, including cancelled/failed jobs |
 | Lint | ShellCheck on tracked shell scripts and actionlint on workflows |
 | Plugin Layout | Codex, Claude, marketplaces, release archive, and submission metadata |
@@ -405,12 +412,13 @@ success on the same SHA cannot replace full macOS evidence, and the full
 `Test` names are never emitted by a reduced run. Coverage and check identity
 share one scope decision in the Agent Guard job; test shards start after that
 job succeeds. `sh tests/ci-scope.sh` tests that decision and its workflow
-wiring. Ordinary PRs defer macOS command, navigation and scanner/output
-coverage until main, so macOS-specific failures outside the core bundle are
-found later.
+wiring. Ordinary PRs and their merges defer macOS coverage to the nightly
+run and the release PR, so macOS-specific failures are found up to a day
+later.
 
 Legacy jq/awk and Rust contracts also run after relevant changes merge to
-main, under their own check names. Rust contracts compile with the pinned
+main, under their own check names, unless the PR run of the same workflow
+already passed on the same tree (the macOS developer tools job always runs). Rust contracts compile with the pinned
 toolchain and exercise differential, real-scanner, fallback and output/audit
 regressions on Linux; the regular macOS suite does not imply native-helper
 validation on macOS.
