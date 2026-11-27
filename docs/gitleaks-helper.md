@@ -87,7 +87,9 @@ they have the trust of the gitleaks binary in the same directory.
 `agent-guard setup` (and `doctor`) prints one line on the helper:
 `not installed`, `installed`, `selected` (your own client), `off`, or
 `not used` with the reason and what to do: installed for another version,
-`AGENT_GUARD_GITLEAKS_BIN`, logging off, a socket path over 103 bytes, or a
+`AGENT_GUARD_GITLEAKS_BIN`, logging off, a socket path over 103 bytes, a
+state directory hooks refuse (not a plain absolute path, or not a 0700
+directory you own), or a
 selected gitleaks that is another version or not the official release build.
 `not installed` names that last reason too, instead of suggesting a helper
 that would not answer. The line is read from files and variables, and the
@@ -152,6 +154,11 @@ The helper is not used when:
   now);
 - the socket path would exceed 103 bytes (`$XDG_STATE_HOME`, or
   `~/.local/state`, is very deep);
+- the state directory is not a plain absolute path, or not a 0700 directory
+  you own: hooks then keep no state, and the helper has no place for its
+  socket; its `gitleaks-helper` directory, once it exists, must be one too;
+- `AGENT_GUARD_LOG_MODE` is neither `on` nor `off`: hooks then keep no
+  state directory either;
 - the gitleaks the CLI selected is not built like the official release: the
   client reads its embedded Go build information and the helper compares the
   toolchain, the `gore2regex` tag (go-re2 instead of Go's `regexp`) and every

@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 7f616d6f275ba0a05b16a1f9ee00716a83be97c6 -->
+<!-- translated-from: docs/installation.md; source-blob: 9e8ecc7e35cd4adb682b3d7ea267af9037d76cbb -->
 
 <a id="installing-agent-guard"></a>
 
@@ -94,7 +94,8 @@ helperを使いません。helperが応答するのは `agent-guard setup --inst
 ビルドしたgitleaks（Homebrew、`go install`）は常に実際に実行します。
 `agent-guard setup` と `agent-guard doctor` は、インストール済みのhelperが応答しない
 場合に、その理由とすべきことを1行で表示します。選択されたgitleaksが別のビルドや
-バージョンの場合、状態ディレクトリが深くhelperのソケットパスが103バイトを超える場合、
+バージョンの場合、状態ディレクトリが深くhelperのソケットパスが103バイトを超えるか、
+そのディレクトリが自分の所有する0700の通常の絶対パスでない場合、
 helperが別のAgent Guardバージョン用にインストールされた場合、上の2つの変数の
 どちらかを設定している場合です。gitleaksのファイルをこのバージョンに記録された公式
 ビルドのSHA-256と比較し、何も起動もインストールもしません。自分でソースから
