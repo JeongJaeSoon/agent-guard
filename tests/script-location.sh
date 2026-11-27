@@ -144,6 +144,14 @@ if [ "$want" = dash ]; then
     count=$((count + 1))
     printf 'ok - script location contract %s (named by a descriptor: %s)\n' "$count" "$alias"
   done
+  # Sourced by a wrapper, the CLI is not the script this shell runs: the
+  # wrapper would start over under dash.
+  printf '%s\n' '#!/bin/sh' 'echo wrapper-setup' '. "$AG_TEST_PAYLOAD" version' >"$CASE/tools/sourcing"
+  chmod 755 "$CASE/tools/sourcing"
+  sh "$CASE/tools/sourcing" >"$CASE/out"
+  test "$(grep -c '^wrapper-setup$' "$CASE/out")" = 1
+  count=$((count + 1))
+  printf 'ok - script location contract %s (sourced by a wrapper)\n' "$count"
   # A named pipe cannot be opened a second time: the handover would wait for
   # a second writer that never comes.
   mkfifo "$CASE/script-fifo"
@@ -202,7 +210,7 @@ if [ "$want" = dash ] || sh -c 'case ${BASH:-} in */sh) exit 1 ;; esac'; then
   for pad in 40000 80000; do
     printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"opaque.txt"},"tool_response":"opaque material with no heuristic token shape"}' \
       | HOME="$CASE/home" XDG_STATE_HOME="$CASE/state" AGENT_GUARD_GITLEAKS_BIN="$CASE/tools/report-gitleaks" \
-        AGENT_GUARD_TEST_REPORT_BYTES=$pad sh "$ROOT/plugins/agent-guard/bin/agent-guard" hook-post-tool >"$CASE/out" 2>/dev/null
+        AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_TEST_REPORT_BYTES=$pad sh "$ROOT/plugins/agent-guard/bin/agent-guard" hook-post-tool >"$CASE/out" 2>/dev/null
     if [ "$pad" -lt 65536 ]; then
       if grep -q 'REDACTED' "$CASE/out"; then exit 1; fi
     else

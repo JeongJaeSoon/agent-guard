@@ -41,6 +41,9 @@ else
       # exec runs the caller's command the way the shell that started the CLI
       # resolves it (a function bash exports), so it stays in that shell.
       [ "${1:-}" != exec ] || ag_dash=
+      # Sourced by another script, this file is not the one the shell runs.
+      # shellcheck disable=SC3028
+      [ "${BASH_SOURCE:-}" = "$0" ] || ag_dash=
       # A script named through a descriptor of this process (/dev/fd/7, a path
       # or link to it) shares that descriptor's read position: opening it again
       # does not start at its first byte. Another descriptor on the file is
