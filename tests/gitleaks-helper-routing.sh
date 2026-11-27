@@ -154,8 +154,13 @@ done
 [ -n "$this_target" ] && install_fixture "$this_target"
 : >"$CALLS"
 hook hook-post-tool "$(post "token $secret")" AG_X=1
-expect "default: the output detector's report scan goes through the installed helper" \
-  'grep -q -- "|--|stdin|--report-format|json|--report-path|" "$CALLS" && same_as post-secret'
+if [ -n "$this_target" ]; then
+  expect "default: the output detector's report scan goes through the installed helper" \
+    'grep -q -- "|--|stdin|--report-format|json|--report-path|" "$CALLS" && same_as post-secret'
+else
+  expect "no helper released here: the output detector's report scan runs gitleaks itself" \
+    '[ ! -s "$CALLS" ] && same_as post-secret'
+fi
 for value in off 0 false; do
   default_hook AGENT_GUARD_GITLEAKS_HELPER="$value"
   expect "off switch: AGENT_GUARD_GITLEAKS_HELPER=$value keeps an installed helper unused" '[ ! -s "$CALLS" ] && same_as pre-secret'
@@ -165,8 +170,10 @@ expect "an explicit AGENT_GUARD_GITLEAKS_BIN keeps an installed helper unused" '
 default_hook AGENT_GUARD_LOG_MODE=off AGENT_GUARD_SCAN_CACHE=on
 expect "logging off keeps an installed helper unused" '[ ! -s "$CALLS" ] && [ "$(cat "$CASE/h.status")" = 2 ]'
 # Installed for another Agent Guard version, or not completely: not run.
-first_target=$(printf '%s\n' "$targets" | sed -n 1p)
-last_target=$(printf '%s\n' "$targets" | sed -n '$p')
+# Built from this platform's pins where it has some, so that each case fails
+# on its own defect, not on the platform.
+first_target=${this_target:-$(printf '%s\n' "$targets" | sed -n 1p)}
+last_target=$(printf '%s\n' "$targets" | grep -vxF "$first_target" | sed -n 1p)
 install_fixture "$first_target"
 sed '1s/^[0-9a-f]/z/' "$INST/SHA256SUMS" >"$INST/sums" && mv "$INST/sums" "$INST/SHA256SUMS"
 default_hook

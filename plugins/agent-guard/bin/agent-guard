@@ -3773,7 +3773,9 @@ setup_gitleaks_helper_status_line() {
         fi
       else
         cli_ref_init
-        if [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
+        if [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] && ! gitleaks_helper_target; then
+          info "$PROGRAM: gitleaks helper  not used  (no warm gitleaks helper is released for this platform, so scans run gitleaks directly; $GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper can be removed)"
+        elif [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
           info "$PROGRAM: gitleaks helper  not used  (installed for another Agent Guard version or platform; run: $AG_CLI_REF setup --install-gitleaks-helper)"
         elif [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
           helper_status_said=$HELPER_GITLEAKS_BIN_REASON

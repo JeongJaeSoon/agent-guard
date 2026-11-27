@@ -586,6 +586,14 @@ HTTP
     '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 0 ] && [ "$(reason)" = 1 ] && [ "$(warned)" = 0 ] \
      && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "not the official gitleaks $glv release build" \
      && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "used before PATH"'
+  # A helper left on a platform with none released: nothing to reinstall.
+  P="$CASE/p-left-helper"
+  mkdir -p "$P/gitleaks-helper"
+  env PATH="$CASE/uname-bin:$CASE/path-gl:$CASE/http-bin:$CASE/tools" TMPDIR="$CASE/tmp" AGENT_GUARD_GITLEAKS_BIN_DIR="$P" \
+    "$GUARD" doctor >"$CASE/s.out" 2>"$CASE/s.err"
+  expect "a helper left on a platform with no helper release: not used, scans run gitleaks directly, no reinstall advice" \
+    'grep -qF "gitleaks helper  not used  (no warm gitleaks helper is released for this platform, so scans run gitleaks directly; $P/gitleaks-helper can be removed)" "$CASE/s.err" \
+     && ! grep -q "install-gitleaks-helper" "$CASE/s.err"'
   # Asked for with setup --install and a checksum, the official build goes to
   # the private directory, which is selected before PATH, with one line that
   # says so and how to go back; then the helper is installed for it.
