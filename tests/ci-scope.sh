@@ -655,7 +655,7 @@ printf '#!/bin/sh\necho Linux\n' >"$rules_tmp/linux/uname"
 cp "$rules_tmp/bin/gitleaks" "$rules_tmp/bin/gitleaks-other"
 chmod +x "$rules_tmp/bin/gitleaks" "$rules_tmp/bin/gitleaks-other" "$rules_tmp/linux/uname"
 rules_run() { # arguments: environment assignments for the driver
-  env -u GITHUB_STEP_SUMMARY "$@" sh "$rules_tmp/tree/tests/real-gitleaks-rules.sh" >"$rules_tmp/out" 2>&1
+  env "$@" sh "$rules_tmp/tree/tests/real-gitleaks-rules.sh" >"$rules_tmp/out" 2>&1
 }
 rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" || fail 'the rule suite driver passes when every suite passes'
 [ "$(grep -c '^ok - ' "$rules_tmp/out")" -eq 8 ] || fail 'the rule suite driver reports each suite'
@@ -688,7 +688,7 @@ if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then 
 printf '%s\n' ': >"$RULES_STARTED"' 'sleep 2' >"$rules_tmp/tree/tests/auto-wake-key-allowlist.sh"
 chmod +x "$rules_tmp/bin/gitleaks"
 mkdir "$rules_tmp/tmp"
-env -u GITHUB_STEP_SUMMARY CI= RULES_STARTED="$rules_tmp/started" TMPDIR="$rules_tmp/tmp" \
+env CI= RULES_STARTED="$rules_tmp/started" TMPDIR="$rules_tmp/tmp" \
   AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" \
   sh "$rules_tmp/tree/tests/real-gitleaks-rules.sh" >"$rules_tmp/out" 2>&1 &
 rules_pid=$!

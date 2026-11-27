@@ -50,8 +50,6 @@ export AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 unset AI_AGENT AGENT_GUARD_GITLEAKS_BIN
 pass=0 fail=0
-[ -z "${GITHUB_STEP_SUMMARY:-}" ] \
-  || printf '### Real gitleaks rule suites\n\n| Suite | Seconds | Exit |\n| --- | ---: | ---: |\n' >>"$GITHUB_STEP_SUMMARY"
 
 # $1 what the suite guards, $2 its file under tests/.
 run_suite() {
@@ -59,8 +57,6 @@ run_suite() {
   sh "$ROOT/tests/$2" >"$CASE/out" 2>&1
   status=$?
   seconds=$(($(date +%s) - started))
-  [ -z "${GITHUB_STEP_SUMMARY:-}" ] \
-    || printf '| %s | %s | %s |\n' "$2" "$seconds" "$status" >>"$GITHUB_STEP_SUMMARY"
   skipped=0
   ! grep -q '^skip - ' "$CASE/out" || skipped=1
   if [ "$status" -eq 0 ] && [ "$skipped" -eq 0 ]; then
