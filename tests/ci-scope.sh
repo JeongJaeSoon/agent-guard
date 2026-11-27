@@ -618,9 +618,16 @@ printf '%s\n' "$rules_step" | grep -Fxq "        if: runner.os == 'Linux' && mat
 printf '%s\n' "$rules_step" | grep -Fxq '        run: sh tests/real-gitleaks-rules.sh' || fail 'the step runs the rule suite driver and nothing else'
 printf '%s\n' "$shards_job" | grep -Fxq "        if: runner.os == 'Linux' && (matrix.bundle == 'scanner' || matrix.bundle == 'navigation-codex') && needs.secret-guard.outputs.tests == 'true'" \
   || fail 'the Codex navigation job installs the same pinned gitleaks as the scanner job'
-# The driver's own contract, on a copy with stand-in suites: it passes when
-# every suite passes, and a failing suite, a skipped suite and a missing
-# gitleaks on Linux CI each fail it.
+# Outside Linux CI tests/run.sh still starts the suites, through the
+# probe-cache suite: three of them check prompt blocking and output masking on
+# the mock when there is no real gitleaks, which is every macOS job.
+grep -Fxq 'if [ "${CI:-}" = true ] && [ "$(uname -s)" = Linux ]; then' "$ROOT/tests/gitleaks-probe-cache.sh" \
+  || fail 'only Linux CI leaves the rule suites to the navigation job'
+grep -Fxq '    sh "$ROOT/tests/real-gitleaks-rules.sh"' "$ROOT/tests/gitleaks-probe-cache.sh" \
+  || fail 'outside Linux CI the probe-cache suite starts the rule suites'
+# The driver's own contract, on a copy with stand-in suites. A failing suite
+# fails it everywhere. On Linux CI a skipped suite and a missing gitleaks fail
+# it too; elsewhere the suites still start without one.
 rules_tmp=$(mktemp -d)
 trap 'rm -rf "$rules_tmp"' 0
 mkdir -p "$rules_tmp/tree/tests" "$rules_tmp/bin" "$rules_tmp/linux"
@@ -628,22 +635,31 @@ cp "$rules_driver" "$rules_tmp/tree/tests/"
 for rule_suite in $rule_suites; do printf 'echo "ok - stand-in"\n' >"$rules_tmp/tree/tests/$rule_suite"; done
 printf '#!/bin/sh\necho 8.30.1\n' >"$rules_tmp/bin/gitleaks"
 printf '#!/bin/sh\necho Linux\n' >"$rules_tmp/linux/uname"
-chmod +x "$rules_tmp/bin/gitleaks" "$rules_tmp/linux/uname"
+cp "$rules_tmp/bin/gitleaks" "$rules_tmp/bin/gitleaks-other"
+chmod +x "$rules_tmp/bin/gitleaks" "$rules_tmp/bin/gitleaks-other" "$rules_tmp/linux/uname"
 rules_run() { # arguments: environment assignments for the driver
   env -u GITHUB_STEP_SUMMARY "$@" sh "$rules_tmp/tree/tests/real-gitleaks-rules.sh" >"$rules_tmp/out" 2>&1
 }
-rules_run AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" || fail 'the rule suite driver passes when every suite passes'
+rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" || fail 'the rule suite driver passes when every suite passes'
 [ "$(grep -c '^ok - ' "$rules_tmp/out")" -eq 8 ] || fail 'the rule suite driver reports each suite'
 printf 'echo "not ok - stand-in"\nexit 1\n' >"$rules_tmp/tree/tests/prefixed-uuid-key.sh"
-if rules_run AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then fail 'a failing rule suite fails the driver'; fi
+if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then fail 'a failing rule suite fails the driver'; fi
 grep -q '^not ok - .*(prefixed-uuid-key[.]sh, exit 1' "$rules_tmp/out" || fail 'the driver names the failing rule suite'
 printf 'echo "skip - real gitleaks is not installed"\n' >"$rules_tmp/tree/tests/prefixed-uuid-key.sh"
-if rules_run AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then fail 'a skipped rule suite fails the driver'; fi
+rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS= || fail 'outside Linux CI a suite may skip without a real gitleaks'
+[ "$(grep -c '^ok - ' "$rules_tmp/out")" -eq 7 ] || fail 'without a real gitleaks the other suites still run'
+grep -q '^skip - .*(prefixed-uuid-key[.]sh)$' "$rules_tmp/out" || fail 'the driver reports the skipped rule suite'
+if rules_run CI=true PATH="$rules_tmp/linux:$PATH" AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then
+  fail 'on Linux CI a skipped rule suite fails the driver'
+fi
 printf 'echo "ok - stand-in"\n' >"$rules_tmp/tree/tests/prefixed-uuid-key.sh"
+rules_run CI=true PATH="$rules_tmp/linux:$PATH" AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" \
+  || fail 'on Linux CI the driver passes when every suite ran'
 if rules_run CI=true PATH="$rules_tmp/linux:$PATH" AGENT_GUARD_TEST_REAL_GITLEAKS=; then fail 'Linux CI without gitleaks fails the driver'; fi
-rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS= || fail 'outside CI a missing gitleaks skips the rule suites'
-grep -Fq 'skipped the real-gitleaks rule suites' "$rules_tmp/out" || fail 'the skip outside CI is reported'
+if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks-other"; then
+  fail 'a scanner the suites would not run by name is refused'
+fi
 rm -rf "$rules_tmp"
 trap - 0
-pass=$((pass + 10))
+pass=$((pass + 16))
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

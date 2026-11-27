@@ -82,9 +82,9 @@ its inner count. To investigate one partition, use
 substitute for the complete CI gates. A real scanner on PATH enables
 additional integration assertions; CI requires them and the smoke test on its
 Linux scanner job, and other partitions use synthetic scanner fixtures. The
-suites that check `gitleaks.toml` against the real scanner are not started by
-`tests/run.sh`: `make test` runs `tests/real-gitleaks-rules.sh` after it, which
-skips without a real scanner (see "Test partitions").
+suites that check the rules of `gitleaks.toml` run through
+`tests/real-gitleaks-rules.sh`, which partition 4 starts everywhere except on
+Linux CI (see "Test partitions").
 
 The full suite includes subprocess, file-mode and process-cleanup cases. Keep
 HOME, warning/session state, Git repositories and output files isolated. Do
@@ -397,13 +397,16 @@ and only for the navigation partition: an unknown host or a combination with
 another partition exits with an error. The default `tests/run.sh` runs both
 hosts.
 
-On Linux the Codex navigation job then runs `tests/real-gitleaks-rules.sh`: the
-eight suites that check the rules and allowlists of `gitleaks.toml` against the
-real scanner. They are a step of that job, not a job of their own, because
-branch protection requires the job by name and the scanner job is the longest
-of a pull request. The step fails the job when a suite fails or skips, or when
-the scanner is missing; `tests/ci-scope.sh` checks that wiring and that a
-change to the config, a suite or the driver runs the job.
+On Linux CI the Codex navigation job then runs `tests/real-gitleaks-rules.sh`:
+the eight suites that check the rules and allowlists of `gitleaks.toml`, there
+against the real scanner. They are a step of that job, not a job of their own,
+because branch protection requires the job by name and the scanner job is the
+longest of a pull request. The step fails the job when a suite fails or skips,
+or when the scanner is missing. Everywhere else `tests/gitleaks-probe-cache.sh`
+(partition 4) starts the same file, as one assertion; without a real scanner
+five of the suites skip and three run on the mock. `tests/ci-scope.sh` checks
+that wiring and that a change to the config, a suite or the driver runs the
+job.
 
 Partition 1 checks that every partition is present in the matrix: partitions
 1, 2, 3, 6 and 7 twice each (the Linux bundle and a macOS entry), every other

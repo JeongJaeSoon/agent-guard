@@ -1,20 +1,26 @@
 #!/bin/sh
 # The suites that check the rules and allowlists of
-# plugins/agent-guard/config/gitleaks.toml against the real gitleaks, one after
-# another. CI runs this file as a step of the Linux Codex navigation job (see
-# CONTRIBUTING.md "Test partitions"); tests/run.sh does not start it.
-# Each suite skips without a real gitleaks. Here a skip is a failure, and so is
-# a missing gitleaks on Linux CI: a green run must mean every suite ran.
+# plugins/agent-guard/config/gitleaks.toml, one after another.
+# tests/gitleaks-probe-cache.sh starts this file everywhere except on Linux CI,
+# where it is a step of the Codex navigation job (see CONTRIBUTING.md "Test
+# partitions"). Without a real gitleaks a suite skips or uses the mock. On
+# Linux CI a missing gitleaks and a skipped suite are failures: a green step
+# must mean every suite ran against the real scanner.
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 REAL_GITLEAKS=${AGENT_GUARD_TEST_REAL_GITLEAKS-$(command -v gitleaks 2>/dev/null || :)}
-if [ -z "$REAL_GITLEAKS" ] || ! "$REAL_GITLEAKS" version >/dev/null 2>&1; then
-  if [ "${CI:-}" = true ] && [ "$(uname -s)" = Linux ]; then
+strict=0
+[ "${CI:-}" != true ] || [ "$(uname -s)" != Linux ] || strict=1
+if [ -z "$REAL_GITLEAKS" ]; then
+  if [ "$strict" -eq 1 ]; then
     printf 'not ok - real gitleaks is required for the rule suites on Linux CI\n'
     exit 1
   fi
-  printf '# real gitleaks not available; skipped the real-gitleaks rule suites\n'
-  exit 0
+elif [ "$(basename -- "$REAL_GITLEAKS")" != gitleaks ]; then
+  # The suites put this file's directory on PATH and run gitleaks by name, so
+  # under another name they would scan with whichever gitleaks PATH has next.
+  printf 'not ok - AGENT_GUARD_TEST_REAL_GITLEAKS must be a file named gitleaks: %s\n' "$REAL_GITLEAKS"
+  exit 1
 fi
 # Exit before the cleanup trap exists: an empty CASE would make `cd -- ""`
 # resolve to the current directory, which the trap then removes.
@@ -23,8 +29,8 @@ CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-gitleaks-rules.XXXXXX") || exit 1
 CASE=$(CDPATH= cd -- "$CASE" && pwd -P) || exit 1
 trap 'rm -rf "$CASE"' 0
 mkdir -p "$CASE/home" "$CASE/private-gitleaks-empty"
-# The environment the suites had under tests/run.sh and
-# tests/gitleaks-probe-cache.sh, where they ran before.
+# The environment tests/run.sh and tests/gitleaks-probe-cache.sh give their
+# suites, so the CI step runs them as a nested run does.
 export HOME="$CASE/home" XDG_STATE_HOME="$CASE/state" AGENT_GUARD_LOG_MODE=on
 export AGENT_GUARD_RELEASE_CHECK=off AGENT_GUARD_PII_HOOK_MODE=off
 export AGENT_GUARD_PROMPT_GUARD_MODE=block AGENT_GUARD_INFRA_FAILURE_MODE=open
@@ -46,9 +52,15 @@ run_suite() {
   seconds=$(($(date +%s) - started))
   [ -z "${GITHUB_STEP_SUMMARY:-}" ] \
     || printf '| %s | %s | %s |\n' "$2" "$seconds" "$status" >>"$GITHUB_STEP_SUMMARY"
-  if [ "$status" -eq 0 ] && ! grep -q '^skip - ' "$CASE/out"; then
+  skipped=0
+  ! grep -q '^skip - ' "$CASE/out" || skipped=1
+  if [ "$status" -eq 0 ] && [ "$skipped" -eq 0 ]; then
     pass=$((pass + 1))
     printf 'ok - %s (%s, %ss)\n' "$1" "$2" "$seconds"
+    return
+  fi
+  if [ "$status" -eq 0 ] && [ "$strict" -eq 0 ]; then
+    printf 'skip - %s (%s)\n' "$1" "$2"
     return
   fi
   fail=$((fail + 1))

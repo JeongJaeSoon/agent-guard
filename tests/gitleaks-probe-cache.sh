@@ -227,5 +227,18 @@ else
     test "$(grep -c 8.99.9 "$CASE/out" "$CASE/err" | awk -F: '{s+=$2} END{print s}')" = 0
 fi
 
+# The gitleaks rule suites, hosted here and not in run.sh, which is already near
+# ShellCheck's memory limit. On Linux CI they are a step of the Codex
+# navigation job instead (ci.yml): this job is the longest of a pull request.
+# They scan with the real binary when there is one, so drop this file's shim
+# override.
+if [ "${CI:-}" = true ] && [ "$(uname -s)" = Linux ]; then
+  printf '# gitleaks rule suites: run by the Linux Codex navigation job\n'
+else
+  check 'the gitleaks rule suites pass' \
+    env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
+    sh "$ROOT/tests/real-gitleaks-rules.sh"
+fi
+
 printf '1..%s\n' "$((pass + fail))"
 [ "$fail" -eq 0 ]
