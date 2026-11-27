@@ -40,9 +40,11 @@ keep running the real gitleaks.
 ## Install it
 
 `agent-guard setup --install` installs the helper together with gitleaks when
-the gitleaks in use is the one that command puts in the private directory, at
-the version the helper links; rerun it to get the helper for a gitleaks it
-installed earlier. A helper that cannot be downloaded or does not match is
+the gitleaks in use is the official release build of the version the helper
+links, in the private directory or on `PATH`; rerun it to get the helper for a
+gitleaks it installed earlier. With another build on `PATH` and the checksum
+for that version, it installs the official build in the private directory
+(used before `PATH`) first, and says how to go back. A helper that cannot be downloaded or does not match is
 only a warning there, with any other gitleaks the command prints why it
 installed no helper, and `AGENT_GUARD_GITLEAKS_HELPER=off` skips it. The
 [installation guide](installation.md#optional-warm-gitleaks-helper) lists the
@@ -73,11 +75,20 @@ they have the trust of the gitleaks binary in the same directory.
 
 `agent-guard setup` (and `doctor`) prints one line on the helper:
 `not installed`, `installed`, `selected` (your own client), `off`, or
-`not used` with the reason (installed for another version,
-`AGENT_GUARD_GITLEAKS_BIN`, logging off). The line is read from files and
-variables. It does not run the client or start a helper, so it does not tell
-whether the helper answers for your gitleaks: with a build other than the
-official release, `installed` still means every scan runs the real gitleaks.
+`not used` with the reason and what to do: installed for another version,
+`AGENT_GUARD_GITLEAKS_BIN`, logging off, a socket path over 103 bytes, a
+state directory hooks refuse (not a plain absolute path, or not a 0700
+directory you own), or a
+selected gitleaks that is another version or not the official release build.
+`not installed` names that last reason too, instead of suggesting a helper
+that would not answer. The line is read from files and variables, and the
+gitleaks file is compared with the official build's SHA-256 for this platform
+in `config/gitleaks-official.sha256`. It does not run the client or start a
+helper. A build that matches the release in everything the client compares
+but not byte for byte is reported as another build, although the helper
+would answer it; other causes (a sandbox without Unix sockets, the state
+directory's owner or mode) are not seen, and the client then runs the real
+gitleaks.
 
 The helper links the gitleaks 8.30.1 library; with any other selected
 gitleaks version every request runs the real gitleaks.
@@ -132,6 +143,11 @@ The helper is not used when:
   now);
 - the socket path would exceed 103 bytes (`$XDG_STATE_HOME`, or
   `~/.local/state`, is very deep);
+- the state directory is not a plain absolute path, or not a 0700 directory
+  you own: hooks then keep no state, and the helper has no place for its
+  socket; its `gitleaks-helper` directory, once it exists, must be one too;
+- `AGENT_GUARD_LOG_MODE` is neither `on` nor `off`: hooks then keep no
+  state directory either;
 - the gitleaks the CLI selected is not built like the official release: the
   client reads its embedded Go build information and the helper compares the
   toolchain, the `gore2regex` tag (go-re2 instead of Go's `regexp`) and every

@@ -24,7 +24,7 @@ REAL_DIR=${AGENT_GUARD_NATIVE_ARTIFACT_DIR:-}
 REAL_GITLEAKS=${AGENT_GUARD_TEST_REAL_GITLEAKS:-}
 helper_pids() { pgrep -f "agent-guard-gitleaks-helper serve --state-dir $CASE/xs/agent-guard" 2>/dev/null; }
 cleanup() {
-  for pid in $(helper_pids); do kill "$pid" 2>/dev/null; done
+  for pid in $(pgrep -f "agent-guard-gitleaks-helper serve --state-dir $CASE/" 2>/dev/null); do kill "$pid" 2>/dev/null; done
   rm -rf "$CASE"
 }
 trap cleanup 0
@@ -34,7 +34,9 @@ mkdir -p "$CASE/bin" "$CASE/http-bin" "$CASE/download" "$CASE/home" "$CASE/xs" "
 cp -R "$ROOT/plugins/agent-guard" "$CASE/plugin"
 GUARD="$CASE/plugin/bin/agent-guard"
 PINS="$CASE/plugin/config/gitleaks-helper.sha256"
+OFFICIAL="$CASE/plugin/config/gitleaks-official.sha256"
 version=$(sed -n 's/^VERSION=//p' "$GUARD")
+glv=$(sed -n 's/^GITLEAKS_DEFAULT_VERSION=//p' "$GUARD")
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64|Linux:amd64) target=x86_64-unknown-linux-musl ;;
   Linux:aarch64|Linux:arm64) target=aarch64-unknown-linux-musl ;;
@@ -73,6 +75,11 @@ else
   cp "$ROOT/tests/fixtures/mock-gitleaks" "$CASE/bin/gitleaks"
 fi
 chmod +x "$CASE/bin/gitleaks"
+# The stand-in gitleaks is the official release build only through this
+# copy's pins; with the real one the repository's pins must name it.
+if [ -z "$REAL_GITLEAKS" ] && [ -n "$target" ]; then
+  printf '%s  %s/%s/gitleaks\n' "$(shasum -a 256 "$CASE/bin/gitleaks" | awk '{ print $1 }')" "$glv" "$target" >"$OFFICIAL"
+fi
 export HOME="$CASE/home" XDG_STATE_HOME="$CASE/xs" PATH="$CASE/http-bin:$CASE/bin:$PATH"
 export AGENT_GUARD_GITLEAKS_BIN_DIR="$PRIV" AGENT_GUARD_RELEASE_CHECK=off
 export AG_INSTALL_URLS="$URLS" AG_INSTALL_DOWNLOAD="$CASE/download" AG_ROUTING_CALLS="$CALLS"
@@ -175,6 +182,122 @@ expect "setup then reports the helper as installed, with the condition for its u
 setup
 expect "setup's status line does not run the client or start a helper" \
   '[ "$(status)" = 0 ] && [ ! -s "$CALLS" ] && [ -z "$(helper_pids)" ] && grep -q "gitleaks helper  installed" "$CASE/s.err"'
+
+# The status line says why an installed helper will not answer, and what to
+# do, from files, variables and the selected gitleaks's bytes. doctor prints
+# the same line and starts, installs and creates nothing.
+hl() { grep 'gitleaks helper  ' "$CASE/s.err"; }
+doc() { "$GUARD" doctor "$@" >"$CASE/s.out" 2>"$CASE/s.err"; echo "$?" >"$CASE/s.status"; }
+expect "the official build on PATH: the line says the helper can serve it" \
+  'hl | grep -qF "gitleaks helper  installed  (it can serve the selected gitleaks $CASE/bin/gitleaks, the official gitleaks $glv release build; a scan it cannot serve, such as one with a .gitleaksignore, runs gitleaks itself)"'
+# Deep state directories, around the client's 103-byte socket limit:
+# <state>/agent-guard/gitleaks-helper/<20 hex digits>.sock.
+deep_state() { # $1 = length of XDG_STATE_HOME; prints the directory
+  ds=$CASE/d
+  while [ "${#ds}" -lt "$1" ]; do ds="${ds}d"; done
+  printf '%s' "$ds"
+}
+at_limit=$(deep_state 49)
+over_limit=$(deep_state 50)
+(XDG_STATE_HOME=$at_limit; setup)
+expect "a state directory whose socket path is exactly 103 bytes keeps the helper" 'hl | grep -q "gitleaks helper  installed  (it can serve"'
+: >"$URLS"
+: >"$CALLS"
+(XDG_STATE_HOME=$over_limit; doc)
+expect "one byte deeper: doctor says the socket path is too long and what to do, and creates nothing" \
+  'hl | grep -qF "gitleaks helper  not used  (its socket path would be 104 bytes, over the 103-byte limit, under the state directory $over_limit/agent-guard; set XDG_STATE_HOME to a shorter directory)" \
+   && [ ! -e "$over_limit" ] && [ ! -s "$URLS" ] && [ ! -s "$CALLS" ] && [ -z "$(helper_pids)" ]'
+if [ -n "$REAL_GITLEAKS" ]; then
+  # Ground truth: the client's own trace at the same two depths.
+  : >"$CASE/trace"
+  hook "ls -la src" XDG_STATE_HOME="$over_limit" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$CASE/trace"
+  expect "ground truth: one byte over, the client runs gitleaks for the socket path" '[ "$(cat "$CASE/trace")" = real:socket-path ]'
+  : >"$CASE/trace"
+  hook "ls -la src" XDG_STATE_HOME="$at_limit" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$CASE/trace"
+  expect "ground truth: at the limit, the client starts a helper" 'grep -qx spawned "$CASE/trace" && ! grep -q socket-path "$CASE/trace"'
+fi
+mkdir -p "$CASE/back\\slash"
+cp "$CASE/bin/gitleaks" "$CASE/back\\slash/gitleaks"
+(PATH="$CASE/back\\slash:$PATH"; doc)
+expect "the official build in a directory whose name holds a backslash is still recognized" \
+  'hl | grep -qF "gitleaks helper  installed  (it can serve the selected gitleaks $CASE/back"'
+chmod 644 "$PRIV/gitleaks-helper/agent-guard-scan"
+doc
+chmod 755 "$PRIV/gitleaks-helper/agent-guard-scan"
+expect "an installed client that lost its execute bit: the line says not used and how to reinstall" \
+  'hl | grep -qF "gitleaks helper  not used  (its client $PRIV/gitleaks-helper/agent-guard-scan is not executable; reinstall it: " \
+   && hl | grep -qF "setup --install-gitleaks-helper)"'
+chmod 644 "$PRIV/gitleaks-helper/agent-guard-gitleaks-helper"
+doc
+chmod 755 "$PRIV/gitleaks-helper/agent-guard-gitleaks-helper"
+expect "an installed helper whose server cannot run: the line says not used and how to reinstall" \
+  'hl | grep -qF "gitleaks helper  not used  (its helper $PRIV/gitleaks-helper/agent-guard-gitleaks-helper is not executable; reinstall it: "'
+cp "$CASE/plugin/config/gitleaks-helper.sha256" "$CASE/helper-pins.keep"
+sed "s|  $target/|  riscv64-unknown-linux-musl/|" "$CASE/helper-pins.keep" >>"$CASE/plugin/config/gitleaks-helper.sha256"
+doc
+cp "$CASE/helper-pins.keep" "$CASE/plugin/config/gitleaks-helper.sha256"
+expect "a helper installed for another platform (a shared private directory): not used, and how to reinstall" \
+  'hl | grep -qF "gitleaks helper  not used  (it was installed for another platform, riscv64-unknown-linux-musl; reinstall it: "'
+mv "$CASE/xs/agent-guard/gitleaks-helper" "$CASE/helper-sub.keep" 2>/dev/null
+(umask 177; doc)
+[ ! -e "$CASE/helper-sub.keep" ] || mv "$CASE/helper-sub.keep" "$CASE/xs/agent-guard/gitleaks-helper"
+expect "a umask that takes the owner's search bit: not used, since the client would create its directory without it" \
+  'hl | grep -qF "gitleaks helper  not used  (the umask 0177 would create the helper directory without the owner bits it needs"'
+(XDG_STATE_HOME=relative-state; doc)
+expect "a state directory that is not a plain absolute path: not used, and what to do" \
+  'hl | grep -qF "gitleaks helper  not used  (the state directory relative-state/agent-guard is not a plain absolute path (relative, or through a symbolic link); set XDG_STATE_HOME to one)"'
+(AGENT_GUARD_GITLEAKS_BIN="$CASE/bin/gitleaks"; export AGENT_GUARD_GITLEAKS_BIN; setup)
+expect "AGENT_GUARD_GITLEAKS_BIN: not used, and how to use the helper" \
+  'hl | grep -qF "gitleaks helper  not used  (AGENT_GUARD_GITLEAKS_BIN selects the scanner, which the helper never serves; unset it to use the helper)"'
+(AGENT_GUARD_LOG_MODE=off; export AGENT_GUARD_LOG_MODE; setup)
+expect "AGENT_GUARD_LOG_MODE=off: not used, and how to use the helper" \
+  'hl | grep -qF "gitleaks helper  not used  (AGENT_GUARD_LOG_MODE=off leaves it no state directory for its socket; unset it to use the helper)"'
+cp "$INST/SHA256SUMS" "$CASE/sums.keep"
+awk '{ printf "%064d  %s\n", 0, $2 }' "$CASE/sums.keep" >"$INST/SHA256SUMS"
+doc
+expect "recorded pins that differ: not used, and the command that fixes it" \
+  'hl | grep -qF "gitleaks helper  not used  (installed for another Agent Guard version; run: " && hl | grep -q "setup --install-gitleaks-helper)"'
+cp "$CASE/sums.keep" "$INST/SHA256SUMS"
+cp "$OFFICIAL" "$CASE/official.keep"
+if [ -n "$REAL_GITLEAKS" ]; then
+  # The repository's pins must name the official build of this platform.
+  expect "the repository pins the official gitleaks for this platform" 'grep -q "  $glv/$target/gitleaks\$" "$OFFICIAL"'
+fi
+# Another build of the same version: a script that runs the official one has
+# no Go build information, so the client runs it for real (real:engine).
+mkdir -p "$CASE/wrap-bin"
+printf '#!/bin/sh\nexec %s "$@"\n' "$CASE/bin/gitleaks" >"$CASE/wrap-bin/gitleaks"
+chmod 755 "$CASE/wrap-bin/gitleaks"
+(PATH="$CASE/wrap-bin:$PATH"; doc)
+expect "a gitleaks on PATH that is not the official build: doctor says not used, why, and what to do" \
+  'hl | grep -qF "gitleaks helper  not used  (the selected gitleaks $CASE/wrap-bin/gitleaks is not the official gitleaks $glv release build, such as a Homebrew or go install build; to use the helper, install the official build, which is used before PATH: run " \
+   && hl | grep -q "checksum and the setup --install command it prints)"'
+if [ -n "$REAL_GITLEAKS" ]; then
+  : >"$CASE/trace"
+  (PATH="$CASE/wrap-bin:$PATH"; export PATH; hook "ls -la src" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$CASE/trace")
+  expect "ground truth: the client runs that gitleaks for real (real:engine)" '[ "$(cat "$CASE/trace")" = real:engine ]'
+fi
+printf '#!/bin/sh\ncase "$1" in version) echo 8.30.0 ;; esac\nexit 0\n' >"$CASE/wrap-bin/gitleaks"
+(PATH="$CASE/wrap-bin:$PATH"; setup)
+expect "another gitleaks version: not used, naming the version" \
+  'hl | grep -qF "gitleaks helper  not used  (the selected gitleaks $CASE/wrap-bin/gitleaks is version 8.30.0, and the helper answers only gitleaks $glv; to use the helper, install the official build"'
+mkdir -p "$PRIV"
+cp "$CASE/wrap-bin/gitleaks" "$PRIV/gitleaks"
+setup
+expect "a private gitleaks that is not the official build: the advice replaces it, since setup --install keeps it" \
+  'hl | grep -qF "gitleaks helper  not used  (the selected gitleaks $PRIV/gitleaks is version 8.30.0, and the helper answers only gitleaks $glv; to use the helper, remove $PRIV/gitleaks, then run "'
+rm -f "$PRIV/gitleaks"
+mv "$INST" "$CASE/inst.keep"
+(PATH="$CASE/wrap-bin:$PATH"; doc)
+expect "no helper and a gitleaks it would not answer: the line does not suggest installing it" \
+  'hl | grep -qF "gitleaks helper  not installed  (it would not answer: the selected gitleaks $CASE/wrap-bin/gitleaks is version 8.30.0" && ! hl | grep -q "optional"'
+(AGENT_GUARD_GITLEAKS_BIN="$CASE/wrap-bin/gitleaks"; export AGENT_GUARD_GITLEAKS_BIN; doc)
+expect "no helper and AGENT_GUARD_GITLEAKS_BIN: the line names the variable, not an install" \
+  'hl | grep -qF "gitleaks helper  not installed  (AGENT_GUARD_GITLEAKS_BIN selects the scanner, which the helper never serves; unset it to use the helper)"'
+doc
+expect "no helper and the official build: the line suggests the helper" \
+  'hl | grep -qF "gitleaks helper  not installed  (optional; keeps gitleaks loaded between scans: "'
+mv "$CASE/inst.keep" "$INST"
 
 # On by default, off by the documented switch.
 if [ -n "$REAL_GITLEAKS" ]; then
@@ -305,7 +428,7 @@ if [ -z "$REAL_GITLEAKS" ]; then
   cp "$CASE/good.tar.gz" "$CASE/download/$asset"
   mkdir -p "$CASE/tools" "$CASE/tmp" "$CASE/gl" "$CASE/path-gl" "$CASE/uname-bin"
   # No gitleaks on this PATH: only the tools the CLI and the stand-in curl use.
-  for tool in sh dirname basename pwd jq git awk mktemp rm mkdir rmdir wc tr sleep head tail grep sed cat chmod uname shasum \
+  for tool in sh dirname basename pwd jq git awk mktemp rm mkdir rmdir wc tr sleep head tail grep sed cat chmod uname shasum stat \
       tar gzip mv cp ln ls env date id sort uniq cut od tee expr touch find setsid perl; do
     tool_path=$(command -v "$tool" 2>/dev/null) || continue
     case "$tool_path" in /*) ln -s "$tool_path" "$CASE/tools/$tool" ;; esac
@@ -346,7 +469,7 @@ if [ -z "$REAL_GITLEAKS" ]; then
   has_helper() { [ -x "$1/gitleaks-helper/agent-guard-scan" ] && (cd "$1/gitleaks-helper" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1); }
   no_temp_left() { [ -z "$(ls -A "$CASE/tmp")" ]; }
   # A reason line: why setup --install did not install the helper.
-  reason() { grep -c 'gitleaks helper  not installed  (.*only answers' "$CASE/s.err"; }
+  reason() { grep -c 'gitleaks helper  not installed  (.*\(the helper never serves\|not the official\|answers only\)' "$CASE/s.err"; }
   warned() { grep -c 'warning: the warm gitleaks helper was not installed' "$CASE/s.err"; }
 
   # Installed: no gitleaks anywhere, so gitleaks and then the helper.
@@ -446,14 +569,271 @@ HTTP
      && [ "$(sed -n 1p "$URLS" | sed "s|.*/||")" = "gitleaks_${gl_version}_darwin_x64.tar.gz" ] && [ "$(reason)" = 0 ] && [ "$(warned)" = 0 ]'
   TOOLS_PATH="$CASE/http-bin:$CASE/tools"
 
-  # The selected gitleaks is not the one setup --install manages: one line
-  # says why, nothing is downloaded, and setup does not fail.
+  # The official build on PATH is answered by the helper, so setup --install
+  # installs the helper for it, as --install-gitleaks-helper does.
   P="$CASE/p-path"
   TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
   si "$P" -- --install
-  expect "a gitleaks from PATH gets one line naming the reason, and no download" \
+  expect "the official gitleaks on PATH gets the helper from setup --install" \
+    '[ "$(status)" = 0 ] && has_helper "$P" && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 1 ] && [ "$(helper_url)" = 1 ] \
+     && [ "$(reason)" = 0 ] && [ "$(warned)" = 0 ]'
+  # Any other gitleaks is not answered: one line says why and what to do,
+  # nothing is downloaded, and setup does not fail.
+  P="$CASE/p-path-other"
+  printf '\n# another build\n' >>"$CASE/path-gl/gitleaks"
+  si "$P" -- --install
+  expect "a gitleaks on PATH that is not the official build gets one line naming the reason, and no download" \
     '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 0 ] && [ "$(reason)" = 1 ] && [ "$(warned)" = 0 ] \
-     && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "PATH" && grep -q "setup --install" "$CASE/s.err"'
+     && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "not the official gitleaks $glv release build" \
+     && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "used before PATH"'
+  # Asked for with setup --install and a checksum, the official build goes to
+  # the private directory, which is selected before PATH, with one line that
+  # says so and how to go back; then the helper is installed for it.
+  P="$CASE/p-path-replace"
+  path_gl_before=$(shasum -a 256 "$CASE/path-gl/gitleaks")
+  si "$P"
+  expect "setup --install with a checksum puts the official build in the private directory beside the PATH build, says so and how to go back" \
+    '[ "$(status)" = 0 ] && cmp -s "$P/gitleaks" "$CASE/gl/gitleaks" && has_helper "$P" \
+     && [ "$(sed -n 1p "$URLS" | sed "s|.*/||")" = "$gl_archive" ] && [ "$(helper_url)" = 1 ] \
+     && grep -qF "hook scans now use the official gitleaks $glv in $P/gitleaks instead of $CASE/path-gl/gitleaks; to go back, remove $P/gitleaks or set AGENT_GUARD_GITLEAKS_BIN=$CASE/path-gl/gitleaks" "$CASE/s.err" \
+     && [ "$path_gl_before" = "$(shasum -a 256 "$CASE/path-gl/gitleaks")" ] && no_temp_left'
+  : >"$CALLS"
+  hook "echo $marker" AGENT_GUARD_GITLEAKS_BIN_DIR="$P" PATH="$CASE/path-gl:$PATH"
+  expect "and hook scans then run the official build through the helper, with the same deny" \
+    '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && grep -qF -- "--gitleaks|$P/gitleaks|" "$CALLS"'
+  # Never from doctor, which only passes install arguments on while they are
+  # deprecated: it installs nothing in place of a working gitleaks.
+  P="$CASE/p-path-doctor"
+  : >"$URLS"
+  env PATH="$TOOLS_PATH" TMPDIR="$CASE/tmp" AGENT_GUARD_GITLEAKS_BIN_DIR="$P" \
+    "$GUARD" doctor --install --gitleaks-checksum "$gl_sum" >"$CASE/s.out" 2>"$CASE/s.err"
+  expect "doctor with install arguments does not replace the PATH build" \
+    '[ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && grep -q "gitleaks already available" "$CASE/s.err"'
+  # The helper turned off: the PATH build stays.
+  P="$CASE/p-path-off"
+  si "$P" AGENT_GUARD_GITLEAKS_HELPER=off
+  expect "with AGENT_GUARD_GITLEAKS_HELPER=off setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && grep -q "gitleaks already available" "$CASE/s.err"'
+  # A non-official gitleaks already in the private directory is never
+  # overwritten; the advice is to remove it first.
+  P="$CASE/p-private-other"
+  mkdir -p "$P" && cp "$CASE/path-gl/gitleaks" "$P/gitleaks"
+  si "$P"
+  expect "a non-official private gitleaks is kept, with advice to remove it and rerun" \
+    '[ "$(status)" = 0 ] && cmp -s "$P/gitleaks" "$CASE/path-gl/gitleaks" && [ "$(urls)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] \
+     && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -qF "remove $P/gitleaks, then run"'
+  # A replacement that does not run is removed again, so the working PATH
+  # build stays selected; setup fails and says so.
+  P="$CASE/p-path-broken"
+  cp "$CASE/download/$gl_archive" "$CASE/gl-archive.keep"
+  mkdir -p "$CASE/broken-gl"
+  printf '#!/bin/sh\nexit 3\n' >"$CASE/broken-gl/gitleaks"
+  chmod 755 "$CASE/broken-gl/gitleaks"
+  tar -C "$CASE/broken-gl" -czf "$CASE/download/$gl_archive" gitleaks
+  broken_sum=$(shasum -a 256 "$CASE/download/$gl_archive" | awk '{ print $1 }')
+  # Pinned as official, so it is the probe that refuses it.
+  cp "$OFFICIAL" "$CASE/official.held"
+  printf '%s  %s/%s/gitleaks\n' "$(shasum -a 256 "$CASE/broken-gl/gitleaks" | awk '{ print $1 }')" "$glv" "$target" >"$OFFICIAL"
+  si "$P" -- --install --gitleaks-checksum "$broken_sum"
+  cp "$CASE/official.held" "$OFFICIAL"
+  expect "a replacement that does not run is checked aside and never installed; the PATH build stays and setup fails saying so" \
+    '[ "$(status)" != 0 ] && [ ! -e "$P/gitleaks" ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(helper_url)" = 0 ] \
+     && grep -qF "the downloaded gitleaks does not run" "$CASE/s.err" \
+     && grep -qF "the official gitleaks was not installed; hook scans keep using $CASE/path-gl/gitleaks" "$CASE/s.err" \
+     && [ -z "$(find "$P" -name ".gitleaks.*")" ] && no_temp_left'
+  # One that runs and matches the user's checksum but not the official build
+  # is not installed either.
+  P="$CASE/p-path-unofficial"
+  printf '#!/bin/sh\n: >"%s"\nexec "%s" "$@"\n' "$CASE/unofficial-ran" "$CASE/gl/gitleaks" >"$CASE/broken-gl/gitleaks"
+  chmod 755 "$CASE/broken-gl/gitleaks"
+  tar -C "$CASE/broken-gl" -czf "$CASE/download/$gl_archive" gitleaks
+  unofficial_sum=$(shasum -a 256 "$CASE/download/$gl_archive" | awk '{ print $1 }')
+  si "$P" -- --install --gitleaks-checksum "$unofficial_sum"
+  expect "a downloaded gitleaks that is not the official build is not installed; the PATH build stays" \
+    '[ "$(status)" != 0 ] && [ ! -e "$P/gitleaks" ] && grep -qF "the downloaded gitleaks is not the official gitleaks $glv release build" "$CASE/s.err" \
+     && [ -z "$(find "$P" -name ".gitleaks.*")" ] && [ ! -e "$CASE/unofficial-ran" ]'
+  # An archive whose gitleaks is a symbolic link to the official build passes
+  # the checks through the link, but the link is never published.
+  P="$CASE/p-path-link-archive"
+  mkdir -p "$CASE/link-gl"
+  cp "$CASE/gl/gitleaks" "$CASE/link-target" && chmod 644 "$CASE/link-target"
+  ln -s "$CASE/link-target" "$CASE/link-gl/gitleaks"
+  tar -C "$CASE/link-gl" -czf "$CASE/download/$gl_archive" gitleaks
+  link_sum=$(shasum -a 256 "$CASE/download/$gl_archive" | awk '{ print $1 }')
+  si "$P" -- --install --gitleaks-checksum "$link_sum"
+  expect "a downloaded gitleaks that is a symbolic link is not installed; the PATH build stays" \
+    '[ "$(status)" != 0 ] && [ ! -e "$P/gitleaks" ] && [ ! -L "$P/gitleaks" ] \
+     && grep -qF "the downloaded gitleaks is not a regular file" "$CASE/s.err" && [ ! -x "$CASE/link-target" ] \
+     && [ -z "$(find "$P" -name ".gitleaks.*")" ]'
+  cp "$CASE/gl-archive.keep" "$CASE/download/$gl_archive"
+  # Another install that puts a gitleaks there meanwhile keeps it: the staged
+  # one is linked to the name, never moved over it.
+  P="$CASE/p-path-race"
+  mkdir -p "$CASE/race-bin"
+  printf '#!/bin/sh\n# theirs\nexec "%s" "$@"\n' "$CASE/gl/gitleaks" >"$CASE/theirs-gl"
+  chmod 755 "$CASE/theirs-gl"
+  printf '#!/bin/sh\n"%s" "$@" || exit\nmkdir -p "%s" && cp "%s" "%s/gitleaks"\n' \
+    "$CASE/http-bin/curl" "$P" "$CASE/theirs-gl" "$P" >"$CASE/race-bin/curl"
+  chmod 755 "$CASE/race-bin/curl"
+  TOOLS_PATH="$CASE/race-bin:$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  expect "a gitleaks another install puts in the private directory meanwhile is kept, and setup fails saying so" \
+    '[ "$(status)" != 0 ] && grep -qx "# theirs" "$P/gitleaks" && [ ! -e "$P/gitleaks-helper" ] \
+     && grep -qF "failed to install gitleaks at $P/gitleaks" "$CASE/s.err" \
+     && grep -qF "the official gitleaks was not installed; hook scans use $P/gitleaks" "$CASE/s.err" \
+     && ! grep -qF "keep using $CASE/path-gl/gitleaks" "$CASE/s.err" \
+     && [ -z "$(find "$P" -name ".gitleaks.*")" ] && no_temp_left'
+  # A directory put at that name meanwhile gets nothing linked inside it.
+  P="$CASE/p-path-race-dir"
+  printf '#!/bin/sh\n"%s" "$@" || exit\nmkdir -p "%s/gitleaks"\n' "$CASE/http-bin/curl" "$P" >"$CASE/race-bin/curl"
+  TOOLS_PATH="$CASE/race-bin:$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  expect "a directory another process puts at the private gitleaks name meanwhile gets no link inside it" \
+    '[ "$(status)" != 0 ] && [ -d "$P/gitleaks" ] && [ -z "$(ls -A "$P/gitleaks")" ] \
+     && ! grep -qF "installed gitleaks v" "$CASE/s.err" && [ -z "$(find "$P" -name ".gitleaks.*")" ]'
+  # An installed helper that cannot run: replacing the PATH build gains nothing.
+  P="$CASE/p-path-helper-broken"
+  mkdir -p "$P" && cp -Rp "$CASE/p-path/gitleaks-helper" "$P/gitleaks-helper"
+  chmod 644 "$P/gitleaks-helper/agent-guard-gitleaks-helper"
+  si "$P"
+  expect "with an installed helper that cannot run setup --install keeps the PATH build and says how to reinstall" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] \
+     && grep -qF "gitleaks helper  not used  (its helper $P/gitleaks-helper/agent-guard-gitleaks-helper is not executable; reinstall it: " "$CASE/s.err"'
+  # The way back names the PATH build in a form the shell keeps.
+  P="$CASE/p-path-space"
+  mkdir -p "$CASE/sp gl" && cp "$CASE/path-gl/gitleaks" "$CASE/sp gl/gitleaks"
+  TOOLS_PATH="$CASE/sp gl:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  expect "the way back quotes a PATH build whose path holds a space" \
+    '[ "$(status)" = 0 ] && grep -qF "or set AGENT_GUARD_GITLEAKS_BIN='"'"'$CASE/sp gl/gitleaks'"'"'" "$CASE/s.err"'
+  # A helper path the installer would refuse (a symbolic link): replacing the
+  # PATH build would gain nothing.
+  P="$CASE/p-path-helper-link"
+  mkdir -p "$P" "$CASE/elsewhere" && ln -s "$CASE/elsewhere" "$P/gitleaks-helper"
+  si "$P"
+  expect "with a symbolic link at the helper path setup --install keeps the PATH build" \
+    '[ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && [ -L "$P/gitleaks-helper" ]'
+  # A state home hooks cannot search: they could not create the state directory.
+  P="$CASE/p-path-state-noexec"
+  mkdir -p "$CASE/state-noexec" && chmod 600 "$CASE/state-noexec"
+  si "$P" XDG_STATE_HOME="$CASE/state-noexec"
+  chmod 700 "$CASE/state-noexec"
+  expect "with XDG_STATE_HOME writable but not searchable setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  # The terminal closing during the replacement download leaves nothing behind.
+  P="$CASE/p-path-hup"
+  printf '#!/bin/sh\nkill -HUP "$PPID"\nsleep 1\nexit 22\n' >"$CASE/race-bin/curl"
+  TOOLS_PATH="$CASE/race-bin:$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  sleep 1
+  expect "a replacement download ended by SIGHUP leaves no staging or temporary directory" \
+    '[ ! -e "$P/gitleaks" ] && [ -z "$(find "$P" -name ".gitleaks.*" 2>/dev/null)" ] && no_temp_left'
+  # A state home under / that does not exist: only a user who can write / could
+  # create it.
+  if [ ! -w / ]; then
+    P="$CASE/p-path-state-root"
+    si "$P" XDG_STATE_HOME="/agent-guard-missing-$$"
+    expect "with XDG_STATE_HOME missing directly under an unwritable / setup --install keeps the PATH build" \
+      '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  fi
+  # A state home that is a file: hooks could never create the state directory.
+  P="$CASE/p-path-state-file"
+  : >"$CASE/state-file"
+  si "$P" XDG_STATE_HOME="$CASE/state-file"
+  expect "with XDG_STATE_HOME naming a file setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  # The official build on PATH with logging off or an unknown log mode: no
+  # helper download, and the line says why instead of suggesting one.
+  for log_mode in off verbose; do
+    P="$CASE/p-official-log-$log_mode"
+    TOOLS_PATH="$CASE/gl:$CASE/http-bin:$CASE/tools"
+    si "$P" AGENT_GUARD_LOG_MODE="$log_mode" -- --install
+    TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+    expect "the official build on PATH with AGENT_GUARD_LOG_MODE=$log_mode gets no helper download, and one line saying why" \
+      '[ "$(status)" = 0 ] && [ "$(helper_url)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] \
+       && [ "$(grep -c "gitleaks helper  not installed  (it would not answer: AGENT_GUARD_LOG_MODE" "$CASE/s.err")" = 1 ] \
+       && [ "$(grep -c "gitleaks helper" "$CASE/s.err")" = 1 ]'
+  done
+  # Where the helper could not run anyway, the PATH build stays.
+  P="$CASE/p-path-log-off"
+  si "$P" AGENT_GUARD_LOG_MODE=off
+  expect "with AGENT_GUARD_LOG_MODE=off setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  P="$CASE/p-path-log-bad"
+  si "$P" AGENT_GUARD_LOG_MODE=verbose
+  expect "with an AGENT_GUARD_LOG_MODE hooks do not accept setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  P="$CASE/p-path-open-sub"
+  mkdir -p "$CASE/sub-state/agent-guard/gitleaks-helper"
+  chmod 700 "$CASE/sub-state/agent-guard" && chmod 755 "$CASE/sub-state/agent-guard/gitleaks-helper"
+  si "$P" XDG_STATE_HOME="$CASE/sub-state"
+  expect "with a helper socket directory the client would refuse (mode 0755) setup --install keeps the PATH build and says why" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] \
+     && grep -qF "the helper directory $CASE/sub-state/agent-guard/gitleaks-helper is not private to you" "$CASE/s.err"'
+  P="$CASE/p-official-open-state"
+  mkdir -p "$CASE/open-state2/agent-guard" && chmod 755 "$CASE/open-state2/agent-guard"
+  TOOLS_PATH="$CASE/gl:$CASE/http-bin:$CASE/tools"
+  si "$P" XDG_STATE_HOME="$CASE/open-state2" -- --install
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  expect "the official build on PATH gets no helper download where hooks could not use it, and the line says why once" \
+    '[ "$(status)" = 0 ] && [ "$(helper_url)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] \
+     && [ "$(grep -c "is not private to you" "$CASE/s.err")" = 1 ]'
+  P="$CASE/p-path-open-state"
+  mkdir -p "$CASE/open-state/agent-guard" && chmod 755 "$CASE/open-state/agent-guard"
+  si "$P" XDG_STATE_HOME="$CASE/open-state"
+  expect "with a state directory hooks would refuse (mode 0755) setup --install keeps the PATH build and says why" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] \
+     && grep -qF "the state directory $CASE/open-state/agent-guard is not private to you (a 0700 directory you own)" "$CASE/s.err"'
+  P="$CASE/p-path-relative-state"
+  si "$P" XDG_STATE_HOME=relative-state
+  expect "with a state directory that is not a plain absolute path setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  # A private directory named through a symbolic link is still the private
+  # directory: its gitleaks is kept, and the advice is to remove it.
+  P="$CASE/p-private-link"
+  mkdir -p "$CASE/p-private-real" && cp "$CASE/path-gl/gitleaks" "$CASE/p-private-real/gitleaks"
+  ln -s "$CASE/p-private-real" "$P"
+  si "$P"
+  expect "a private gitleaks reached through a symbolic link gets the remove advice and is kept" \
+    '[ "$(status)" = 0 ] && cmp -s "$CASE/p-private-real/gitleaks" "$CASE/path-gl/gitleaks" && [ "$(urls)" = 0 ] \
+     && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "to use the helper, remove "'
+  # No pin for this platform and version: the build cannot be checked, so
+  # nothing is replaced.
+  P="$CASE/p-path-no-pin"
+  cp "$OFFICIAL" "$CASE/official.held"
+  printf '%064d  %s/riscv64-unknown-linux-musl/gitleaks\n' 0 "$glv" >"$OFFICIAL"
+  si "$P"
+  expect "without a pin for this platform setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && ! grep -q "not the official" "$CASE/s.err"'
+  P="$CASE/p-path-no-pin-old"
+  mkdir -p "$CASE/path-old"
+  cp "$CASE/old-gitleaks" "$CASE/path-old/gitleaks"
+  TOOLS_PATH="$CASE/path-old:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  expect "without a pin for this platform setup --install keeps an older PATH build too" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  cp "$CASE/official.held" "$OFFICIAL"
+  # No helper for this platform: nothing to gain, so the PATH build stays.
+  P="$CASE/p-path-platform"
+  mkdir -p "$CASE/path-old"
+  cp "$CASE/old-gitleaks" "$CASE/path-old/gitleaks"
+  TOOLS_PATH="$CASE/uname-bin:$CASE/path-old:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  expect "on a platform without a helper release setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && grep -q "gitleaks already available" "$CASE/s.err"'
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  # Another version asked for: the helper would not answer it either, so the
+  # PATH build stays.
+  P="$CASE/p-path-version"
+  si "$P" -- --install --gitleaks-checksum "$gl_sum" --gitleaks-version 8.30.0
+  expect "setup --install for another gitleaks version keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  cp "$CASE/gl/gitleaks" "$CASE/path-gl/gitleaks"
   TOOLS_PATH="$CASE/http-bin:$CASE/tools"
   P="$CASE/p-explicit"
   mkdir -p "$P" && cp "$CASE/gl/gitleaks" "$P/gitleaks"
@@ -467,6 +847,19 @@ HTTP
   expect "a private gitleaks of another version gets one line naming the version, and no download" \
     '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 0 ] && [ "$(reason)" = 1 ] \
      && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "8.30.0"'
+
+  # A gitleaks this cannot check (here: no pins for the official build) gets
+  # no helper from setup --install, with one line naming the command that
+  # installs it anyway.
+  P="$CASE/p-unknown"
+  mv "$OFFICIAL" "$CASE/official.held"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  si "$P" -- --install
+  expect "a gitleaks that cannot be checked gets no helper download, and one line with the command for it" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 0 ] \
+     && grep "gitleaks helper  not installed  (could not tell whether" "$CASE/s.err" | grep -q "setup --install-gitleaks-helper)"'
+  TOOLS_PATH="$CASE/http-bin:$CASE/tools"
+  mv "$CASE/official.held" "$OFFICIAL"
 
   # Both flags: the explicit install stays strict and the helper is fetched once.
   P="$CASE/p-both"
