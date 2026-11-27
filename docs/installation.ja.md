@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: bc80989bf077b0a4e493e477d498ff8c5b6319c1 -->
+<!-- translated-from: docs/installation.md; source-blob: 5ae16ea79a3cb3eabb8244518e5395b3755ccc19 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -61,6 +61,12 @@ warm helperは、コンパイル済みのgitleaks 8.30.1 detectorをユーザー
 すでにあるgitleaksは置き換えず、`doctor` はこれを行いません。helperのassetがないプラットフォームでは
 何も表示しません。helperを省くには、コマンドの実行時に
 `AGENT_GUARD_GITLEAKS_HELPER=off` を設定してください。
+
+helperが使用中のgitleaksに応答できるのにインストールされていない場合、セッションの
+開始時に、helperでhookが速くなることをインストールコマンドと一緒に1行で表示します。
+表示はインストールごとに1回だけです。状態ディレクトリに記録するため、
+`AGENT_GUARD_LOG_MODE=off` では表示せず、helperをインストールした後や
+`AGENT_GUARD_GITLEAKS_HELPER` を設定した後も表示しません。
 
 helperだけをインストールするコマンドもあります。プラグイン、Homebrew、
 単独インストールのいずれでも同じで、インストールできなければ失敗します。

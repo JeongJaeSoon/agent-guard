@@ -23355,6 +23355,48 @@ shell_init_block_state() {
   esac
 }
 
+# One line, once per install, for a user who could use the warm helper but
+# has none: this platform has a helper release, the selected gitleaks is the
+# official build the helper answers (gitleaks_helper_blocker), its socket path
+# fits, and neither the helper nor the state directory is turned off. The
+# private state directory records that it was shown, so the line never comes
+# back, and also that the gitleaks file was another build, under the probe
+# cache's identity of that file, so the same file is not hashed again at each
+# session start. A line it cannot record is not shown, and without the state
+# directory (AGENT_GUARD_LOG_MODE=off) there is none. It reads files, starts no
+# gitleaks and changes no decision. Sets GITLEAKS_HELPER_HINT.
+session_start_helper_hint() {
+  GITLEAKS_HELPER_HINT=
+  [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] && [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] \
+    && [ "${AGENT_GUARD_LOG_MODE:-on}" != off ] && [ -n "$AG_STATE_DIR" ] || return 1
+  ag_hh_file=$AG_STATE_DIR/gitleaks-helper-hint
+  [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] \
+    && [ ! -L "$ag_hh_file" ] && [ ! -d "$ag_hh_file" ] || return 1
+  ag_hh_seen=
+  if [ -e "$ag_hh_file" ]; then
+    IFS= read -r ag_hh_seen <"$ag_hh_file" 2>/dev/null || :
+    [ "$ag_hh_seen" != shown ] || return 1
+  fi
+  [ "$GITLEAKS_PROBE_STATE" = ready ] && [ -n "$GITLEAKS_READY_BIN" ] || return 1
+  [ -z "$GITLEAKS_PROBE_CACHE_KEY" ] || [ "$ag_hh_seen" != "other $GITLEAKS_PROBE_CACHE_KEY" ] || return 1
+  gitleaks_helper_state_usable && gitleaks_helper_blocker "$GITLEAKS_READY_BIN" || return 1
+  if [ -n "$helper_blocker" ]; then
+    [ -z "$GITLEAKS_PROBE_CACHE_KEY" ] || session_start_helper_hint_record "other $GITLEAKS_PROBE_CACHE_KEY"
+    return 1
+  fi
+  session_start_helper_hint_record shown || return 1
+  cli_ref_init
+  GITLEAKS_HELPER_HINT="agent-guard: the optional warm gitleaks helper makes hooks faster; install it with: $AG_CLI_REF_HOOK setup --install-gitleaks-helper"
+}
+
+session_start_helper_hint_record() {
+  ag_hh_tmp=$(umask 077; mktemp "$ag_hh_file.XXXXXX" 2>/dev/null) || return 1
+  if ! { printf '%s\n' "$1" >"$ag_hh_tmp" && mv -f "$ag_hh_tmp" "$ag_hh_file"; } 2>/dev/null; then
+    rm -f "$ag_hh_tmp" 2>/dev/null || :
+    return 1
+  fi
+}
+
 hook_session_start() {
   message=
   if ! hook_dependencies_ready once || ! command -v git >/dev/null 2>&1; then
@@ -23417,12 +23459,21 @@ hook_session_start() {
     fi
   fi
 
-  [ -n "$message" ] || return 0
+  # The hint is for the user, so Codex's model context does not get it.
+  user_message=$message
+  if session_start_helper_hint; then
+    if [ -n "$user_message" ]; then user_message="$user_message $GITLEAKS_HELPER_HINT"; else user_message=$GITLEAKS_HELPER_HINT; fi
+  fi
+  [ -n "$user_message" ] || return 0
   case "$(hook_host)" in
     codex)
-      printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$message" "$message"
+      if [ -n "$message" ]; then
+        printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$user_message" "$message"
+      else
+        printf '{"systemMessage":"%s"}\n' "$user_message"
+      fi
       ;;
-    *) printf '{"systemMessage":"%s"}\n' "$message" ;;
+    *) printf '{"systemMessage":"%s"}\n' "$user_message" ;;
   esac
 }
 

@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: bc80989bf077b0a4e493e477d498ff8c5b6319c1 -->
+<!-- translated-from: docs/installation.md; source-blob: 5ae16ea79a3cb3eabb8244518e5395b3755ccc19 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -60,6 +60,12 @@ gitleaks가 공식 gitleaks 8.30.1 릴리스 빌드이면, private 디렉터리�
 일을 하지 않습니다.
 helper asset이 없는 플랫폼에서는 아무 말도 하지 않습니다. helper를 건너뛰려면
 명령을 실행할 때 `AGENT_GUARD_GITLEAKS_HELPER=off`를 두세요.
+
+helper가 지금 쓰는 gitleaks에 답할 수 있는데 설치되어 있지 않으면, 세션을 시작할 때
+helper가 hook을 빠르게 한다는 한 줄을 설치 명령과 함께 보여 줍니다. 설치마다 한 번만
+보여 줍니다. 상태 디렉터리에 기록하므로 `AGENT_GUARD_LOG_MODE=off`이면 보여 주지
+않고, helper를 설치했거나 `AGENT_GUARD_GITLEAKS_HELPER`를 설정한 뒤에도 보여 주지
+않습니다.
 
 helper만 설치하는 명령도 있습니다. 플러그인·Homebrew·단독 설치 모두 같고,
 설치하지 못하면 실패합니다.
