@@ -1,3 +1,10 @@
+## v3.15.0 - 2026-11-27
+
+- fix(helper): 여러 시스템이 함께 쓰는 private 디렉터리에 다른 플랫폼용 helper가 있으면 hook은 그것을 실행하지 않고 gitleaks를 직접 실행한다 (#707)
+- feat(session-start): helper를 쓸 수 있는데 설치하지 않은 사용자에게 설치하면 hook이 빨라진다는 안내를 설치마다 한 번 보여 준다 (#704)
+- test(layout): 지워진 setup-shell.md의 부재를 run.sh에서 다시 확인하지 않는다 (#695)
+- fix(setup): setup과 doctor가 설치된 warm helper가 답하지 않는 이유와 할 일을 한 줄로 알리고, PATH의 공식 gitleaks에도 setup --install이 helper를 설치한다 (#703)
+
 ## v3.14.1 - 2026-11-27
 
 - fix(scan): hook 입력 스캔에 저장소의 .gitleaksignore를 적용하지 않는다 (#705)
