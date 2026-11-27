@@ -1,3 +1,7 @@
+## v3.16.0 - 2026-11-27
+
+- perf(cli): dash가 있으면 CLI를 dash로 실행한다 (#698)
+
 ## v3.15.1 - 2026-11-27
 
 - ci(test): deny-rule-characters를 partition 8로 옮겨 macOS partition 3이 25분 제한 안에 끝나게 한다 (#712)
