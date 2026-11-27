@@ -200,7 +200,7 @@ else
 fi
 
 # Orca bot message text, documents sent as a body file and an awk line
-# filter after a search, through both hosts (the Orca CLI variable is unset).
+# filter after a search (the Orca CLI variable is unset).
 checked=$((checked + 1))
 if ORCA_CLI_COMMAND= AGENT_GUARD_TEST_FIXTURE="$ROOT/tests/fixtures/orca-message-text.json" sh "$ROOT/tests/path-operands-only.sh" > "$CASE_ROOT/orca" 2>&1; then
   printf 'ok - path data %s: orca message text\n' "$checked"

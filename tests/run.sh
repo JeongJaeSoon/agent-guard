@@ -282,6 +282,8 @@ run_expect 0 "CLI guidance names a command that runs for plugin-only installs" \
   env AGENT_GUARD_SHELL_INIT_VERSION=0.0.1 sh "$ROOT/tests/cli-guidance.sh"
 run_expect 0 "doctor install arguments are deprecated: still passed to setup, with a warning" \
   sh "$ROOT/tests/doctor-install-args.sh"
+run_expect 0 "doctor reports the settings it reads, values only when safe" \
+  sh "$ROOT/tests/doctor-settings.sh"
 
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
@@ -15830,6 +15832,8 @@ fi
 
 run_expect 0 "PII settings the guard cannot honor stop every entry point" \
   sh "$ROOT/tests/pii-config.sh"
+run_expect 0 "the hook PII request cap is an internal argument; the environment flag is deprecated" \
+  sh "$ROOT/tests/pii-hook-request.sh"
 
 # An empty skip set must leave endpoint providers exactly as they were:
 # reaching the request (and failing on the unreachable URL) proves the new
@@ -17530,6 +17534,7 @@ else
 fi
 rm -rf "$NORM_PARENT"
 run_expect 0 "smoke-test keeps the process EXIT trap and leaves no temp directory" sh "$ROOT/tests/exit-trap-cleanup.sh"
+run_expect 0 "HUP, INT and TERM remove the run directory on every shell, and stale leftovers are reaped" sh "$ROOT/tests/rundir-cleanup.sh"
 
 # --- pilot security: bounded tree scans and Codex write targets ------------
 # Assemble the test-only sentinel so source scans never see the matched value.

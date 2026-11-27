@@ -395,6 +395,33 @@ fi
 "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --case post-bash-assignment --case output-redact-off \
   --out "$CASE/parity-redact.json" >/dev/null 2>&1
 jq -e '.differences == 0 and ([.cases[].steps[0].stdout.bytes[0]] | .[0] > 0 and .[0] != .[1])' "$CASE/parity-redact.json" >/dev/null
+# --locale sets LC_ALL for every hook to the name this system lists, whatever
+# spelling was given, and the report says which. Without it the hooks get no
+# locale variable at all, not the caller's either.
+listed=$(locale -a 2>/dev/null | grep -i -E '\.utf-?8$' | head -n 1) || :
+mutant needs-locale '[ "${LC_ALL:-}${LANG:-}${LC_CTYPE:-}" = "'"$listed"'" ] && [ -n "${LC_ALL:-}" ] || exit 3'
+if [ -n "$listed" ]; then
+  # The name as listed, and the same name spelled another way.
+  for spelling in "$listed" "$(printf %s "$listed" | tr '[:lower:]' '[:upper:]' | sed 's/\.UTF-*8$/.utf8/')"; do
+    "$TOOLS" cli-differential --baseline "$CASE/needs-locale/agent-guard/bin/agent-guard" --candidate "$CASE/needs-locale/agent-guard/bin/agent-guard" \
+      --scanner "$MOCK" --locale "$spelling" --case pre-read-clean --out "$CASE/parity-locale.json" >/dev/null 2>&1
+    jq -e --arg listed "$listed" '.differences == 0 and .locale == $listed and .cases[0].steps[0].status == [0, 0]' "$CASE/parity-locale.json" >/dev/null
+  done
+else
+  echo 'skip - no UTF-8 locale is installed: --locale is checked for refusals only' >&2
+fi
+LC_ALL=${listed:-C} LANG=${listed:-C} LC_CTYPE=${listed:-C} "$TOOLS" cli-differential --baseline "$CASE/needs-locale/agent-guard/bin/agent-guard" \
+  --candidate "$CASE/needs-locale/agent-guard/bin/agent-guard" --scanner "$MOCK" --case pre-read-clean --out "$CASE/parity-no-locale.json" >/dev/null 2>&1
+jq -e '.locale == null and .cases[0].steps[0].status == [3, 3]' "$CASE/parity-no-locale.json" >/dev/null
+# A locale this system does not have would be read as C by both sides without
+# a word: it is refused, and so is a value that is not a locale name.
+for locale in xx_XX.UTF-8 'C.UTF-8 FOO=1' ''; do
+  if "$TOOLS" cli-differential --baseline "$GUARD" --candidate "$GUARD" --scanner "$MOCK" --locale "$locale" \
+      --case pre-read-clean --out "$CASE/parity-bad-locale.json" >/dev/null 2>&1; then
+    echo "cli-differential accepted the locale '$locale'" >&2; exit 1
+  fi
+  jq -e '(.complete | not)' "$CASE/parity-bad-locale.json" >/dev/null
+done
 # A repeated option keeps its last value.
 test ! -e "$CASE/ignored-out"
 printf 'Developer tools: option parsing, resource status, source-location and failed-partition contracts passed\n'

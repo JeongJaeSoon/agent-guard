@@ -22,7 +22,7 @@ security tiers or test-pyramid layers.
 | awk implementation comparison | `tests/assignment-leftmost.sh` (partition 1; `legacy-tools.yml` requires mawk, gawk and busybox awk) | 16 fixture lines with more than one assignment: detector values and Claude/Codex PostToolUse output are the same bytes on the awk on `PATH` and on each of mawk, gawk and busybox awk that is installed. `AGENT_GUARD_TEST_REQUIRE_AWKS` turns a missing implementation into a failure. `tests/key-name-masking.sh` (partition 3) compares its detector records the same way; `legacy-tools.yml` runs its two halves in separate jobs with `AGENT_GUARD_TEST_KEY_NAME_PART=records` (all three awks required) and `=hooks` (the hook cases under mawk) |
 | CLI contracts | `tests/deny-read-mask*.sh`, `source-module-prose.sh`, `hook-outcome-contract.sh`, `gitleaks-resolution.sh`, `audit-log.sh`, `redaction-wrapped-values.sh` | Exit status, host payloads, diagnostics, masking and infrastructure policy through the CLI. `redaction-wrapped-values.sh` runs every row of `tests/fixtures/redaction-wrapped-values.json` through Claude and Codex PostToolUse and UserPromptSubmit |
 | Plugin hook launcher | `tests/hook-launcher.sh` (partition 1) | `plugins/agent-guard/hooks/launch.sh` driven directly for Claude and Codex under `sh`, `dash` and `bash` over a fake plugin cache: authoritative complete root, deleted-root recovery through `current` or the highest complete semver sibling, no substitution for an incomplete root, closed blocks with a reason every time, once-per-session open warning, stdin pass-through and invalid-argument refusal. Not host dispatch |
-| OS/tool integration | Git fixtures in `tests/run.sh`, permission/ACL/symlink/signal cases, `pii-utf8.sh`, Linux real-gitleaks block | Actual filesystem, Git and process behavior; Apple awk and scanner differences |
+| OS/tool integration | Git fixtures in `tests/run.sh`, permission/ACL/symlink/signal cases, `pii-utf8.sh`, Linux real-gitleaks block, the rule suites of `tests/real-gitleaks-rules.sh` | Actual filesystem, Git and process behavior; Apple awk and scanner differences |
 | Deployment and service integration | `make smoke-test`, archive/Homebrew validation, opt-in `make test-pleno-integration` | Real scanner/tool dependencies, installation and configured service boundaries |
 | Authenticated host E2E | Separate Claude/Codex host-dispatch verification | Host loads and invokes the installed adapter; direct CLI calls or selecting a host environment variable do not establish this |
 
@@ -81,7 +81,10 @@ its inner count. To investigate one partition, use
 `AGENT_GUARD_TEST_SHARD=2 tests/run.sh`; this is a local diagnostic, not a
 substitute for the complete CI gates. A real scanner on PATH enables
 additional integration assertions; CI requires them and the smoke test on its
-Linux scanner job, and other partitions use synthetic scanner fixtures.
+Linux scanner job, and other partitions use synthetic scanner fixtures. The
+suites that check the rules of `gitleaks.toml` run through
+`tests/real-gitleaks-rules.sh`, which partition 4 starts unless the workflow
+runs it as a step (see "Test partitions").
 
 The full suite includes subprocess, file-mode and process-cleanup cases. Keep
 HOME, warning/session state, Git repositories and output files isolated. Do
@@ -176,7 +179,13 @@ variables. Compared for every step: exit status, the decision the host is
 told, standard output and standard error byte for byte, the audit events
 written, and the files left behind. `--baseline-shell` and
 `--candidate-shell` run a side under a named interpreter;
-`--entry manifest` runs the host's plugin manifest command.
+`--entry manifest` runs the host's plugin manifest command. The hooks get
+no locale variable, not the caller's either, so both sides run in the C
+locale, where a shell handles text byte by byte; `--locale NAME` (a name
+`locale -a` lists, such as `en_US.UTF-8`) sets `LC_ALL` for every hook
+and is recorded in the report. Run a change of interpreter
+both ways: a shell with multibyte support differs from one without only in
+such a locale.
 
 What two runs of one build may differ in is not compared and is listed in the
 report as `not_compared`: the time, run identifier and duration of an audit
@@ -260,8 +269,14 @@ not among the policy settings, and add its row to
 
 ## CI checks
 
-CI runs on pull requests and pushes to `main`: the first validates a proposed
-change, the second validates the merged tree. Plugin Validation and HOL scan
+CI runs on pull requests, pushes to `main` and nightly on `main`: the first
+validates a proposed change, the second validates the merged tree. A main
+push of an ordinary PR merge reuses the newest CI run at that PR's head when
+it succeeded and its `tested-tree` artifact (the tree of the merge commit the
+run checked out, recorded only when its suites ran) equals the pushed tree;
+otherwise it runs every suite on Linux only, under `Main subset test` names. The nightly run covers the macOS legs
+and is skipped when `main` has not changed since the last green nightly run.
+Any failed lookup runs everything. Plugin Validation and HOL scan
 have the same triggers but own different checks; they are not duplicate suite
 runs. The release workflow relies on the existing check names and does not
 rerun the suite itself. The required check/workflow mapping lives in
@@ -275,17 +290,20 @@ matrix can be verified before merging a CI change.
 | Check | Coverage |
 | --- | --- |
 | Agent Guard | Real scanner against the checked-out tree |
-| Named suites (ubuntu-latest) | All suite partitions on Linux; real scanner integration and smoke test in partition 4 |
-| Named suites (macos-latest) | Core, host adapters and Git as three jobs (partition 1 under that name, partitions 3 and 6 as `Core, host adapters and Git (partition 3)` and `(partition 6)`) and Command policies as two (partition 2 under that name, partition 7 as `Command policies (partition 7)`), plus every other partition, on main and `release/` PRs, with the mock scanner |
-| Test (ubuntu-latest), Test (macos-latest) | Full-matrix aggregate on main, release PRs and manual dispatch; names consumed by release |
+| Named suites (ubuntu-latest) | All suite partitions on Linux; real scanner integration and smoke test in partition 4; the real-scanner rule suites as a step of Shell navigation (Codex) |
+| Named suites (macos-latest) | Core, host adapters and Git as three jobs (partition 1 under that name, partitions 3 and 6 as `Core, host adapters and Git (partition 3)` and `(partition 6)`) and Command policies as two (partition 2 under that name, partition 7 as `Command policies (partition 7)`), plus every other partition, on release merges, the nightly run, manual dispatch and `release/` PRs, with the mock scanner |
+| Test (ubuntu-latest), Test (macos-latest) | Full-matrix aggregate on release merges, the nightly run, release PRs and manual dispatch; names consumed by release |
+| Main subset test (ubuntu-latest), Main subset test (macos-latest) | Linux aggregate on a main push of an ordinary PR merge |
 | PR subset test (ubuntu-latest), PR subset test (macos-latest) | Ordinary PR aggregate of every selected shard, including cancelled/failed jobs |
 | Lint | ShellCheck on tracked shell scripts and actionlint on workflows |
 | Plugin Layout | Codex, Claude, marketplaces, release archive, and submission metadata |
 | HOL Plugin Scanner | Independent plugin scanner |
 | Rule mutations fail a test (group) | Each hand-written rule mutant fails a listed test; runs on pull requests that change the CLI, the mutation list, the checker or test code, and release verification dispatches every group at the release SHA |
 
-Only Linux partition 4 installs the pinned, checksum-verified real scanner; the
-other partitions use the suite's mock. No cache is used: downloading the small
+Only the Linux scanner job (partition 4) and the Linux Codex navigation job
+install the pinned, checksum-verified real scanner, the second for the rule
+suites that run after its partition; every partition other than 4 uses the
+suite's mock. No cache is used: downloading the small
 pinned archive keeps checksum verification at the point of use. Plugin Layout
 runs the validator's `--all` mode; submission validation stays separate.
 
@@ -385,6 +403,19 @@ and only for the navigation partition: an unknown host or a combination with
 another partition exits with an error. The default `tests/run.sh` runs both
 hosts.
 
+On Linux CI the Codex navigation job then runs `tests/real-gitleaks-rules.sh`:
+the eight suites that check the rules and allowlists of `gitleaks.toml`, there
+against the real scanner. They are a step of that job, not a job of their own,
+because branch protection requires the job by name and the scanner job is the
+longest of a pull request. The step fails the job when a suite fails or skips,
+or when the scanner is missing. The workflow sets
+`AGENT_GUARD_TEST_RULE_SUITES_STEP` for its Linux test jobs; without it, on
+macOS and in a local run, `tests/gitleaks-probe-cache.sh` (partition 4) starts
+the same file as one assertion, and without a real scanner five of the suites
+skip and three run on the mock. `tests/ci-scope.sh` checks
+that wiring and that a change to the config, a suite or the driver runs the
+job.
+
 Partition 1 checks that every partition is present in the matrix: partitions
 1, 2, 3, 6 and 7 twice each (the Linux bundle and a macOS entry), every other
 partition once, and the Claude and Codex navigation entries without a gap or a
@@ -405,12 +436,13 @@ success on the same SHA cannot replace full macOS evidence, and the full
 `Test` names are never emitted by a reduced run. Coverage and check identity
 share one scope decision in the Agent Guard job; test shards start after that
 job succeeds. `sh tests/ci-scope.sh` tests that decision and its workflow
-wiring. Ordinary PRs defer macOS command, navigation and scanner/output
-coverage until main, so macOS-specific failures outside the core bundle are
-found later.
+wiring. Ordinary PRs and their merges defer macOS coverage to the nightly
+run and the release PR, so macOS-specific failures are found up to a day
+later.
 
 Legacy jq/awk and Rust contracts also run after relevant changes merge to
-main, under their own check names. Rust contracts compile with the pinned
+main, under their own check names, unless the PR run of the same workflow
+already passed on the same tree (the macOS developer tools job always runs). Rust contracts compile with the pinned
 toolchain and exercise differential, real-scanner, fallback and output/audit
 regressions on Linux; the regular macOS suite does not imply native-helper
 validation on macOS.
