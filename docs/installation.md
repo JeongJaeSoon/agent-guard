@@ -67,6 +67,12 @@ one line saying why and what to do. On a
 platform without a helper asset it says nothing. To skip the helper, set
 `AGENT_GUARD_GITLEAKS_HELPER=off` when you run the command.
 
+When the helper would answer your gitleaks but none is installed, a session
+start shows one line saying that it makes hooks faster, with the command that
+installs it. It is shown once per install: the state directory records it, so
+there is no line with `AGENT_GUARD_LOG_MODE=off`, and none once the helper is
+installed or `AGENT_GUARD_GITLEAKS_HELPER` is set.
+
 One command installs only the helper, for a plugin, Homebrew or standalone
 install alike, and fails if it cannot:
 
