@@ -3490,13 +3490,15 @@ setup_install_gitleaks_helper() {
 # one selected comes from PATH and the helper would not answer it, the helper
 # is wanted and released here, and the user gave the checksum for the version
 # the helper links, and the helper could run here (logging on, a pin for this
-# platform, a usable state directory). It never runs through doctor, and never replaces a gitleaks
+# platform and a hash tool to check the download against it, a usable state
+# directory). It never runs through doctor, and never replaces a gitleaks
 # already in the private directory: that is selected before PATH, so the new
 # one is used from the next scan, and removing it goes back.
 setup_replaces_path_gitleaks() {
   [ "$SETUP_VIA_DOCTOR" = 0 ] && [ -n "$2" ] && [ "$1" = "$GITLEAKS_DEFAULT_VERSION" ] \
     && [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] && [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] \
-    && ! gitleaks_helper_log_blocks && gitleaks_official_pin && gitleaks_helper_state_usable \
+    && ! gitleaks_helper_log_blocks && gitleaks_official_pin && gitleaks_clean_cache_hasher \
+    && gitleaks_helper_state_usable \
     && [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] \
     && gitleaks_helper_blocker "${gl:-}" && [ -n "$helper_blocker" ]
 }
@@ -3514,6 +3516,7 @@ setup_install_official_gitleaks() (
   trap 'clear_gitleaks_probe_processes; [ -z "$AG_EXIT_TMP_DIR" ] || rm -rf "$AG_EXIT_TMP_DIR"; [ -z "$ag_iog_stage" ] || rm -rf "$ag_iog_stage"' 0
   trap 'exit 130' INT
   trap 'exit 143' TERM
+  trap 'exit 129' HUP
   setup_require_install_dir
   mkdir -p "$GITLEAKS_PRIVATE_BIN_DIR" || die "setup: cannot create install dir: $GITLEAKS_PRIVATE_BIN_DIR"
   ag_iog_stage=$(mktemp -d "$GITLEAKS_PRIVATE_BIN_DIR/.gitleaks.XXXXXX") \
@@ -3688,8 +3691,8 @@ gitleaks_helper_state_usable() {
   if [ ! -e "$helper_state" ] && [ ! -L "$helper_state" ]; then
     ag_ghs_up=${helper_state%/*}
     while [ -n "$ag_ghs_up" ] && [ ! -e "$ag_ghs_up" ]; do ag_ghs_up=${ag_ghs_up%/*}; done
-    if [ -n "$ag_ghs_up" ] && { [ ! -d "$ag_ghs_up" ] || [ ! -w "$ag_ghs_up" ]; }; then
-      helper_state_why="the state directory $helper_state cannot be created ($ag_ghs_up is not a directory you can write); set XDG_STATE_HOME to one"
+    if [ -n "$ag_ghs_up" ] && { [ ! -d "$ag_ghs_up" ] || [ ! -w "$ag_ghs_up" ] || [ ! -x "$ag_ghs_up" ]; }; then
+      helper_state_why="the state directory $helper_state cannot be created ($ag_ghs_up is not a directory you can write and search); set XDG_STATE_HOME to one"
       return 1
     fi
   fi
@@ -3727,6 +3730,12 @@ setup_gitleaks_helper_status_line() {
     '')
       if gitleaks_helper_installed; then
         helper_client=$AG_GITLEAKS_HELPER_CLIENT
+        # Hooks run only an executable client (gitleaks_helper_selected).
+        if [ ! -x "$helper_client" ]; then
+          cli_ref_init
+          info "$PROGRAM: gitleaks helper  not used  (its client $helper_client is not executable; reinstall it: $AG_CLI_REF setup --install-gitleaks-helper)"
+          return 0
+        fi
       else
         cli_ref_init
         if [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
