@@ -588,6 +588,52 @@ expect "GitHub Action scan-path: helper on answers as off through the real gitle
   'cmp -s "$CASE/off.status" "$CASE/on.status" && [ "$(cat "$CASE/on.status")" != 0 ] && grep -qx real:arguments "$TRACE"'
 cd "$CASE" || exit 1
 
+# A repository that carries a .gitleaksignore listing the value's findings as
+# gitleaks names them for stdin (:<rule>:<line>). Hook input is scanned from a
+# private directory, so the helper still answers it there and the value is
+# found. A scan of the repository's own content starts beside the file and
+# goes to the real gitleaks, which applies it.
+git init -q "$CASE/listed" && cd "$CASE/listed" || exit 1
+git config user.email t@example.test && git config user.name test
+"$GL" stdin --no-banner --log-level error --config "$CFG" --report-format json \
+  --report-path "$CASE/listed.json" <"$IN/github-pat" >/dev/null 2>&1
+for rule in $(jq -r '.[].RuleID' "$CASE/listed.json" | sort -u); do
+  n=1
+  while [ "$n" -le 20 ]; do printf ':%s:%s\n' "$rule" "$n"; n=$((n + 1)); done
+done >.gitleaksignore
+git add .gitleaksignore && git commit -q -m ignore
+"$GL" stdin $ARGS_A <"$IN/github-pat" >/dev/null 2>&1
+check "control: the listed findings silence the real gitleaks stdin run beside the file" [ "$?" = 0 ]
+warm >/dev/null 2>&1
+rm -rf "$STATE/gitleaks-clean"
+: >"$TRACE"
+AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" "$GUARD" hook-pre-tool <"$CASE/pre-secret.json" >/dev/null 2>&1
+st=$?
+expect "beside a matching .gitleaksignore the helper answers the command scan and the value is refused" \
+  '[ "$st" = 2 ] && [ "$(cat "$TRACE")" = helper ]'
+: >"$TRACE"
+AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" "$GUARD" hook-post-tool <"$CASE/post-secret.json" >"$CASE/listed.out" 2>/dev/null
+expect "beside a matching .gitleaksignore the helper answers the tool output scan and the value is masked" \
+  'grep -qx helper "$TRACE" && ! grep -q "^real:" "$TRACE" && [ -s "$CASE/listed.out" ] && ! grep -qF "${pat#export TOKEN=}" "$CASE/listed.out"'
+: >"$TRACE"
+AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" "$GUARD" hook-user-prompt <"$CASE/prompt-secret.json" >/dev/null 2>&1
+st=$?
+expect "beside a matching .gitleaksignore the helper answers the prompt scan and the value is refused" \
+  '[ "$st" = 2 ] && grep -qx helper "$TRACE" && ! grep -q "^real:" "$TRACE"'
+cp "$IN/github-pat" leaked.txt && git add leaked.txt
+: >"$TRACE"
+AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" "$GUARD" scan-staged >/dev/null 2>&1
+st=$?
+expect "scan-staged beside the .gitleaksignore goes to the real gitleaks, which applies it" \
+  '[ "$st" = 0 ] && [ "$(cat "$TRACE")" = real:gitleaksignore ]'
+git rm -q --cached .gitleaksignore && rm -f .gitleaksignore
+: >"$TRACE"
+AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" "$GUARD" scan-staged >/dev/null 2>&1
+st=$?
+expect "control: without the .gitleaksignore scan-staged is answered by the helper and blocks" \
+  '[ "$st" = 1 ] && [ "$(cat "$TRACE")" = helper ]'
+cd "$CASE" || exit 1
+
 # The switches that keep the CLI on its existing path start no client.
 : >"$TRACE"
 (cd "$CASE/work" && AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" AGENT_GUARD_GITLEAKS_BIN="$GL" "$GUARD" hook-pre-tool <"$CASE/pre-secret.json" >/dev/null 2>&1)
