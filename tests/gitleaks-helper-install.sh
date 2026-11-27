@@ -556,6 +556,19 @@ HTTP
     '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 0 ] && [ "$(reason)" = 1 ] \
      && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "8.30.0"'
 
+  # A gitleaks this cannot check (here: no pins for the official build) gets
+  # no helper from setup --install, with one line naming the command that
+  # installs it anyway.
+  P="$CASE/p-unknown"
+  mv "$OFFICIAL" "$CASE/official.held"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  si "$P" -- --install
+  expect "a gitleaks that cannot be checked gets no helper download, and one line with the command for it" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 0 ] \
+     && grep "gitleaks helper  not installed  (could not tell whether" "$CASE/s.err" | grep -q "setup --install-gitleaks-helper)"'
+  TOOLS_PATH="$CASE/http-bin:$CASE/tools"
+  mv "$CASE/official.held" "$OFFICIAL"
+
   # Both flags: the explicit install stays strict and the helper is fetched once.
   P="$CASE/p-both"
   si "$P" -- --install --gitleaks-checksum "$gl_sum" --install-gitleaks-helper
