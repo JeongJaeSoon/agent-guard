@@ -3480,13 +3480,50 @@ setup_install_gitleaks_helper() {
   info "$PROGRAM: scans use it from now on; AGENT_GUARD_GITLEAKS_HELPER=off turns it off"
 }
 
-# `setup --install` installs the helper as well, when the gitleaks it manages
-# is the one scans run: the private gitleaks, at the version the helper links.
-# The helper answers for no other scanner, so any other gets one line saying
-# why nothing was downloaded. It is skipped without a word where the status
+# Why the warm helper would not answer the gitleaks at $1, which setup just
+# probed, in helper_blocker with what to do; empty when $1 is the official
+# gitleaks release build the helper links: that version, with a SHA-256 that
+# config/gitleaks-official.sha256 pins for this platform. The client compares
+# the builds itself (version, toolchain, regex engine, modules); this reads
+# only the bytes, to advise, so a build that matches the release in all of
+# those but not byte for byte is called another build here. Fails when it
+# cannot tell: no ready gitleaks, no helper for this platform, no pins, or no
+# hash tool. It reads files and starts no gitleaks.
+gitleaks_helper_blocker() {
+  helper_blocker=
+  [ "$GITLEAKS_PROBE_STATE" = ready ] && [ -n "${1:-}" ] || return 1
+  if [ "$GITLEAKS_PROBE_VERSION" = "$GITLEAKS_DEFAULT_VERSION" ]; then
+    gitleaks_helper_target && [ -f "$ROOT_DIR/config/gitleaks-official.sha256" ] \
+      && gitleaks_clean_cache_hasher || return 1
+    ag_ghb_sum=$(gitleaks_clean_cache_hash "$1" 2>/dev/null) || return 1
+    ag_ghb_sum=${ag_ghb_sum%% *}
+    [ "${#ag_ghb_sum}" -eq 64 ] || return 1
+    while IFS= read -r ag_ghb_line; do
+      [ "$ag_ghb_line" != "$ag_ghb_sum  $GITLEAKS_DEFAULT_VERSION/$helper_target/gitleaks" ] || return 0
+    done 2>/dev/null <"$ROOT_DIR/config/gitleaks-official.sha256"
+    helper_blocker="the selected gitleaks $1 is not the official gitleaks $GITLEAKS_DEFAULT_VERSION release build, such as a Homebrew or go install build"
+  else
+    helper_blocker="the selected gitleaks $1 is version $GITLEAKS_PROBE_VERSION, and the helper answers only gitleaks $GITLEAKS_DEFAULT_VERSION"
+  fi
+  cli_ref_init
+  # setup --install keeps a private gitleaks that runs, and that one is
+  # selected before PATH.
+  if [ "$1" = "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ]; then
+    helper_blocker="$helper_blocker; to use the helper, remove $1, then run $AG_CLI_REF checksum and the setup --install command it prints"
+  else
+    helper_blocker="$helper_blocker; to use the helper, install the official build, which is used before PATH: run $AG_CLI_REF checksum and the setup --install command it prints"
+  fi
+  return 0
+}
+
+# `setup --install` installs the helper as well, when the gitleaks scans run
+# is the official build the helper answers, from the private directory or
+# PATH. The helper answers for no other scanner, so any other gets one line
+# saying why nothing was downloaded. It is skipped without a word where the status
 # line has already said it: turned off or replaced by the user's own client
 # (AGENT_GUARD_GITLEAKS_HELPER set), no helper released for this platform, or
-# this version's helper already installed. The helper is optional: a failed
+# this version's helper already installed; a reason the status line printed
+# is not repeated. The helper is optional: a failed
 # download or checksum is a warning and never fails the gitleaks install.
 # Call it after setup_gitleaks_status_line found a ready scanner; it reads
 # that probe's version and runs no probe of its own.
@@ -3495,18 +3532,16 @@ setup_install_gitleaks_helper_with_gitleaks() {
   gitleaks_helper_target || return 0
   ! gitleaks_helper_installed || return 0
   cli_ref_init
-  # The order of resolve_gitleaks: the variable, the private gitleaks, PATH.
   if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
-    helper_reason='AGENT_GUARD_GITLEAKS_BIN selects the scanner'
-  elif [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ]; then
-    helper_reason='the selected gitleaks comes from PATH, such as a Homebrew build'
-  elif [ "${GITLEAKS_PROBE_VERSION:-}" != "$GITLEAKS_DEFAULT_VERSION" ]; then
-    helper_reason="the installed gitleaks is ${GITLEAKS_PROBE_VERSION:-of an unknown version}, not $GITLEAKS_DEFAULT_VERSION"
+    helper_reason=$HELPER_GITLEAKS_BIN_REASON
+  elif gitleaks_helper_blocker "${gl:-}"; then
+    helper_reason=$helper_blocker
   else
     helper_reason=
   fi
   if [ -n "$helper_reason" ]; then
-    info "$PROGRAM: gitleaks helper  not installed  ($helper_reason; the helper only answers the gitleaks $GITLEAKS_DEFAULT_VERSION that $AG_CLI_REF setup --install puts in $GITLEAKS_PRIVATE_BIN_DIR when no other gitleaks is selected)"
+    [ "$helper_reason" = "${helper_status_said:-}" ] \
+      || info "$PROGRAM: gitleaks helper  not installed  ($helper_reason)"
     return 0
   fi
   # In a subshell, so that the installer's fatal errors end only this step.
@@ -3528,14 +3563,18 @@ setup_install_gitleaks_helper_with_gitleaks() {
   return 0
 }
 
-# One line on the warm gitleaks helper, from files and variables only. It
-# never runs the client: a status line must not start a resident process, and
-# a client that fails or hangs must not stall setup or doctor. So it says
-# which client scans are handed to, not whether a helper answers; the client
-# decides that per scan and runs the real gitleaks otherwise. The helper is
-# optional, so this never fails setup.
+HELPER_GITLEAKS_BIN_REASON='AGENT_GUARD_GITLEAKS_BIN selects the scanner, which the helper never serves; unset it to use the helper'
+
+# One line on the warm gitleaks helper, from files, variables and the bytes of
+# the gitleaks setup selected. It never runs the client: a status line must
+# not start a resident process, and a client that fails or hangs must not
+# stall setup or doctor. It says why an installed helper will not answer, and
+# what to do, for the causes it can see (gitleaks_helper_blocker, the socket
+# path, the variables); the client still decides per scan and runs the real
+# gitleaks otherwise. The helper is optional, so this never fails setup.
 setup_gitleaks_helper_status_line() {
   helper_client=
+  helper_status_said=
   case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in
     /*)
       if [ -f "$AGENT_GUARD_GITLEAKS_HELPER" ] && [ -x "$AGENT_GUARD_GITLEAKS_HELPER" ]; then
@@ -3552,6 +3591,9 @@ setup_gitleaks_helper_status_line() {
         cli_ref_init
         if [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
           info "$PROGRAM: gitleaks helper  not used  (installed for another Agent Guard version; run: $AG_CLI_REF setup --install-gitleaks-helper)"
+        elif gitleaks_helper_blocker "${gl:-}" && [ -n "$helper_blocker" ]; then
+          helper_status_said=$helper_blocker
+          info "$PROGRAM: gitleaks helper  not installed  (it would not answer: $helper_blocker)"
         else
           info "$PROGRAM: gitleaks helper  not installed  (optional; keeps gitleaks loaded between scans: $AG_CLI_REF setup --install-gitleaks-helper)"
         fi
@@ -3564,17 +3606,31 @@ setup_gitleaks_helper_status_line() {
       ;;
   esac
   if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
-    info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_GITLEAKS_BIN selects the scanner)"
+    info "$PROGRAM: gitleaks helper  not used  ($HELPER_GITLEAKS_BIN_REASON)"
     return 0
   fi
   if [ "${AGENT_GUARD_LOG_MODE:-on}" = off ]; then
-    info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_LOG_MODE=off)"
+    info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_LOG_MODE=off leaves it no state directory for its socket; unset it to use the helper)"
+    return 0
+  fi
+  # The client's socket, <state>/gitleaks-helper/<20 hex digits>.sock, must
+  # fit the shortest sun_path (104 bytes with its NUL, macOS); counted in
+  # bytes, as the client does.
+  helper_state=$(audit_location)
+  helper_socket_bytes=$(printf '%s/gitleaks-helper/%020d.sock' "$helper_state" 0 | LC_ALL=C wc -c)
+  helper_socket_bytes=$((helper_socket_bytes + 0))
+  if [ "$helper_socket_bytes" -gt 103 ]; then
+    info "$PROGRAM: gitleaks helper  not used  (its socket path would be $helper_socket_bytes bytes, over the 103-byte limit, under the state directory $helper_state; set XDG_STATE_HOME to a shorter directory)"
     return 0
   fi
   if [ -n "${AGENT_GUARD_GITLEAKS_HELPER:-}" ]; then
     info "$PROGRAM: gitleaks helper  selected  (AGENT_GUARD_GITLEAKS_HELPER: $helper_client)"
-  else
+  elif ! gitleaks_helper_blocker "${gl:-}"; then
     info "$PROGRAM: gitleaks helper  installed  ($helper_client; it answers when the selected gitleaks is the official gitleaks $GITLEAKS_DEFAULT_VERSION release build, and gitleaks runs itself otherwise)"
+  elif [ -n "$helper_blocker" ]; then
+    info "$PROGRAM: gitleaks helper  not used  ($helper_blocker)"
+  else
+    info "$PROGRAM: gitleaks helper  installed  (it answers the selected gitleaks $gl, the official gitleaks $GITLEAKS_DEFAULT_VERSION release build)"
   fi
   return 0
 }
