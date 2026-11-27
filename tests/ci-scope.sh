@@ -683,7 +683,27 @@ mkdir -p "$rules_tmp/dir/gitleaks"
 if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/dir/gitleaks"; then fail 'a scanner that is not a file is refused'; fi
 chmod -x "$rules_tmp/bin/gitleaks"
 if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then fail 'a scanner that is not executable is refused'; fi
+# A signal still removes the driver's workspace, also under dash.
+# shellcheck disable=SC2016
+printf '%s\n' ': >"$RULES_STARTED"' 'sleep 2' >"$rules_tmp/tree/tests/auto-wake-key-allowlist.sh"
+chmod +x "$rules_tmp/bin/gitleaks"
+mkdir "$rules_tmp/tmp"
+env -u GITHUB_STEP_SUMMARY CI= RULES_STARTED="$rules_tmp/started" TMPDIR="$rules_tmp/tmp" \
+  AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" \
+  sh "$rules_tmp/tree/tests/real-gitleaks-rules.sh" >"$rules_tmp/out" 2>&1 &
+rules_pid=$!
+rules_tries=0
+until [ -e "$rules_tmp/started" ] || [ "$rules_tries" -ge 100 ]; do
+  sleep 0.1
+  rules_tries=$((rules_tries + 1))
+done
+[ -n "$(ls -A "$rules_tmp/tmp")" ] || fail 'the rule suite driver keeps its workspace under TMPDIR'
+kill -TERM "$rules_pid"
+rules_status=0
+wait "$rules_pid" || rules_status=$?
+[ "$rules_status" -eq 143 ] || fail "a terminated rule suite driver stops with status 143: $rules_status"
+[ -z "$(ls -A "$rules_tmp/tmp")" ] || fail 'a terminated rule suite driver removes its workspace'
 rm -rf "$rules_tmp"
 trap - 0
-pass=$((pass + 23))
+pass=$((pass + 26))
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

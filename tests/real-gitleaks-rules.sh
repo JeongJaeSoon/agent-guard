@@ -34,6 +34,9 @@ CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-gitleaks-rules.XXXXXX") || exit 1
 [ -n "$CASE" ] || exit 1
 CASE=$(CDPATH= cd -- "$CASE" && pwd -P) || exit 1
 trap 'rm -rf "$CASE"' 0
+# dash runs the exit trap only when the script itself exits.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 mkdir -p "$CASE/home" "$CASE/private-gitleaks-empty"
 # The environment tests/run.sh and tests/gitleaks-probe-cache.sh give their
 # suites, so the CI step runs them as a nested run does.
