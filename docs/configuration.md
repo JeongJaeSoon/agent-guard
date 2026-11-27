@@ -689,7 +689,7 @@ Replacement policy files ([Policy files](#policy-files-and-shell-integration)):
 
 | Variable | Default / use |
 | --- | --- |
-| `AGENT_GUARD_DENY_READ_PATHS` | Override the deny-read policy file. |
+| `AGENT_GUARD_DENY_READ_PATHS` | Override the deny-read policy file. Each rule is a shell pattern. Against the path a file tool is given, `?` and a bracket expression stand for one whole character, and a range such as `[a-z]` follows code point order, in every shell and locale. A named class such as `[[:digit:]]` is exact for ASCII characters and matches every other character. A bracket expression that holds an equivalence class such as `[=a=]`, a named collating symbol such as `[.hyphen.]`, or a class name that is not one of the POSIX classes, `ascii` or `word`, matches every character. |
 | `AGENT_GUARD_DENY_BASH_PATTERNS` | Override the risky-shell-command policy file. |
 | `AGENT_GUARD_GITLEAKS_CONFIG` | Override the gitleaks configuration file. Write an `[extend] path` in it as an absolute path in a plain `[extend]` table: hook input is scanned from a private directory (see [`.gitleaksignore`](#gitleaksignore)), where a relative one would name another file, so such a configuration is not used for hook input. |
 

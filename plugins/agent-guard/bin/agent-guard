@@ -6304,6 +6304,282 @@ resolve_path() {
   fi
 }
 
+# Return 0 when $1 holds nothing but printable ASCII. The characters are
+# listed because a range follows the locale.
+text_is_printable_ascii() {
+  case "$1" in
+    *[!]\ !\"#\$%\&\'\(\)\*+,./0123456789:\;\<=\>\?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\^_\`abcdefghijklmnopqrstuvwxyz{\|}~-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# A shell reads the "?" and the bracket expression of a pattern as one
+# character of its own kind: one byte in dash and in the C locale, one whole
+# UTF-8 character in bash under a UTF-8 locale. A bracket expression also
+# follows the locale's collation there, even between ASCII letters. Return 0
+# when that choice could decide whether the deny list matches path $1: an
+# active rule holds a "[", or it holds a "?" and the path holds a byte
+# outside printable ASCII. For such a path every rule with a "?" or a "[" is
+# matched by deny_rules_by_character, for one verdict in every shell and
+# locale, and the shell's own matching reads only the other rules, which no
+# shell or locale reads differently. No bundled rule holds a "[", so a plain
+# path under the bundled list needs no look at it.
+deny_match_counts_characters() {
+  dmc_plain=1
+  text_is_printable_ascii "$1" || dmc_plain=0
+  [ "$dmc_plain:$DENY_READ_PATHS_CUSTOM" != 1:0 ] || return 1
+  while IFS= read -r dmc_rule || [ -n "$dmc_rule" ]; do
+    case "$dmc_plain:$dmc_rule" in
+      ?:|?:\#*) ;;
+      ?:*'['*|0:*'?'*) return 0 ;;
+    esac
+  done <"$DENY_READ_PATHS"
+  return 1
+}
+
+# Shell pattern matching over whole UTF-8 characters, the way bash matches in
+# a UTF-8 locale: "*", "?", a bracket expression (ranges by code point) and a
+# backslash that quotes the next character. Only the rules that hold a "?" or
+# a "[" are read.
+# $1 = path: those rules against path $2 and every directory above it, as
+#      candidate_matches_deny reads them.
+# $1 = tree: those of them that also hold a slash, against the resolved path
+#      $2 and the path as written $3, as tracked_file_exception_applies does.
+# $1 = chars: print the characters of $2, one per line, each after its
+#      length in bytes and a blank; no rule is read.
+# For path and tree it prints "match" or "clear" and exits 0. Anything else
+# means it did not run: an awk that fails can exit like one that found
+# nothing, or print before it fails. $2 is its first input, so no limit on an
+# argument or an environment string bounds it; $3 is the path of a file that
+# exists.
+deny_rules_by_character() {
+  # A relative name gets a "./": awk reads an operand such as a=b as an
+  # assignment.
+  case "$DENY_READ_PATHS" in
+    /*) drc_list=$DENY_READ_PATHS ;;
+    *) drc_list=./$DENY_READ_PATHS ;;
+  esac
+  [ "$1" != chars ] || drc_list=/dev/null
+  printf '%s\n' "$2" | DM_WRITTEN=${3-} LC_ALL=C awk -v mode="$1" '
+  # Characters of s into out[1..n]; returns n. reading 1: a byte outside a
+  # well-formed UTF-8 sequence is a character; 2: a run of such bytes is one
+  # character; 3: every byte is a character.
+  function chars(s, out, reading,    n, len, at, t, tl, i, w, run) {
+    n = 0; run = 0; len = length(s)
+    # Piece by piece: in some awks a substr of the whole text costs its
+    # length. A piece ends where fewer than four bytes are left of it, so a
+    # sequence is never cut in two.
+    for (at = 1; at <= len; at += i - 1) {
+      t = substr(s, at, 512); tl = length(t)
+      for (i = 1; i <= tl && (i + 3 <= tl || at + tl > len); i += (w ? w : 1)) {
+        w = reading == 3 ? 0 : utf8_width(substr(t, i, 4))
+        if (w) { out[++n] = substr(t, i, w); run = 0; continue }
+        if (reading != 3) ill = 1
+        if (reading == 2 && run) out[n] = out[n] substr(t, i, 1)
+        else out[++n] = substr(t, i, 1)
+        run = 1
+      }
+    }
+    out[n + 1] = ""
+    return n
+  }
+  function utf8_tail(c) { return c >= "\200" && c <= "\277" }
+  # The length of the well-formed UTF-8 sequence at the start of t, or 0. It
+  # takes four bytes, not the text: awk copies a string argument on each call.
+  function utf8_width(t,    b, c) {
+    b = substr(t, 1, 1)
+    if (b < "\200") return 1
+    c = substr(t, 2, 1)
+    if (b >= "\302" && b <= "\337") return utf8_tail(c) ? 2 : 0
+    if (b >= "\340" && b <= "\357")
+      return c >= (b == "\340" ? "\240" : "\200") && c <= (b == "\355" ? "\237" : "\277") \
+        && utf8_tail(substr(t, 3, 1)) ? 3 : 0
+    if (b >= "\360" && b <= "\364")
+      return c >= (b == "\360" ? "\220" : "\200") && c <= (b == "\364" ? "\217" : "\277") \
+        && utf8_tail(substr(t, 3, 1)) && utf8_tail(substr(t, 4, 1)) ? 4 : 0
+    return 0
+  }
+  # P[j] is "[": the index of the "]" that ends [:name:], [=c=] or [.c.], or 0.
+  function class_end(pn, j,    m) {
+    if (P[j + 1] != ":" && P[j + 1] != "=" && P[j + 1] != ".") return 0
+    for (m = j + 2; m < pn; m++) if (P[m] == P[j + 1] && P[m + 1] == "]") return m + 1
+    return 0
+  }
+  # P[i] is "[": the index of the "]" that closes the bracket expression, or 0.
+  function bracket_end(pn, i,    j, m) {
+    j = i + 1
+    if (P[j] == "!" || P[j] == "^") j++
+    if (P[j] == "]") j++
+    for (; j <= pn; j++) {
+      if (P[j] == "]") return j
+      if (P[j] == "\\") j++
+      else if (P[j] == "[" && (m = class_end(pn, j))) j = m
+    }
+    return 0
+  }
+  # Tokens K[1..kn] of pattern P[1..pn]: "*", "?", "=" (the literal L[k]) or
+  # "[" (a bracket expression whose members are P[B[k]..E[k]-1]).
+  function compile(pn,    i, j, c) {
+    kn = 0
+    for (i = 1; i <= pn; i++) {
+      c = P[i]
+      if (c == "*") { if (kn == 0 || K[kn] != "*") K[++kn] = "*" }
+      else if (c == "?") K[++kn] = "?"
+      else if (c == "[" && (j = bracket_end(pn, i))) { K[++kn] = "["; B[kn] = i + 1; E[kn] = j; i = j }
+      else {
+        # A backslash quotes the next character; one that ends the pattern
+        # matches nothing, as in the shell.
+        if (c == "\\") c = (i < pn ? P[++i] : "")
+        K[++kn] = "="; L[kn] = c
+      }
+    }
+  }
+  function span(a, b,    s) { s = ""; for (; a <= b; a++) s = s P[a]; return s }
+  function in_class(c, name) {
+    if (name == "cntrl") return c < " " || c == "\177"
+    if (name == "ascii") return 1
+    return index(CLASS[name], c) > 0
+  }
+  # 1 when character c is in the bracket expression of token k. The shell asks
+  # the locale whether a non-ASCII character is in a class or an equivalence
+  # class; here it always is, whether or not the expression is negated.
+  function in_bracket(c, k,    i, j, m, neg, hit, lo, hi) {
+    i = B[k]; j = E[k]; neg = 0; hit = 0
+    if (P[i] == "!" || P[i] == "^") { neg = 1; i++ }
+    while (i < j) {
+      lo = P[i]
+      if (lo == "[" && (m = class_end(j, i))) {
+        if (P[i + 1] != "." && (length(c) > 1 || c >= "\200")) return 1
+        # An equivalence class holds what the locale says it holds: the
+        # expression matches every character.
+        if (P[i + 1] == "=") return 1
+        # A collating symbol with a name ([.hyphen.]) is a character only a
+        # table inside the shell knows: the expression matches every character.
+        if (P[i + 1] == "." && m - i > 4) return 1
+        lo = span(i + 2, m - 2)
+        if (P[i + 1] == ":") {
+          # A class name outside the table is one only some shells know: the
+          # expression matches every character.
+          if (!(lo in CLASS)) return 1
+          if (in_class(c, lo)) hit = 1
+          i = m + 1; continue
+        }
+        i = m + 1
+      } else {
+        if (lo == "\\" && i + 1 < j) lo = P[++i]
+        i++
+      }
+      hi = lo
+      if (P[i] == "-" && i + 1 < j) {
+        hi = P[++i]
+        if (hi == "\\" && i + 1 < j) hi = P[++i]
+        else if (hi == "[" && (m = class_end(j, i))) {
+          # Only a collating symbol of one character can end a range.
+          if (P[i + 1] != "." || m - i > 4) return 1
+          hi = span(i + 2, m - 2); i = m
+        }
+        i++
+      }
+      if (c >= lo && c <= hi) hit = 1
+    }
+    return neg ? !hit : hit
+  }
+  # 1 when the compiled pattern matches the characters S[1..sn] or, with dirs,
+  # a directory above them: what stands before a "/", but for the root.
+  function glob(sn, dirs,    s, k, star_k, star_s) {
+    s = 1; k = 1; star_k = 0
+    while (s <= sn) {
+      if (k <= kn && K[k] == "*") { star_k = k++; star_s = s }
+      else if (k <= kn && (K[k] == "?" || (K[k] == "=" ? L[k] == S[s] : in_bracket(S[s], k)))) { s++; k++ }
+      else if (dirs && k > kn && S[s] == "/" && s > 1 && (s > 2 || S[1] != "/")) return 1
+      else if (star_k) { k = star_k + 1; s = ++star_s }
+      else return 0
+    }
+    while (k <= kn && K[k] == "*") k++
+    return k > kn
+  }
+  # The longest stretch of rule p, before any bracket, that a match must hold
+  # as written. A text without it cannot match and is not taken apart.
+  function fixed_part(p,    best, run, i, c) {
+    best = run = ""
+    for (i = 1; (c = substr(p, i, 1)) != "" && c != "["; i++) {
+      if (c == "*" || c == "?" || c == "\\") {
+        if (length(run) > length(best)) best = run
+        run = ""
+        if (c == "\\") i++
+      } else run = run c
+    }
+    return length(run) > length(best) ? run : best
+  }
+  # 1 when a rule, written between pre and post, matches text or, with dirs,
+  # a directory above it. Text that is not well-formed UTF-8 is read in all
+  # three ways, so it cannot pass a rule in one reading only. A rule that is
+  # not well-formed is read in all three ways too, and only that rule.
+  function rule_matches(text, pre, post, dirs,    r, n, i, odd, more, live) {
+    for (i = 1; i <= rules; i++) if ((keep[i] = (fixed[i] == "" || index(text, fixed[i]) > 0))) live = 1
+    if (!live) return 0
+    for (r = 1; r <= 3; r++) {
+      ill = 0
+      n = chars(text, S, r)
+      if (r == 1) odd = more = ill
+      for (i = 1; i <= rules; i++) {
+        if (!keep[i] || (r > 1 && !odd && !bad[i])) continue
+        ill = 0
+        compile(chars(pre rule[i] post, P, r))
+        if (r == 1 && (bad[i] = ill)) more = 1
+        if (glob(n, dirs)) return 1
+      }
+      if (!more) return 0
+    }
+    return 0
+  }
+  BEGIN {
+    CLASS["upper"] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"; CLASS["lower"] = "abcdefghijklmnopqrstuvwxyz"
+    CLASS["digit"] = "0123456789"; CLASS["xdigit"] = CLASS["digit"] "ABCDEFabcdef"
+    CLASS["alpha"] = CLASS["upper"] CLASS["lower"]; CLASS["alnum"] = CLASS["alpha"] CLASS["digit"]
+    CLASS["word"] = CLASS["alnum"] "_"; CLASS["punct"] = "!\"#$%&\047()*+,-./:;<=>?@[\\]^_`{|}~"
+    CLASS["graph"] = CLASS["alnum"] CLASS["punct"]; CLASS["print"] = CLASS["graph"] " "
+    CLASS["blank"] = " \t"; CLASS["space"] = " \t\n\v\f\r"
+    CLASS["cntrl"] = CLASS["ascii"] = ""
+  }
+  # The first input is the text, the second the list.
+  FNR == 1 { part++ }
+  part == 1 { text = (FNR == 1 ? $0 : text "\n" $0); next }
+  (index($0, "?") || index($0, "[")) && substr($0, 1, 1) != "#" && (mode != "tree" || index($0, "/")) {
+    rule[++rules] = $0
+    fixed[rules] = fixed_part($0)
+  }
+  END {
+    if (mode == "chars") {
+      n = chars(text, S, 1)
+      for (i = 1; i <= n; i++) print length(S[i]) " " S[i]
+      exit
+    }
+    written = ENVIRON["DM_WRITTEN"]
+    if (mode == "tree") {
+      hit = rule_matches(text, "", "") || rule_matches(text, "*/", "") || rule_matches(text, "*/", "/*") \
+        || rule_matches(written, "*/", "") || rule_matches(written, "*/", "/*")
+    } else {
+      # A rule that matches a directory protects everything below it.
+      hit = rule_matches(text, "", "", 1) || rule_matches(text, "*/", "", 1)
+    }
+    print hit ? "match" : "clear"
+  }
+  ' - "$drc_list"
+}
+
+# Status 0 when a rule with a "?" or a "[" matches path $1 or a directory
+# above it, 1 when none does, and 2 when the match did not run.
+deny_wildcard_rules_match() {
+  if dwm_verdict=$(deny_rules_by_character path "$1" 2>/dev/null); then
+    case "$dwm_verdict" in
+      clear) return 1 ;;
+      match) return 0 ;;
+    esac
+  fi
+  return 2
+}
+
 # Match a candidate without applying any template exception. Keep this in a
 # subshell because POSIX sh has no local variables and callers also iterate the
 # deny file.
@@ -6311,8 +6587,10 @@ candidate_matches_raw_deny() (
   raw_deny_candidate=$1
   [ -f "$DENY_READ_PATHS" ] || return 1
   while IFS= read -r raw_deny_pattern || [ -n "$raw_deny_pattern" ]; do
-    case "$raw_deny_pattern" in
-      ''|\#*) continue ;;
+    # With deny_by_character=1, deny_rules_by_character has read the rules
+    # that hold a "?" or a "[".
+    case "${deny_by_character-0}:$raw_deny_pattern" in
+      ?:|?:\#*|1:*'?'*|1:*'['*) continue ;;
     esac
     case "$raw_deny_candidate" in
       $raw_deny_pattern|*/$raw_deny_pattern) return 0 ;;
@@ -6425,8 +6703,33 @@ deny_pattern_allows_env_exception() {
   esac
 }
 
-candidate_matches_deny() (
+# Status 0 when $1 is deny-listed. A character match that did not run counts
+# as a match as well, and sets DENY_SCAN_FAILED for a caller that has to tell
+# the two apart: the verdict comes from a subshell, which hands back a status
+# and nothing else.
+DENY_SCAN_FAILED=0
+candidate_matches_deny() {
+  candidate_deny_verdict "$1"
+  case $? in
+    0) return 0 ;;
+    1) return 1 ;;
+  esac
+  DENY_SCAN_FAILED=1
+  return 0
+}
+
+# Status 0: deny-listed. 1: not. 2: a character match did not run.
+candidate_deny_verdict() (
   deny_candidate=$1
+  deny_by_character=0
+  if deny_match_counts_characters "$deny_candidate"; then
+    deny_wildcard_rules_match "$deny_candidate"
+    case $? in
+      0) return 0 ;;
+      1) deny_by_character=1 ;;
+      *) return 2 ;;
+    esac
+  fi
   case "$deny_candidate" in
     */*) candidate_parent_matches_deny "${deny_candidate%/*}" && return 0 ;;
   esac
@@ -6435,8 +6738,8 @@ candidate_matches_deny() (
   candidate_has_default_env_exception "$deny_candidate" \
     && deny_candidate_has_env_exception=1
   while IFS= read -r deny_pattern || [ -n "$deny_pattern" ]; do
-    case "$deny_pattern" in
-      ''|\#*) continue ;;
+    case "$deny_by_character:$deny_pattern" in
+      ?:|?:\#*|1:*'?'*|1:*'['*) continue ;;
     esac
     case "$deny_candidate" in
       $deny_pattern|*/$deny_pattern)
@@ -6464,6 +6767,14 @@ matches_deny_path() {
     candidate_matches_deny "$resolved" && return 0
   fi
   return 1
+}
+
+# matches_deny_path for a caller that shows more of a file on a match. A
+# character match that did not run (DENY_SCAN_FAILED) did not show the file to
+# be protected, so it is no match here.
+deny_path_match_is_confirmed() {
+  DENY_SCAN_FAILED=0
+  matches_deny_path "$1" && [ "$DENY_SCAN_FAILED" -eq 0 ]
 }
 
 # Print the directory the tracked-file exception places relative paths in,
@@ -6551,9 +6862,18 @@ check_sensitive_reads() {
   # work after the loop.
   tmp=$(mktemp_file) || die "failed to create temp file"
   printf '%s\n' "$values" >"$tmp"
+  DENY_SCAN_FAILED=0
   while IFS= read -r value; do
     [ -n "$value" ] || continue
     if matches_deny_path "$value"; then
+      # A hit from a character match that did not run (candidate_matches_deny)
+      # is a failed scan: nothing showed the file to be protected, so no
+      # exception and no masked view applies to it.
+      if [ "$DENY_SCAN_FAILED" -eq 1 ]; then
+        rm -f "$tmp"
+        info "$PROGRAM: deny-read-paths scan failed; refusing to allow the read"
+        exit 2
+      fi
       # A file tool reads the one path it is given from the event workdir, so
       # a file under the tracked-file exception is not blocked by its name.
       case "$reads_tool" in
@@ -6578,6 +6898,52 @@ check_sensitive_reads() {
     fi
   done <"$tmp"
   rm -f "$tmp"
+}
+
+# Start reading entry $1 one character at a time; deny_entry_next_char then
+# sets dec_char to each character in turn, and dec_bytes to its length in
+# bytes, and returns 1 after the last. The
+# shell takes a non-ASCII character apart byte by byte in dash and in the C
+# locale, so deny_rules_by_character splits such an entry, one character per
+# line. If that fails, dec_failed is 1 and the entry is read the shell's own
+# way: no verdict and no stored regex may rest on that reading.
+deny_entry_chars() {
+  dec_rest=$1 dec_lines=0 dec_failed=0
+  dec_nl='
+'
+  text_is_printable_ascii "$1" && return 0
+  if dec_split=$(deny_rules_by_character chars "$1" 2>/dev/null) && [ -n "$dec_split" ]; then
+    dec_rest=$dec_split dec_lines=1
+  else
+    dec_failed=1
+  fi
+}
+
+deny_entry_next_char() {
+  [ -n "$dec_rest" ] || return 1
+  if [ "$dec_lines" -eq 1 ]; then
+    dec_char=${dec_rest%%"$dec_nl"*}
+    case "$dec_rest" in
+      *"$dec_nl"*) dec_rest=${dec_rest#*"$dec_nl"} ;;
+      *) dec_rest= ;;
+    esac
+    dec_bytes=${dec_char%% *}
+    dec_char=${dec_char#* }
+  else
+    dec_char=${dec_rest%"${dec_rest#?}"}
+    dec_rest=${dec_rest#?}
+    dec_bytes=1
+  fi
+}
+
+# A letter or digit of an entry. Any non-ASCII character counts as a letter:
+# the shell's own class follows the locale. While dec_ascii_pins is 1 only an
+# ASCII one counts.
+deny_entry_char_is_alnum() {
+  case "$1" in
+    [abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789]) return 0 ;;
+  esac
+  [ "${dec_ascii_pins-0}" -eq 0 ] && ! text_is_printable_ascii "$1"
 }
 
 deny_path_regex_fragment() {
@@ -6639,18 +7005,30 @@ deny_path_regex_fragment() {
 # Mode shell-expanded-starless-positions drops that one-character star; the
 # caller blocks a word that needs it only when the word also pins a letter.
 deny_path_shell_expanded_fragment() {
-  sx_rest=$1
+  deny_entry_chars "$1"
   sx_mode=${2:-shell-expanded}
+  # An entry with a non-ASCII character is built three times, once for each
+  # way a shell can read it, and a word is held to one of them. Reading 1: a
+  # glob character stands for a whole character, and that character is a
+  # letter. Reading 2: the same, but only an ASCII letter or digit pins a
+  # word, as in a locale that does not take the character for a letter.
+  # Reading 3: the shell expands byte by byte (the C locale), so as many
+  # one-byte wildcards as the character has bytes stand for it. $3 is the
+  # reading and $4 the fragments of the readings before it.
+  sx_reading=${3:-1}
+  dec_ascii_pins=0
+  [ "$sx_reading" -eq 1 ] || dec_ascii_pins=1
   sx_any='[^[:space:]<>|;&`$()]*'
   sx_gap='\*([^[:space:]<>|;&`$()/]*\*)?'
   sx_n=0 sx_full= sx_alnum_segs=0 sx_seg_pinned=0
   # sx_c_<i>: the entry character at i; sx_t_<i>: the same, but an entry `*`
   # matches only stars; sx_p_<i>: the same as sx_c_<i>, except that each
-  # component's first letter is pinned.
-  while [ -n "$sx_rest" ]; do
-    ch=${sx_rest%"${sx_rest#?}"}
-    sx_rest=${sx_rest#?}
+  # component's first letter is pinned. sx_w_<i>: in reading 3, some but not
+  # all bytes of a multibyte character, for a star that takes the rest of it.
+  while deny_entry_next_char; do
+    ch=$dec_char
     sx_n=$((sx_n + 1))
+    sx_w=
     case "$ch" in
       '*')
         sx_c=$sx_any
@@ -6659,14 +7037,23 @@ deny_path_shell_expanded_fragment() {
       *)
         deny_path_shell_expansion_char_pattern "$ch"
         sx_c=$sx_char
+        # Reading 3: the one-byte wildcards that stand for the character. A
+        # "*" may be one of them, except where the caller asks for a match
+        # without a one-character star.
+        if [ "$dec_bytes" -gt 1 ] && [ "$sx_reading" -eq 3 ]; then
+          sx_bytes='(\?|\*|\[[^]]+\]){'$dec_bytes'}'
+          [ "$sx_mode" != shell-expanded-starless-positions ] || sx_bytes='(\?|\[[^]]+\]){'$dec_bytes'}'
+          sx_c="($sx_char_literal|$sx_bytes)"
+          sx_w='(\?|\*|\[[^]]+\]){1,'$((dec_bytes - 1))'}'
+        fi
         sx_t=$sx_c
         ;;
     esac
     sx_p=$sx_c
     case "$ch" in
       /) sx_seg_pinned=0 ;;
-      [[:alnum:]])
-        if [ "$sx_seg_pinned" -eq 0 ]; then
+      *)
+        if [ "$sx_seg_pinned" -eq 0 ] && deny_entry_char_is_alnum "$ch"; then
           sx_seg_pinned=1
           sx_alnum_segs=$((sx_alnum_segs + 1))
           deny_path_pin_char_pattern "$ch"
@@ -6674,7 +7061,7 @@ deny_path_shell_expanded_fragment() {
         fi
         ;;
     esac
-    eval "sx_r_$sx_n=\$ch sx_c_$sx_n=\$sx_c sx_t_$sx_n=\$sx_t sx_p_$sx_n=\$sx_p"
+    eval "sx_r_$sx_n=\$ch sx_c_$sx_n=\$sx_c sx_t_$sx_n=\$sx_t sx_p_$sx_n=\$sx_p sx_w_$sx_n=\$sx_w"
     case "$sx_mode:$sx_c" in
       shell-expanded-starless-positions:*'|\*|'*)
         sx_c=${sx_c%%'|\*|'*}'|'${sx_c#*'|\*|'}
@@ -6701,6 +7088,15 @@ deny_path_shell_expanded_fragment() {
   else
     dprf_out=$sx_full
   fi
+  dec_ascii_pins=0
+  [ "$dec_lines" -eq 1 ] || return 0
+  # Two readings that built the same fragment count once.
+  [ "$dprf_out" = "${4-}" ] || dprf_out=${4:+$4|}$dprf_out
+  if [ "$sx_reading" -lt 3 ]; then
+    deny_path_shell_expanded_fragment "$1" "$sx_mode" $((sx_reading + 1)) "$dprf_out"
+    return
+  fi
+  dprf_out="($dprf_out)"
 }
 
 # Append to sx_alts the alternatives whose stars fall in component $1..$2.
@@ -6710,12 +7106,10 @@ deny_path_spanning_component_alternatives() {
   sca_first= sca_last= sca_j=$sca_a
   while [ "$sca_j" -le "$sca_b" ]; do
     eval "sca_ch=\$sx_r_$sca_j"
-    case "$sca_ch" in
-      [[:alnum:]])
-        [ -n "$sca_first" ] || sca_first=$sca_j
-        sca_last=$sca_j
-        ;;
-    esac
+    if deny_entry_char_is_alnum "$sca_ch"; then
+      [ -n "$sca_first" ] || sca_first=$sca_j
+      sca_last=$sca_j
+    fi
     sca_j=$((sca_j + 1))
   done
   eval "sca_lead=\$sx_r_$sca_a"
@@ -6748,6 +7142,12 @@ deny_path_spanning_component_alternatives() {
     sca_head=$sx_out
     deny_path_sx_prefixes c $((sca_head_end + 1)) "$sca_b"
     sx_alts="$sx_alts|$sca_before$sca_head$sx_out$sx_gap$sca_suffixes$sca_after"
+    # The head may end inside its last character.
+    eval "sca_part=\${sx_w_$sca_head_end-}"
+    if [ -n "$sca_part" ]; then
+      deny_path_sx_concat p "$sca_a" $((sca_head_end - 1))
+      sx_alts="$sx_alts|$sca_before$sx_out$sca_part$sx_gap$sca_suffixes$sca_after"
+    fi
   fi
 
   [ "$sca_lead" = . ] || return 0
@@ -6781,24 +7181,27 @@ deny_path_sx_concat() {
 }
 
 # Set sx_out to an ERE for any prefix, possibly empty, of sx_<$1>_<$2..$3>.
+# The prefix may end inside a character that has an sx_w.
 deny_path_sx_prefixes() {
   sx_out=
   sx_close=
   sx_j=$2
   while [ "$sx_j" -le "$3" ]; do
-    eval "sx_out=\"\${sx_out}(\${sx_$1_$sx_j}\""
-    sx_close="${sx_close})?"
+    eval "sx_out=\"\${sx_out}(\${sx_$1_$sx_j}\" sx_part=\${sx_w_$sx_j-}"
+    sx_close="${sx_part:+|$sx_part})?$sx_close"
     sx_j=$((sx_j + 1))
   done
   sx_out=$sx_out$sx_close
 }
 
 # Set sx_out to an ERE for any suffix, possibly empty, of sx_<$1>_<$2..$3>.
+# The suffix may start inside a character that has an sx_w.
 deny_path_sx_suffixes() {
   sx_out=
   sx_j=$2
   while [ "$sx_j" -le "$3" ]; do
-    eval "sx_out=\"(\${sx_out}\${sx_$1_$sx_j})?\""
+    eval "sx_out=\"(\${sx_out}\${sx_$1_$sx_j}\" sx_part=\${sx_w_$sx_j-}"
+    sx_out="$sx_out${sx_part:+|$sx_part})?"
     sx_j=$((sx_j + 1))
   done
 }
@@ -6862,14 +7265,18 @@ deny_path_shell_expansion_char_pattern() {
 }
 
 deny_path_command_regex() {
-  deny_path_command_regex_set "$1" "$2" || return 1
+  deny_path_command_regex_set "$1" "$2" || return
   printf '%s' "$dcr_regex"
 }
 
 # Set dcr_regex to what deny_path_command_regex prints. Like
 # deny_path_regex_fragment, it must run inside a subshell of its own.
 deny_path_command_regex_set() {
+  dec_failed=0
   deny_path_regex_fragment "$1" "$2"
+  # Status 2: the entry could not be split into characters (deny_entry_chars),
+  # so there is no regex to trust for it.
+  [ "$dec_failed" -eq 0 ] || return 2
   converted=$dprf_out
   [ -n "$converted" ] || return 1
   # Catch path arguments and shell words without matching substrings like myenv.
@@ -6885,17 +7292,13 @@ deny_path_command_regex_set() {
 
 # Set sx_out to an ERE matching any pin of the entry's letters and digits.
 deny_path_entry_pin_regex() {
-  pr_rest=$1
+  deny_entry_chars "$1"
   sx_out=
-  while [ -n "$pr_rest" ]; do
-    pr_ch=${pr_rest%"${pr_rest#?}"}
-    pr_rest=${pr_rest#?}
-    case "$pr_ch" in
-      [[:alnum:]])
-        deny_path_pin_char_pattern "$pr_ch"
-        sx_out=${sx_out:+$sx_out|}$sx_pin
-        ;;
-    esac
+  while deny_entry_next_char; do
+    if deny_entry_char_is_alnum "$dec_char"; then
+      deny_path_pin_char_pattern "$dec_char"
+      sx_out=${sx_out:+$sx_out|}$sx_pin
+    fi
   done
 }
 
@@ -6905,11 +7308,16 @@ deny_path_entry_pin_regex() {
 # alone, such as `(.*?)` for `*.p8`. A word that pins a letter elsewhere only
 # over-blocks. Any other status is a failed scan.
 bash_shell_expanded_match_is_pinned() {
-  sp_regex=$(deny_path_command_regex "$2" shell-expanded-starless-positions) || return 0
+  sp_regex=$(deny_path_command_regex "$2" shell-expanded-starless-positions) || {
+    # Status 2: the entry could not be split into characters.
+    [ "$?" -eq 2 ] || return 0
+    return 2
+  }
   printf '%s\n' "$1" | grep -Eq "$sp_regex"
   sp_status=$?
   [ "$sp_status" -eq 1 ] || return "$sp_status"
   deny_path_entry_pin_regex "$2"
+  [ "$dec_failed" -eq 0 ] || return 2
   [ -n "$sx_out" ] || return 0
   sp_words=$(printf '%s\n' "$1" | tr -s '[:space:]<>|;&`$()' '[\n*]' | grep -E "$3")
   sp_status=$?
@@ -7083,7 +7491,11 @@ bash_matches_deny_path_mode() {
     case "$entry" in
       ''|\#*) continue ;;
     esac
-    regex=$(deny_path_command_regex "$entry" "$mode") || continue
+    regex=$(deny_path_command_regex "$entry" "$mode") || {
+      [ "$?" -eq 2 ] || continue
+      info "$PROGRAM: deny-read-paths Bash scan failed; refusing to allow command"
+      exit 2
+    }
     printf '%s\n' "$mode_cmd" | grep -Eq "$regex"
     grep_status=$?
     if [ "$grep_status" -eq 0 ] && [ "$mode" = shell-expanded ]; then
@@ -11365,10 +11777,19 @@ tracked_file_exception_applies() (
   esac
   tfe_rel=${tfe_real#"${tfe_top%/}"/}
   [ -f "$DENY_READ_PATHS" ] || exit 1
+  tfe_by_character=0
+  if deny_match_counts_characters "$tfe_real$tfe_path"; then
+    tfe_verdict=$(deny_rules_by_character tree "$tfe_real" "/$tfe_path" 2>/dev/null) \
+      && [ "$tfe_verdict" = clear ] || exit 1
+    tfe_by_character=1
+  fi
   while IFS= read -r tfe_entry || [ -n "$tfe_entry" ]; do
     case "$tfe_entry" in
       ''|\#*) continue ;;
       */*)
+        case "$tfe_by_character:$tfe_entry" in
+          1:*'?'*|1:*'['*) continue ;;
+        esac
         # shellcheck disable=SC2254
         case "$tfe_real" in
           $tfe_entry|*/$tfe_entry|*/$tfe_entry/*) exit 1 ;;
@@ -12546,6 +12967,7 @@ bash_unresolved_read_operand_scan() (
         bash_unresolved_read_operand "$uo_body" "$((uo_depth + 1))" "$uo_moved" "$uo_tab"
         uo_status=$?
         [ "$uo_status" -ne 0 ] || exit 0
+        [ "$uo_status" -ne 2 ] || exit 2
         [ "$uo_status" -ne 3 ] || uo_unknown=1
         ;;
     esac
@@ -16495,6 +16917,8 @@ $sw_program"
     bash_unresolved_read_operand "$raw_cmd"
     uo_status=$?
     [ "$uo_status" -ne 0 ] || exit 4
+    # 2: the deny list could not be read against an operand, a failed scan.
+    [ "$uo_status" -ne 2 ] || exit 2
     [ "$uo_status" -ne 3 ] || exit 3
     exit 1
   )
@@ -19376,21 +19800,33 @@ known_env_values() (
     fi
     [ "$kv_top" != "$kv_base" ] || kv_top=
   fi
+  kv_raw=$(
   for kv_dir in "$kv_base" ${kv_top:+"$kv_top"}; do
     for kv_file in "$kv_dir"/.[!.]* "$kv_dir"/..?* "$kv_dir"/*; do
       kv_name=${kv_file##*/}
       # A cheap superset of the dotenv names; the deny rules and mask-file
       # below make the actual decision.
+      # Each pattern opens with a parenthesis: bash 3.2 cannot read a bare
+      # closing one inside a command substitution.
       case $kv_name in
-        *env*|.dev.vars*) ;;
-        *) continue ;;
+        (*env*|.dev.vars*) ;;
+        (*) continue ;;
       esac
       [ -f "$kv_file" ] && [ ! -L "$kv_file" ] || continue
       [ "$(mask_file_format "$kv_file" 2>/dev/null)" = dotenv ] || continue
+      DENY_SCAN_FAILED=0
       candidate_matches_deny "$kv_name" || continue
+      # A character match that did not run (DENY_SCAN_FAILED) did not show
+      # whether the file is on the list. It is not opened, and the values are
+      # not known: status 2.
+      [ "$DENY_SCAN_FAILED" -eq 0 ] || exit 2
       mask_file "$kv_file" values 2>/dev/null || :
     done
-  done | LC_ALL=C awk '
+  done
+  )
+  # Any other status is a collection cut short, which leaves them unknown too.
+  [ "$?" -eq 0 ] || exit 2
+  printf '%s\n' "$kv_raw" | LC_ALL=C awk '
     length($0) < 8 { next }
     tolower($0) ~ /^(true|false|yes|no|on|off)$/ { next }
     /^[-+]?[0-9]+([.][0-9]+)?$/ { next }
@@ -19411,7 +19847,11 @@ known_env_values() (
 # known_value_redact_enabled first, so `block` mode forks nothing here.
 known_env_value_records() (
   [ -s "$1" ] || exit 0
-  kv_values=$(known_env_values) || kv_values=
+  kv_values=$(known_env_values) || {
+    # Status 2: the values are not known, which fails the detector too.
+    [ "$?" -ne 2 ] || exit 1
+    kv_values=
+  }
   [ -n "$kv_values" ] || exit 0
   kv_found=$(printf '%s\n' "$kv_values" | LC_ALL=C awk '
     NR == FNR { if (!($0 in want)) { want[$0] = 1; n++ }; next }
@@ -22168,7 +22608,7 @@ read_mask_target() (
   [ -n "$rt_path" ] || exit 1
   rt_path=$(normalize_path "$rt_path")
   case $rt_path in /*) ;; *) exit 1 ;; esac
-  matches_deny_path "$rt_path" || exit 1
+  deny_path_match_is_confirmed "$rt_path" || exit 1
   rt_other=$(printf '%s' "$1" | jq -r '.tool_input | del(.file_path) | .. | strings') || exit 1
   printf '%s\n' "$rt_other" | {
     while IFS= read -r rt_value; do
@@ -22213,7 +22653,7 @@ cat_mask_target() (
     CDPATH= cd -- "$2" 2>/dev/null || exit 1
   fi
   ct_path=$(normalize_path "$ct_path")
-  matches_deny_path "$ct_path" || exit 1
+  deny_path_match_is_confirmed "$ct_path" || exit 1
   case $ct_path in
     /*) ;;
     *) ct_path=$(pwd -P)/$ct_path || exit 1 ;;

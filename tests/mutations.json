@@ -3093,5 +3093,293 @@
     "tests": [
       "tests/gitleaksignore-scope.sh"
     ]
+  },
+  {
+    "id": "deny-chars-gate-never",
+    "rule": "deny_match_counts_characters: a rule with [, or one with ? over a non-ASCII path, takes the character match",
+    "old": "      ?:*'['*|0:*'?'*) return 0 ;;\n",
+    "new": "      ?:*'['*|0:*'?'*) return 1 ;;\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-tracked-shell-match",
+    "rule": "tracked_file_exception_applies: a rule with a slash is matched by character for a non-ASCII path",
+    "old": "    tfe_verdict=$(deny_rules_by_character tree \"$tfe_real\" \"/$tfe_path\" 2>/dev/null) \\\n      && [ \"$tfe_verdict\" = clear ] || exit 1\n",
+    "new": "",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-entry-bytes",
+    "rule": "deny_entry_chars: a non-ASCII entry is read one whole character at a time",
+    "old": "    dec_rest=$dec_split dec_lines=1\n",
+    "new": "    :\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-entry-letter",
+    "rule": "deny_entry_char_is_alnum: a non-ASCII character of an entry is a letter",
+    "old": "  [ \"${dec_ascii_pins-0}\" -eq 0 ] && ! text_is_printable_ascii \"$1\"\n}",
+    "new": "  return 1\n}",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-one-reading",
+    "rule": "deny_rules_by_character: text that is not UTF-8 is read in every way",
+    "old": "    for (r = 1; r <= 3; r++) {",
+    "new": "    for (r = 1; r <= 1; r++) {",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-class-locale",
+    "rule": "deny_rules_by_character: a non-ASCII character is in every class",
+    "old": "      if (P[i + 1] != \".\" && (length(c) > 1 || c >= \"\\200\")) return 1\n",
+    "new": "",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-failed-run-allows",
+    "rule": "deny_wildcard_rules_match: a match that did not run is not a clear verdict",
+    "old": "    esac\n  fi\n  return 2\n}",
+    "new": "    esac\n  fi\n  return 1\n}",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-no-parent",
+    "rule": "deny_rules_by_character: a rule that matches a directory protects what is below it",
+    "old": "      else if (dirs && k > kn && S[s] == \"/\" && s > 1 && (s > 2 || S[1] != \"/\")) return 1\n",
+    "new": "      else if (0 && k > kn && S[s] == \"/\" && s > 1 && (s > 2 || S[1] != \"/\")) return 1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-range-ends-only",
+    "rule": "deny_rules_by_character: a range holds every character between its ends",
+    "old": "      if (c >= lo && c <= hi) hit = 1\n",
+    "new": "      if (c == lo || c == hi) hit = 1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-two-byte-width",
+    "rule": "deny_rules_by_character: a two-byte sequence is one character",
+    "old": "    if (b >= \"\\302\" && b <= \"\\337\") return utf8_tail(c) ? 2 : 0\n",
+    "new": "    if (b >= \"\\302\" && b <= \"\\337\") return 0\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-gate-plain-rule",
+    "rule": "deny_match_counts_characters: a plain path takes the character match under a rule with [",
+    "old": "      ?:*'['*|0:*'?'*) return 0 ;;\n",
+    "new": "      0:*'['*|0:*'?'*) return 0 ;;\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-status-ignored",
+    "rule": "deny_wildcard_rules_match: a clear verdict counts only from a matcher that exited 0",
+    "old": "  if dwm_verdict=$(deny_rules_by_character path \"$1\" 2>/dev/null); then",
+    "new": "  dwm_verdict=$(deny_rules_by_character path \"$1\" 2>/dev/null)\n  if :; then",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-split-failure-used",
+    "rule": "deny_path_command_regex_set: an entry that could not be split into characters yields no regex",
+    "old": "  [ \"$dec_failed\" -eq 0 ] || return 2\n  converted=$dprf_out\n",
+    "new": "  converted=$dprf_out\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-bytewise-glob",
+    "rule": "deny_path_shell_expanded_fragment: one-byte wildcards for every byte of a character stand for it",
+    "old": "          sx_c=\"($sx_char_literal|$sx_bytes)\"\n",
+    "new": "          :\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-bytewise-star",
+    "rule": "deny_path_shell_expanded_fragment: a star may be one of the one-byte wildcards that stand for a character",
+    "old": "          sx_bytes='(\\?|\\*|\\[[^]]+\\]){'$dec_bytes'}'\n",
+    "new": "          sx_bytes='(\\?|\\[[^]]+\\]){'$dec_bytes'}'\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-failed-scan-excepted",
+    "rule": "check_sensitive_reads: a hit from a match that did not run is refused before the tracked-file exception",
+    "old": "      if [ \"$DENY_SCAN_FAILED\" -eq 1 ]; then\n",
+    "new": "      if false; then\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-ascii-pin-dropped",
+    "rule": "deny_path_shell_expanded_fragment: an entry with a non-ASCII character is also read with only its ASCII letters and digits as pins",
+    "old": "  [ \"$sx_reading\" -eq 1 ] || dec_ascii_pins=1\n",
+    "new": "  [ \"$sx_reading\" -ge 1 ] || dec_ascii_pins=1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-named-symbol",
+    "rule": "deny_rules_by_character: a bracket expression with a named collating symbol matches every character",
+    "old": "        if (P[i + 1] == \".\" && m - i > 4) return 1\n",
+    "new": "        if (P[i + 1] == \".\" && m - i > 99) return 1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-unconfirmed-mask",
+    "rule": "deny_path_match_is_confirmed: a match that did not run earns no masked view",
+    "old": "  matches_deny_path \"$1\" && [ \"$DENY_SCAN_FAILED\" -eq 0 ]\n",
+    "new": "  matches_deny_path \"$1\"\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-failed-verdict-dropped",
+    "rule": "candidate_matches_deny: a verdict that is neither a match nor a clear one counts as a match",
+    "old": "  DENY_SCAN_FAILED=1\n  return 0\n}",
+    "new": "  DENY_SCAN_FAILED=1\n  return 1\n}",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-unknown-class",
+    "rule": "deny_rules_by_character: a bracket expression with a class name outside the table matches every character",
+    "old": "          if (!(lo in CLASS)) return 1\n",
+    "new": "          if (!(lo in CLASS)) return 0\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-mixed-readings",
+    "rule": "deny_path_shell_expanded_fragment: a word is held to one reading, whole characters or bytes",
+    "old": "        if [ \"$dec_bytes\" -gt 1 ] && [ \"$sx_reading\" -eq 3 ]; then\n          sx_bytes=",
+    "new": "        if [ \"$dec_bytes\" -gt 1 ] && [ \"$sx_reading\" -eq 3 ]; then\n          sx_char_literal=${sx_c#?}; sx_char_literal=${sx_char_literal%?}\n          sx_bytes=",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-partial-prefix",
+    "rule": "deny_path_sx_prefixes: read byte by byte, a prefix may end inside a multibyte character",
+    "old": "    sx_close=\"${sx_part:+|$sx_part})?$sx_close\"\n",
+    "new": "    sx_close=\")?$sx_close\"\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-partial-suffix",
+    "rule": "deny_path_sx_suffixes: read byte by byte, a suffix may start inside a multibyte character",
+    "old": "    sx_out=\"$sx_out${sx_part:+|$sx_part})?\"\n",
+    "new": "    sx_out=\"$sx_out)?\"\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-partial-head",
+    "rule": "deny_path_spanning_component_alternatives: read byte by byte, the head may end inside its last character",
+    "old": "    if [ -n \"$sca_part\" ]; then\n",
+    "new": "    if false; then\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-pin-check-unsplit",
+    "rule": "bash_shell_expanded_match_is_pinned: a pin check that could not split the entry is a failed scan, not a pinned match",
+    "old": "  [ \"$dec_failed\" -eq 0 ] || return 2\n  [ -n \"$sx_out\" ] || return 0\n",
+    "new": "  [ \"$dec_failed\" -eq 0 ] || return 0\n  [ -n \"$sx_out\" ] || return 0\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-recheck-status-dropped",
+    "rule": "hook-pre-tool: a failed deny-read scan of a resolved operand refuses the command",
+    "old": "    [ \"$uo_status\" -ne 2 ] || exit 2\n    [ \"$uo_status\" -ne 3 ] || exit 3\n",
+    "new": "    [ \"$uo_status\" -ne 3 ] || exit 3\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-nested-recheck-status-dropped",
+    "rule": "bash_unresolved_read_operand_scan: a failed deny-read scan inside nested code is handed up",
+    "old": "        [ \"$uo_status\" -ne 2 ] || exit 2\n        [ \"$uo_status\" -ne 3 ] || uo_unknown=1\n",
+    "new": "        [ \"$uo_status\" -ne 3 ] || uo_unknown=1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-unconfirmed-values",
+    "rule": "known_env_values: a match that did not run opens no file and leaves the values unknown",
+    "old": "      [ \"$DENY_SCAN_FAILED\" -eq 0 ] || exit 2\n",
+    "new": "",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-equivalence-literal",
+    "rule": "deny_rules_by_character: a bracket expression with an equivalence class matches every character",
+    "old": "        if (P[i + 1] == \"=\") return 1\n",
+    "new": "        if (P[i + 1] == \"=\") return 0\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-values-failure-dropped",
+    "rule": "known_env_value_records: values that are not known fail the detector",
+    "old": "    [ \"$?\" -ne 2 ] || exit 1\n    kv_values=\n",
+    "new": "    kv_values=\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-range-end-token",
+    "rule": "deny_rules_by_character: a range that ends in a class or an equivalence class matches every character",
+    "old": "          if (P[i + 1] != \".\" || m - i > 4) return 1\n",
+    "new": "          if (P[i + 1] == \".\" && m - i > 4) return 1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
   }
 ]

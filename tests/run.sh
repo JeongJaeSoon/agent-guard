@@ -5199,6 +5199,8 @@ if in_shard 3; then
 # a Linux container.
 run_expect 0 "the protected-path regex cache only rules commands out and never changes a verdict" \
   sh "$ROOT/tests/deny-path-regex-cache.sh"
+run_expect 0 "a deny-read rule matches whole characters in every shell and locale" \
+  sh "$ROOT/tests/deny-rule-characters.sh"
 run_expect 0 "orca/gh/git message values leave out no protected read" \
   sh "$ROOT/tests/message-value-prose.sh"
 
