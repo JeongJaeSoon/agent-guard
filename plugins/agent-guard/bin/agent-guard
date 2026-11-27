@@ -4106,6 +4106,7 @@ pii_regex_adapter_filter() (
 
 pii_endpoint_adapter_filter() {
   provider=$1
+  pii_request_from=${2:-}
   need_cmd curl
   need_cmd jq
   url=${AGENT_GUARD_PII_REDACT_URL:-}
@@ -4117,7 +4118,10 @@ pii_endpoint_adapter_filter() {
   esac
   [ "$timeout" -gt 0 ] 2>/dev/null \
     || die "pii-filter: AGENT_GUARD_PII_TIMEOUT_SECONDS must be a positive integer"
-  if [ "${AGENT_GUARD_PII_HOOK_REQUEST:-}" = 1 ] && [ "$timeout" -gt 5 ]; then
+  # A hook caps its request at 5 seconds. The environment flag is the
+  # deprecated outside form of the same cap (pii_filter warns about it).
+  if { [ "$pii_request_from" = hook ] || [ "${AGENT_GUARD_PII_HOOK_REQUEST:-}" = 1 ]; } \
+      && [ "$timeout" -gt 5 ]; then
     timeout=5
   fi
 
@@ -4172,11 +4176,11 @@ pii_endpoint_adapter_filter() {
   rm -f "$out"
 }
 
-pii_adapter_filter() {
+pii_adapter_filter() {  # [provider] [hook]
   provider=${1:-${AGENT_GUARD_PII_PROVIDER:-regex}}
   case "$provider" in
     regex) pii_regex_adapter_filter ;;
-    http|pleno) pii_endpoint_adapter_filter "$provider" ;;
+    http|pleno) pii_endpoint_adapter_filter "$provider" "${2:-}" ;;
     *) pii_unsupported_provider "$provider" ;;
   esac
 }
@@ -4212,6 +4216,9 @@ pii_filter() {
     shift
   done
 
+  if [ "${AGENT_GUARD_PII_HOOK_REQUEST:-}" = 1 ]; then
+    info "$PROGRAM: AGENT_GUARD_PII_HOOK_REQUEST is internal and deprecated: it still caps the provider request at 5 seconds now, but a later release ignores it. Set AGENT_GUARD_PII_TIMEOUT_SECONDS instead."
+  fi
   provider=${AGENT_GUARD_PII_PROVIDER:-regex}
   # Validate here, not only inside the adapter: --check never reaches the adapter
   # and would otherwise report "ok" for a skip set every real run refuses.
@@ -4226,7 +4233,7 @@ pii_filter() {
 pii_text_has_match() {
   text=$1
   [ -n "$text" ] || return 1
-  masked=$(printf '%s' "$text" | AGENT_GUARD_PII_HOOK_REQUEST=1 pii_adapter_filter)
+  masked=$(printf '%s' "$text" | pii_adapter_filter "" hook)
   status=$?
   [ "$status" -eq 0 ] || exit "$status"
   [ "$masked" != "$text" ]
