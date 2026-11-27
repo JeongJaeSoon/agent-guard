@@ -59,10 +59,11 @@ jobs:
       fail-fast: false
       matrix:
         # Every id falls in exactly one group (tests/mutation-check.sh --lint
-        # checks it): handback-*, bash-* spread over the bash-N shards by
-        # position, and everything else in core. Keep each shard under about
-        # 35 minutes; add a bash-N entry when one grows past that.
-        group: [core, handback, bash-1, bash-2, bash-3, bash-4, bash-5, bash-6]
+        # checks it): handback-*, bash-* spread over the bash-N shards and
+        # deny-chars-* over the deny-chars-N shards by position, and
+        # everything else in core. Keep each shard under about 35 minutes;
+        # add a bash-N or deny-chars-N entry when one grows past that.
+        group: [core, handback, bash-1, bash-2, bash-3, bash-4, bash-5, bash-6, deny-chars-1, deny-chars-2, deny-chars-3]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
