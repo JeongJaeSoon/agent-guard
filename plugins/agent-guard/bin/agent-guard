@@ -1546,6 +1546,7 @@ rundir_reap() {
   ag_rr_dir=${AGENT_GUARD_RUNDIR%/*}
   # The marker is keyed by this path: a relative one would name a different
   # directory from each working directory.
+  [ -z "$AG_RUNDIR_RELATIVE" ] || return 0
   case "$ag_rr_dir" in /*) ;; *) return 0 ;; esac
   case "$ag_rr_dir" in *'
 '*) return 0 ;; esac
@@ -2383,11 +2384,14 @@ gitleaks_probe_cache_store() {
 # each scan starts gitleaks (#407). A clean verdict is a function of the bytes
 # fed to `gitleaks stdin`, the flags below, the config file, the gitleaks
 # executable, and what gitleaks reads beside them: GITLEAKS_CONFIG and
-# GITLEAKS_CONFIG_TOML, and ./.gitleaksignore in the scan's directory. Only a
+# GITLEAKS_CONFIG_TOML, and .gitleaksignore in the scan's directory, which for
+# this scan is the private one of gitleaks_hook_scan_dir, never the
+# repository's. Only a
 # completed clean scan is remembered, under a SHA-256 of all of that, so a
 # change to any one of them misses. Findings, scanner errors, signals, and
 # could-not-run states are never stored, and every doubt (no hash tool, no
-# native-binary identity from the probe cache, an ignore file, an extended
+# native-binary identity from the probe cache, no private scan directory or an
+# ignore file in it, an extended
 # config file, a stale, foreign or unreadable entry) runs the scan uncached.
 # Entries hold only hashes and a time, never the text. They live in a 0700
 # directory inside the private state directory audit_begin validated, so
@@ -2417,8 +2421,8 @@ gitleaks_clean_cache_key() {
     && [ -n "$GITLEAKS_READY_BIN" ] || return 1
   case "$GITLEAKS_PROBE_CACHE_KEY" in *" $GITLEAKS_READY_BIN") ;; *) return 1 ;; esac
   case "$GITLEAKS_PROBE_VERSION" in ''|*[!0-9.]*) return 1 ;; esac
-  # gitleaks stdin applies ./.gitleaksignore; its contents can hide a finding.
-  [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || return 1
+  # The scan this verdict stands for runs where no ignore file is.
+  gitleaks_hook_scan_dir || return 1
   [ -f "$GITLEAKS_CONFIG" ] || return 1
   gitleaks_clean_cache_hasher || return 1
   ag_glc_text=$1
@@ -2612,8 +2616,8 @@ gitleaks_clean_cache_hit() {
 # written by the shell under noclobber and umask 077 (an mv only to replace).
 gitleaks_clean_cache_store() {
   [ -n "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 0
-  # An ignore file that appeared during the scan may have been read by it.
-  [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || return 0
+  # An ignore file that appeared there during the scan may have been read by it.
+  gitleaks_hook_scan_dir || return 0
   [ -n "$GITLEAKS_CLEAN_CACHE_HASHER" ] || return 0
   ag_glc_dir="$AG_STATE_DIR/gitleaks-clean"
   if [ ! -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ]; then
@@ -4377,10 +4381,173 @@ check_pii_hook_input() {
   esac
 }
 
+# Hook input (command text, tool output, proposed file content, a file a tool
+# wrote, a prompt) is not the repository's content, so its scan must not read
+# the repository's .gitleaksignore. An entry there names a rule and a line of
+# the scanned text (`:rule:line` for stdin) and nothing of the value, so it
+# would apply to any text scanned in that directory. `gitleaks stdin` loads
+# the file from its working directory whatever --gitleaks-ignore-path names,
+# so such a scan runs from the run directory instead: private (mktemp -d,
+# mode 700), this process's own, and checked here to hold no ignore file.
+# Scans of the repository's own content (staged and work-tree lines,
+# untracked files, scan-path) stay in their directory and keep applying it.
+# Sets GITLEAKS_HOOK_CWD, and GITLEAKS_HOOK_CONFIG to the config as it
+# resolves from the current directory. With the bundled config it is shell
+# tests only, so it costs no process (#407); a custom config is checked
+# before each scan (gitleaks_config_extends_no_relative_path).
+# Returns 1 when there is no such directory and 2 when the config may extend
+# a relative path; the caller then reports a scan that could not run, never a
+# clean one.
+gitleaks_hook_scan_dir() {
+  GITLEAKS_HOOK_CWD=${AGENT_GUARD_RUNDIR:-}
+  GITLEAKS_HOOK_CONFIG=$GITLEAKS_CONFIG
+  case "$GITLEAKS_HOOK_CWD" in /*) ;; *) return 1 ;; esac
+  [ -d "$GITLEAKS_HOOK_CWD" ] && [ ! -L "$GITLEAKS_HOOK_CWD" ] \
+    && [ ! -e "$GITLEAKS_HOOK_CWD/.gitleaksignore" ] \
+    && [ ! -L "$GITLEAKS_HOOK_CWD/.gitleaksignore" ] || return 1
+  case "$GITLEAKS_HOOK_CONFIG" in
+    /*) ;;
+    *) GITLEAKS_HOOK_CONFIG=$PWD/$GITLEAKS_HOOK_CONFIG ;;
+  esac
+  # The bundled config extends nothing by path (tests pin it).
+  [ -n "${AGENT_GUARD_GITLEAKS_CONFIG:-}" ] || return 0
+  # Before each scan: the file, or one it extends, may have changed since the
+  # last one, and a relative name is another file once a hook has changed
+  # directory.
+  gitleaks_config_extends_no_relative_path || return 2
+}
+
+# Says why hook input $2 is not scanned: $1 is the status of
+# gitleaks_hook_scan_dir.
+gitleaks_hook_scan_refusal() {
+  case "$1" in
+    2) info "$PROGRAM: cannot scan $2: hook input is scanned from a private directory, where a relative [extend] path in the gitleaks config would name another file; write it as an absolute path, to a file that can be read, in a plain [extend] table" ;;
+    *) info "$PROGRAM: no private directory to scan $2 from" ;;
+  esac
+}
+
+# A config may extend another file by path, and gitleaks resolves a relative
+# one against its working directory: from the private directory it would name
+# another file, or none. Succeeds only when GITLEAKS_CONFIG, and each file it
+# extends in turn, provably extends no relative path: it has no extend key, or
+# one plain [extend] table whose `path`, if any, is a one-line absolute
+# literal. TOML spells a key bare, quoted, dotted or as an inline table, and
+# viper ignores key case and reads a dot inside a quoted key as a separator.
+# The file is read as TOML statements: each line is read past its strings and
+# its comment, and a value left open (a multi-line array, a multiline string)
+# continues on the next lines, which are then not taken for keys or table
+# headers. The key of a statement is what stands before its first `=`; no
+# pattern decides whether that is a key, since awks differ on patterns and a
+# line not taken for a key is a line not checked. These fail: a key, or a
+# table name up to its first `]`, that holds `extend` in any spelling but the
+# plain table header;
+# one that holds a backslash, whose escape could spell it; in the table, a key
+# that holds `path` but is not the bare word, and a path that is neither empty
+# nor a one-line absolute literal. One awk run for each file whose path
+# gitleaks opens. The file is opened by redirection: awk reads an operand of the form
+# name=value as an assignment and then its standard input, which here is the
+# text the scan is about to read.
+gitleaks_config_extends_no_relative_path() {
+  ag_gc_file=$GITLEAKS_CONFIG
+  ag_gc_depth=0
+  while [ -n "$ag_gc_file" ]; do
+    ag_gc_depth=$((ag_gc_depth + 1))
+    # gitleaks opens the file a config extends and the file that one
+    # extends, and no further: a path in the third file is not opened.
+    [ "$ag_gc_depth" -le 2 ] || return 0
+    ag_gc_file=$(LC_ALL=C awk '
+      BEGIN { sq = "\047" }
+      # Reads a line past its strings and its comment. Brackets left open are
+      # counted in depth and a multiline string left open is named in instr,
+      # so the lines that continue a value are known. Fails on a one-line
+      # string that does not end and on a bracket that closes nothing.
+      function scan(line,   i, n, c, d) {
+        n = length(line)
+        i = 1
+        while (i <= n) {
+          c = substr(line, i, 1)
+          if (instr != "") {
+            if (c == "\\" && instr == "\"") i += 2
+            else if (substr(line, i, 3) == instr instr instr) {
+              # One or two more quotes belong to the end of the string.
+              i += 3
+              if (substr(line, i, 1) == instr) i++
+              if (substr(line, i, 1) == instr) i++
+              instr = ""
+            } else i++
+            continue
+          }
+          if (c == "#") return 1
+          if (c == "\"" || c == sq) {
+            if (substr(line, i, 3) == c c c) { instr = c; i += 3; continue }
+            for (i++; i <= n; i++) {
+              d = substr(line, i, 1)
+              if (d == "\\" && c == "\"") i++
+              else if (d == c) break
+            }
+            if (i > n) return 0
+          } else if (c == "[" || c == "{") depth++
+          else if ((c == "]" || c == "}") && --depth < 0) return 0
+          i++
+        }
+        return 1
+      }
+      { sub(/\r$/, "") }
+      instr != "" || depth > 0 {
+        if (!scan($0)) { bad = 1; exit }
+        next
+      }
+      { l = tolower($0) }
+      l ~ /^[ \t]*(#.*)?$/ { next }
+      l ~ /^[ \t]*\[/ {
+        ext = 0
+        name = l
+        if (index(name, "]")) name = substr(name, 1, index(name, "]"))
+        if (index(name, "\\")) { bad = 1; exit }
+        if (index(name, "extend")) {
+          if (l !~ /^[ \t]*\[[ \t]*extend[ \t]*\][ \t]*(#.*)?$/ || headers++) { bad = 1; exit }
+          ext = 1
+        }
+        next
+      }
+      {
+        eq = index(l, "=")
+        key = eq ? substr(l, 1, eq - 1) : ""
+        if (index(key, "\\")) { bad = 1; exit }
+        if (index(key, "extend")) { bad = 1; exit }
+        if (ext && index(key, "path")) {
+          value = substr($0, eq + 1)
+          sub(/^[ \t]*/, "", value)
+          if (key !~ /^[ \t]*path[ \t]*$/) { bad = 1; exit }
+          # An empty path extends nothing. Else the quoted value first: a #
+          # inside it is part of the path.
+          if (value !~ ("^(\"\"|" sq sq ")[ \t]*(#.*)?$")) {
+            if (path != "" \
+                || !(match(value, /^"\/[^"\\]*"/) || match(value, ("^" sq "/[^" sq "]*" sq))) \
+                || substr(value, RLENGTH + 1) !~ /^[ \t]*(#.*)?$/) { bad = 1; exit }
+            path = substr(value, 2, RLENGTH - 2)
+          }
+        }
+        if (!scan($0)) { bad = 1; exit }
+      }
+      END {
+        if (bad) exit 1
+        if (path != "") print path
+      }
+    ' 2>/dev/null <"$ag_gc_file") || return 1
+  done
+}
+
+# $2 = repo marks the repository's own content, scanned in the current
+# directory with its .gitleaksignore; anything else is hook input.
 run_gitleaks_stdin() {
   [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
   need_gitleaks
-  gitleaks_scan "$1" stdin
+  if [ "${2:-}" = repo ]; then
+    gitleaks_scan "$1" repo-stdin
+  else
+    gitleaks_scan "$1" stdin
+  fi
 }
 
 # The warm gitleaks helper that `setup --install-gitleaks-helper` put beside
@@ -4429,7 +4596,8 @@ gitleaks_helper_installed() {
   AG_GITLEAKS_HELPER_CLIENT=$AG_GITLEAKS_HELPER_INSTALLED
 }
 
-# Run the prepared gitleaks $1 with the remaining arguments. When a scan
+# Run the prepared gitleaks $2 with the remaining arguments, from directory
+# $1 when that is not empty. When a scan
 # client is selected, it runs in gitleaks's place. The client is the installed
 # helper's (gitleaks_helper_installed) when AGENT_GUARD_GITLEAKS_HELPER is
 # unset, the file that variable names when it is an absolute path, and none
@@ -4458,27 +4626,70 @@ gitleaks_helper_selected() {
 }
 
 gitleaks_exec() {
+  ag_gx_dir=$1
+  shift
   if gitleaks_helper_selected; then
     ag_gx_bin=$1
     shift
-    "$AG_GITLEAKS_HELPER_CLIENT" --gitleaks "$ag_gx_bin" \
+    set -- "$AG_GITLEAKS_HELPER_CLIENT" --gitleaks "$ag_gx_bin" \
       --gitleaks-version "$GITLEAKS_PROBE_VERSION" --state-dir "$AG_STATE_DIR" -- "$@"
+  fi
+  if [ -z "$ag_gx_dir" ]; then
+    "$@"
     return
   fi
-  "$@"
+  # The caller's redirections are open before the directory changes, and a
+  # program named by a relative path (a client under a relative
+  # AGENT_GUARD_GITLEAKS_BIN_DIR) is named as it resolves from here. cd -P
+  # enters the directory the checks saw, not a logical reading of its path
+  # (a TMPDIR with a symlink before a .. part). exec
+  # keeps the scan at the one process it cost before (#407). A directory that
+  # cannot be entered is a scanner failure (2), never a finding (1).
+  ag_gx_program=$1
+  shift
+  case "$ag_gx_program" in
+    /*) ;;
+    */*) ag_gx_program=$PWD/$ag_gx_program ;;
+  esac
+  (
+    CDPATH= cd -P -- "$ag_gx_dir" || exit 2
+    # Checked again where the scan starts: the directory entered is the one
+    # that counts.
+    [ -O . ] && [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || exit 2
+    exec "$ag_gx_program" "$@"
+  )
 }
 
 # $1 labels the scanned input in messages; the rest is the gitleaks
-# subcommand and its operands. Returns 0 clean, 1 finding, 2 scanner error.
+# subcommand and its operands. `stdin` is hook input and runs from the private
+# directory of gitleaks_hook_scan_dir; `repo-stdin` is `stdin` over the
+# repository's own content and runs here, as `dir` does. Returns 0 clean, 1
+# finding, 2 scanner error.
 gitleaks_scan() {
   label=$1
   shift
+  ag_gs_dir=
+  ag_gs_config=$GITLEAKS_CONFIG
+  case "$1" in
+    stdin)
+      gitleaks_hook_scan_dir || {
+        gitleaks_hook_scan_refusal "$?" "$label"
+        return 2
+      }
+      ag_gs_dir=$GITLEAKS_HOOK_CWD
+      ag_gs_config=$GITLEAKS_HOOK_CONFIG
+      ;;
+    repo-stdin)
+      shift
+      set -- stdin "$@"
+      ;;
+  esac
   ag_gs_ifs=$IFS
   IFS=' '
-  set -- "$@" $GITLEAKS_SCAN_FLAGS --config "$GITLEAKS_CONFIG" --exit-code 1
+  set -- "$@" $GITLEAKS_SCAN_FLAGS --config "$ag_gs_config" --exit-code 1
   IFS=$ag_gs_ifs
   out=$(mktemp_file) || die "failed to create temp file"
-  gitleaks_exec "$GITLEAKS_BIN" "$@" >"$out" 2>&1
+  gitleaks_exec "$ag_gs_dir" "$GITLEAKS_BIN" "$@" >"$out" 2>&1
   status=$?
   if [ "$status" -eq 0 ]; then
     if [ -s "$out" ]; then
@@ -4493,13 +4704,32 @@ gitleaks_scan() {
   if [ "$status" -eq 1 ]; then
     info "$PROGRAM: secret-like value detected in $label"
     sed 's/^/  /' "$out" >&2
+    gitleaks_hook_scan_shim_hint "$ag_gs_dir" "$out" finding
     rm -f "$out"
     return 1
   fi
   info "$PROGRAM: gitleaks failed while scanning $label"
   sed 's/^/  /' "$out" >&2
+  gitleaks_hook_scan_shim_hint "$ag_gs_dir" "$out"
   rm -f "$out"
   return 2
+}
+
+# A version manager's shim takes its version from the directory it runs in,
+# and hook input is scanned from the private one ($1, empty for a scan of the
+# repository). The probe cache gives no key to the shapes of a shim it can
+# see. A shim may fail with 1, the status of a finding: the verdict stays a
+# finding, and only this line is told apart, by output ($2) that is neither
+# empty, as gitleaks leaves it, nor a finding's.
+gitleaks_hook_scan_shim_hint() {
+  [ -n "$1" ] && [ -z "$GITLEAKS_PROBE_CACHE_KEY" ] || return 0
+  if [ "${3:-}" = finding ]; then
+    [ -s "$2" ] || return 0
+    while IFS= read -r ag_gh_line; do
+      case "$ag_gh_line" in Finding:*) return 0 ;; esac
+    done <"$2"
+  fi
+  info "$PROGRAM: hook input is scanned from a private directory, where a gitleaks that takes its version from the project directory (a version manager's shim) finds none; set AGENT_GUARD_GITLEAKS_BIN to the gitleaks executable"
 }
 
 # Filter records encoded as one lockfile-kind byte, a tab, then the original
@@ -5114,17 +5344,18 @@ scan_lockfiles_under() {
     rm -f "$blob"
     return 0
   fi
-  run_gitleaks_stdin "$label lockfile content" <"$blob"
+  run_gitleaks_stdin "$label lockfile content" repo <"$blob"
   status=$?
   rm -f "$blob"
   return "$status"
 }
 
+# $3 = repo marks the repository's own content (run_gitleaks_stdin).
 scan_text_direct() {
   label=$1
   text=$2
   [ -n "$text" ] || return 0
-  printf '%s\n' "$text" | run_gitleaks_stdin "$label"
+  printf '%s\n' "$text" | run_gitleaks_stdin "$label" "${3:-}"
 }
 
 # The PreToolUse Bash command text is the one scan that repeats byte for byte
@@ -5420,7 +5651,7 @@ scan_staged() {
   status=$?
   [ "$status" -eq 0 ] || return "$status"
   [ -n "$added" ] || return 0
-  scan_text_direct "staged added lines" "$added"
+  scan_text_direct "staged added lines" "$added" repo
 }
 
 # What a `git commit` records: the index, plus tracked work-tree changes that
@@ -5464,7 +5695,7 @@ scan_commit_candidate() {
     [ "$untracked_status" -eq 1 ] && return 1
   fi
   if [ -n "$added" ]; then
-    scan_text_direct "commit candidate added lines" "$added"
+    scan_text_direct "commit candidate added lines" "$added" repo
     status=$?
     [ "$status" -eq 0 ] || return "$status"
   fi
@@ -5547,7 +5778,7 @@ scan_untracked_files() {
     return 0
   fi
 
-  run_gitleaks_stdin "untracked files" <"$blob"
+  run_gitleaks_stdin "untracked files" repo <"$blob"
   status=$?
   rm -f "$blob"
   return "$status"
@@ -5594,7 +5825,7 @@ $second"
   [ -z "$first" ] && tracked=$second
 
   if [ -n "$tracked" ]; then
-    scan_text_direct "working tree added lines" "$tracked"
+    scan_text_direct "working tree added lines" "$tracked" repo
     status=$?
     merge_scan_status "$status"
   fi
@@ -18975,19 +19206,27 @@ detect_output_secret_records() (
       # takes the scanner's umask, not the mode mktemp gave it. The report
       # holds the found values unredacted: keep it private even when the
       # temp file had to land outside the run directory (#559).
+      # Tool output is hook input: scanned from the private directory, so a
+      # .gitleaksignore in the session's directory cannot drop a record.
+      gitleaks_hook_scan_dir || {
+        gitleaks_hook_scan_refusal "$?" "tool output"
+        detector_fail
+      }
       if gitleaks_helper_selected; then
         (
           ulimit -f 128 >/dev/null 2>&1 || exit 2
           umask 077
-          gitleaks_exec "$gl" stdin --report-format json --report-path "$detector_report" \
-            --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
+          gitleaks_exec "$GITLEAKS_HOOK_CWD" "$gl" stdin --report-format json --report-path "$detector_report" \
+            --no-banner --config "$GITLEAKS_HOOK_CONFIG" <"$detector_strings"
         ) >/dev/null 2>&1
       else
         (
           ulimit -f 128 >/dev/null 2>&1 || exit 2
           umask 077
+          CDPATH= cd -P -- "$GITLEAKS_HOOK_CWD" || exit 2
+          [ -O . ] && [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || exit 2
           "$gl" stdin --report-format json --report-path "$detector_report" \
-            --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
+            --no-banner --config "$GITLEAKS_HOOK_CONFIG" <"$detector_strings"
         ) >/dev/null 2>&1
       fi
       detector_status=$?
@@ -19338,6 +19577,9 @@ detect_exec_secret_bundle() (
   detect_printenv_argument_secret_records "$exec_bundle_response" "$@" \
     >>"$exec_bundle_records" 2>/dev/null || exec_detector_failed=1
   if [ "$exec_detector_failed" -ne 0 ]; then
+    # The caller gets the mask and nothing else: say why when the reason is
+    # the one a user can fix.
+    [ -z "$exec_bundle_response" ] || gitleaks_hook_scan_dir || gitleaks_hook_scan_refusal "$?" "command output"
     printf '%s\n' '{"agent_guard_whole_leaf":true}' \
       >"$exec_bundle_records" || {
         rm -f "$exec_bundle_records" "$exec_bundle_json"
@@ -24225,6 +24467,7 @@ doctor_rundir_report() {
     /*) ;;
     *) [ -n "$doctor_rundir_why" ] || doctor_rundir_why='TMPDIR is a relative path' ;;
   esac
+  [ -z "$AG_RUNDIR_RELATIVE" ] || [ -n "$doctor_rundir_why" ] || doctor_rundir_why='TMPDIR is a relative path'
   if [ -z "$doctor_rundir_why" ] && ! (rundir_absolute_path && CDPATH= cd -P -- "$doctor_rundir_dir" && rundir_parent_safe) 2>/dev/null; then
     doctor_rundir_why='other users can change entries in that directory'
   fi
@@ -24240,6 +24483,9 @@ do_doctor() {
   SETUP_VIA_DOCTOR=1
   do_setup "$@"
   doctor_status=$?
+  if [ -e .gitleaksignore ] || [ -L .gitleaksignore ]; then
+    info "$PROGRAM: .gitleaksignore  present  (applies to repository scans only: scan-staged, scan-working-tree, scan-path, and the commit and changed-file checks; hook input is scanned without it)"
+  fi
   case ${AGENT_GUARD_SESSION_ROLE-} in
     ''|review) ;;
     *)
@@ -24317,8 +24563,10 @@ do_update() {
 # signal without a trap of its own, so each of the three has one. mktemp -d
 # makes the name unguessable; the PID in it only tells rundir_reap the owner.
 # Non-fatal: if the dir cannot be created, mktemp_file falls back to per-file
-# temps so no command breaks. A KILL (Codex kills a timed-out hook's group with
-# it) runs no trap; rundir_reap removes such leftovers later.
+# temps so no command breaks; only a scan of hook input, which runs from this
+# directory (gitleaks_hook_scan_dir), then reports that it could not run. A
+# KILL (Codex kills a timed-out hook's group with it) runs no trap;
+# rundir_reap removes such leftovers later.
 # This is the process's only EXIT trap: a command running in this shell that
 # needs its own temp directory removed sets AG_EXIT_TMP_DIR instead of
 # replacing the trap, which would skip everything else here.
@@ -24330,6 +24578,11 @@ case ${1:-} in
       || mktemp -d "/tmp/agent-guard-run.$$.XXXXXX" 2>/dev/null || printf '')
     ;;
 esac
+# A relative TMPDIR gives a relative path, which a scan started from this
+# directory could not use for its own files. AG_RUNDIR_RELATIVE keeps what
+# rundir_reap and doctor go by: such a TMPDIR is not reaped.
+AG_RUNDIR_RELATIVE=
+case "$AGENT_GUARD_RUNDIR" in ''|/*) ;; *) AG_RUNDIR_RELATIVE=1; AGENT_GUARD_RUNDIR=$PWD/$AGENT_GUARD_RUNDIR ;; esac
 AG_EXIT_TMP_DIR=
 # Saved once so rundir_temp_file can restore it without a process per file.
 AG_UMASK=$(umask 2>/dev/null) || AG_UMASK=
