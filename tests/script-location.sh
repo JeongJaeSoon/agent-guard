@@ -130,10 +130,18 @@ check "$CASE/swap/bin/agent-guard"
 interpreter sh env HOME="$CASE" sh -l "$CASE/payload with spaces/bin/agent-guard"
 if [ "$want" = dash ]; then
   # A script named by a descriptor is not reopened from its first byte.
-  sh /dev/fd/7 version 7<"$CASE/payload with spaces/bin/agent-guard" >"$CASE/out"
-  grep -q '^agent-guard [0-9]' "$CASE/out"
-  count=$((count + 1))
-  printf 'ok - script location contract %s (named by a descriptor)\n' "$count"
+  ln -s /dev/fd/7 "$CASE/links/descriptor"
+  for alias in /dev/fd/7 ./dev/fd/7 fd/7 "$CASE/links/descriptor"; do
+    case $alias in
+      ./dev/fd/7) dir=/ ;;
+      fd/7) dir=/dev ;;
+      *) dir=$CASE ;;
+    esac
+    (cd "$dir" && sh "$alias" version 7<"$CASE/payload with spaces/bin/agent-guard") >"$CASE/out"
+    grep -q '^agent-guard [0-9]' "$CASE/out"
+    count=$((count + 1))
+    printf 'ok - script location contract %s (named by a descriptor: %s)\n' "$count" "$alias"
+  done
   # Read from standard input, the script's own name is the shell's.
   sh -s -- version <"$CASE/payload with spaces/bin/agent-guard" >"$CASE/out"
   grep -q '^agent-guard [0-9]' "$CASE/out"

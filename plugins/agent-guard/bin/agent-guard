@@ -25,8 +25,6 @@ if [ "${AG_SCRIPT_PID:-}" = "$$" ]; then
 else
   # shellcheck disable=SC3028,SC3044 # reached only by bash
   case "${BASH:-}:$0:$-:${SHELLOPTS:-}" in
-    # A script named by a descriptor shares its offset with this shell's.
-    *:/dev/*) ;;
     */sh:*/*:huB:braceexpand:hashall:interactive-comments:nounset:posix)
       ag_dash=
       # $SHELLOPTS does not hold shopt options: one that changes matching or
@@ -38,6 +36,15 @@ else
         for ag_dash in /bin/dash /usr/bin/dash; do
           [ ! -x "$ag_dash" ] || break
           ag_dash=
+        done
+      fi
+      # A script named through a descriptor of this process (/dev/fd/7, a path
+      # or link to it) shares that descriptor's read position: opening it again
+      # does not start at its first byte. Another descriptor on the file is
+      # reason enough to stay.
+      if [ -n "$ag_dash" ]; then
+        for ag_fd in /dev/fd/*; do
+          [ "$ag_fd" = /dev/fd/255 ] || [ ! "$ag_fd" -ef "$0" ] || { ag_dash=; break; }
         done
       fi
       if [ -n "$ag_dash" ] && [ ! -e /dev/fd/9 ] && { command exec 9<"$0"; } 2>/dev/null; then
