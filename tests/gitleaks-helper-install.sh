@@ -571,5 +571,104 @@ HTTP
     'grep -q "also installs the warm gitleaks helper" "$CASE/help" && grep -q "AGENT_GUARD_GITLEAKS_HELPER=off" "$CASE/help"'
 fi
 
+# SessionStart says once per install, in one line, that the helper would make
+# hooks faster, to a user who could use it but has none.
+if [ -n "$target" ]; then
+  HP="$CASE/hint-priv"
+  mkdir -p "$HP"
+  # The command names this CLI as hook messages do: the short name when it is
+  # the agent-guard on PATH, else its quoted path.
+  hint_text="agent-guard: the optional warm gitleaks helper makes hooks faster; install it with: "
+  hint_is() { # $1 = the whole user message expected before the hint, if any
+    hint_msg=$(jq -r ".systemMessage" "$CASE/ss.out") || return 1
+    for hint_ref in agent-guard "'$GUARD'"; do
+      [ "$hint_msg" != "${1:+$1 }$hint_text$hint_ref setup --install-gitleaks-helper" ] || return 0
+    done
+    return 1
+  }
+  # $1 state home, then VAR=value settings -> ss.out, ss.status
+  ss() {
+    ss_state=$1
+    shift
+    printf '{"hook_event_name":"SessionStart","session_id":"hint-%s","cwd":"%s"}' "$$" "$CASE/work" \
+      | env AGENT_GUARD_GITLEAKS_BIN_DIR="$HP" XDG_STATE_HOME="$ss_state" AGENT_GUARD_SHELL_INIT_VERSION="$version" "$@" \
+        "$GUARD" hook-session-start >"$CASE/ss.out" 2>"$CASE/ss.err"
+    echo "$?" >"$CASE/ss.status"
+  }
+  quiet() { [ "$(cat "$CASE/ss.status")" = 0 ] && [ ! -s "$CASE/ss.out" ]; }
+  S="$CASE/hs1"
+  ss "$S"
+  expect "Claude: the first session start shows the one-line hint with the exact command, and nothing else" \
+    '[ "$(cat "$CASE/ss.status")" = 0 ] && hint_is \
+     && [ "$(jq -c "keys" "$CASE/ss.out")" = "[\"systemMessage\"]" ] && [ "$(cat "$S/agent-guard/gitleaks-helper-hint")" = shown ]'
+  ss "$S"
+  expect "Claude: the next session start of the same install shows nothing" 'quiet'
+  ss "$S" AGENT_GUARD_HOOK_HOST=codex
+  expect "Codex: shown once per install, not once per host" 'quiet'
+  S="$CASE/hs2"
+  ss "$S" AGENT_GUARD_HOOK_HOST=codex
+  expect "Codex: the hint is a user message only, kept out of the model context" \
+    '[ "$(cat "$CASE/ss.status")" = 0 ] && hint_is \
+     && [ "$(jq -c "keys" "$CASE/ss.out")" = "[\"systemMessage\"]" ]'
+  # Codex with a warning the model must see: the warning keeps its context,
+  # and the hint is added to the user message alone.
+  S="$CASE/hs3"
+  mkdir -p "$CASE/hint-legacy"
+  cp "$CASE/bin/gitleaks" "$CASE/hint-legacy/gitleaks"
+  ss "$S" AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_BIN_DIR="$CASE/hint-legacy" AGENT_GUARD_GITLEAKS_BIN_DIR=
+  expect "Codex beside another notice: the notice keeps its context and the hint only joins the user message" \
+    'ctx=$(jq -r ".hookSpecificOutput.additionalContext" "$CASE/ss.out") && [ -n "$ctx" ] && [ "$ctx" != null ] \
+     && hint_is "$ctx"'
+  for off in AGENT_GUARD_GITLEAKS_HELPER=off AGENT_GUARD_GITLEAKS_HELPER="$CASE/own-client" \
+      AGENT_GUARD_GITLEAKS_BIN="$CASE/bin/gitleaks"; do
+    S="$CASE/hs-off"
+    rm -rf "$S"
+    ss "$S" "$off"
+    expect "no hint and nothing recorded with ${off%%=*} set" 'quiet && [ ! -e "$S/agent-guard/gitleaks-helper-hint" ]'
+  done
+  S="$CASE/hs-log-off"
+  ss "$S" AGENT_GUARD_LOG_MODE=off
+  expect "AGENT_GUARD_LOG_MODE=off: no hint, and no state directory to record one" 'quiet && [ ! -e "$S/agent-guard" ]'
+  S="$CASE/hs-installed"
+  ss "$S" AGENT_GUARD_GITLEAKS_BIN_DIR="$PRIV"
+  expect "a helper already installed: no hint" 'quiet && [ ! -e "$S/agent-guard/gitleaks-helper-hint" ]'
+  S=$(deep_state 50)
+  ss "$S"
+  expect "a state directory too deep for the socket: no hint" 'quiet && [ ! -e "$S/agent-guard/gitleaks-helper-hint" ]'
+  S="$CASE/hs-platform"
+  mkdir -p "$CASE/hint-uname"
+  printf '#!/bin/sh\ncase "$1" in -m) echo riscv64 ;; *) exec /usr/bin/uname "$@" ;; esac\n' >"$CASE/hint-uname/uname"
+  chmod 755 "$CASE/hint-uname/uname"
+  ss "$S" PATH="$CASE/hint-uname:$PATH"
+  expect "a platform without a helper release: no hint" 'quiet && [ ! -e "$S/agent-guard/gitleaks-helper-hint" ]'
+  # Another build: no hint. A native one is recorded under the probe cache's
+  # identity, so the same file is not hashed again (a script has none), and
+  # the official build that replaces it gets the hint.
+  mkdir -p "$CASE/other-bin"
+  cp "$CASE/bin/gitleaks" "$CASE/other-bin/gitleaks"
+  printf '\n# another build\n' >>"$CASE/other-bin/gitleaks"
+  S="$CASE/hs-other"
+  ss "$S" PATH="$CASE/other-bin:$PATH"
+  if [ -n "$REAL_GITLEAKS" ]; then
+    expect "a native gitleaks that is not the official build: no hint, and the file is recorded as another build" \
+      'quiet && grep -q "^other .* $CASE/other-bin/gitleaks\$" "$S/agent-guard/gitleaks-helper-hint"'
+    printf 'other %s\n' "$(sed 's/^other //' "$S/agent-guard/gitleaks-helper-hint")" >"$CASE/hint.keep"
+    rm "$CASE/other-bin/gitleaks.sha" 2>/dev/null
+    ss "$S" PATH="$CASE/other-bin:$PATH"
+    expect "the same file again: still no hint, and the record is unchanged" 'quiet && cmp -s "$CASE/hint.keep" "$S/agent-guard/gitleaks-helper-hint"'
+  else
+    expect "a gitleaks that is not the official build: no hint, and nothing shown is recorded" \
+      'quiet && ! grep -qx shown "$S/agent-guard/gitleaks-helper-hint" 2>/dev/null'
+  fi
+  ss "$S"
+  expect "the official build selected later: the hint is shown" 'hint_is'
+  # Decisions stay the same: a missing gitleaks keeps its degraded notice,
+  # with no hint.
+  S="$CASE/hs-degraded"
+  ss "$S" AGENT_GUARD_GITLEAKS_BIN="$CASE/missing/gitleaks"
+  expect "a degraded session start keeps its notice and gets no hint" \
+    'grep -q DEGRADED "$CASE/ss.out" && ! grep -q "warm gitleaks helper" "$CASE/ss.out"'
+fi
+
 printf '\npassed: %s\nfailed: %s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
