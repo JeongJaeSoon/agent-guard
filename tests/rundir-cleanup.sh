@@ -446,6 +446,21 @@ if expect_kept "$CASE/rel/tmp" agent-guard-run.Re12La; then
 else
   not_ok "a relative TMPDIR is not reaped"
 fi
+# The run directory is made absolute for scans of hook input, and that must
+# not read as a TMPDIR to reap. A due run writes the marker before it starts
+# the pass, so a marker without that directory shows no pass was started.
+if ! grep -q '/rel/tmp$' "$CASE/rel-state/agent-guard/rundir-reap"; then
+  ok "a relative TMPDIR gets no line in the marker"
+else
+  not_ok "a relative TMPDIR gets no line in the marker"
+fi
+(cd "$CASE/rel" && env HOME="$CASE/home" XDG_STATE_HOME="$CASE/rel-state" TMPDIR=tmp AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off   AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off   sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null)
+if grep -q 'temp: 1 stale run directories in .*nothing removes them while TMPDIR is a relative path' "$CASE/doctor-out"; then
+  ok "doctor says nothing removes them while TMPDIR is relative"
+else
+  not_ok "doctor says nothing removes them while TMPDIR is relative"
+  grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+fi
 
 # macOS: an ACL that lets others add or delete entries makes the parent
 # unsafe even at mode 0755.

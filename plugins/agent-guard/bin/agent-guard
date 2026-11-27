@@ -1546,6 +1546,7 @@ rundir_reap() {
   ag_rr_dir=${AGENT_GUARD_RUNDIR%/*}
   # The marker is keyed by this path: a relative one would name a different
   # directory from each working directory.
+  [ -z "$AG_RUNDIR_RELATIVE" ] || return 0
   case "$ag_rr_dir" in /*) ;; *) return 0 ;; esac
   case "$ag_rr_dir" in *'
 '*) return 0 ;; esac
@@ -24466,6 +24467,7 @@ doctor_rundir_report() {
     /*) ;;
     *) [ -n "$doctor_rundir_why" ] || doctor_rundir_why='TMPDIR is a relative path' ;;
   esac
+  [ -z "$AG_RUNDIR_RELATIVE" ] || [ -n "$doctor_rundir_why" ] || doctor_rundir_why='TMPDIR is a relative path'
   if [ -z "$doctor_rundir_why" ] && ! (rundir_absolute_path && CDPATH= cd -P -- "$doctor_rundir_dir" && rundir_parent_safe) 2>/dev/null; then
     doctor_rundir_why='other users can change entries in that directory'
   fi
@@ -24576,6 +24578,11 @@ case ${1:-} in
       || mktemp -d "/tmp/agent-guard-run.$$.XXXXXX" 2>/dev/null || printf '')
     ;;
 esac
+# A relative TMPDIR gives a relative path, which a scan started from this
+# directory could not use for its own files. AG_RUNDIR_RELATIVE keeps what
+# rundir_reap and doctor go by: such a TMPDIR is not reaped.
+AG_RUNDIR_RELATIVE=
+case "$AGENT_GUARD_RUNDIR" in ''|/*) ;; *) AG_RUNDIR_RELATIVE=1; AGENT_GUARD_RUNDIR=$PWD/$AGENT_GUARD_RUNDIR ;; esac
 AG_EXIT_TMP_DIR=
 # Saved once so rundir_temp_file can restore it without a process per file.
 AG_UMASK=$(umask 2>/dev/null) || AG_UMASK=
@@ -24589,10 +24596,6 @@ trap 'exit 143' TERM
 cmd=${1:-}
 audit_begin "$cmd"
 rundir_reap
-# A relative TMPDIR gives a relative path, which a scan started from this
-# directory could not use for its own files. Made absolute only here:
-# rundir_reap leaves a relative one alone.
-case "$AGENT_GUARD_RUNDIR" in ''|/*) ;; *) AGENT_GUARD_RUNDIR=$PWD/$AGENT_GUARD_RUNDIR ;; esac
 case "$cmd" in
   hook-pre-tool) claude_block_capture_begin PreToolUse; hook_pre_tool ;;
   # Internal: the detached pass rundir_reap starts. It removes only what
