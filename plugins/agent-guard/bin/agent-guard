@@ -3491,14 +3491,17 @@ setup_install_gitleaks_helper() {
 # is wanted and released here, and the user gave the checksum for the version
 # the helper links, and the helper could run here (logging on, a pin for this
 # platform and a hash tool to check the download against it, a usable state
-# directory). It never runs through doctor, and never replaces a gitleaks
+# directory, no installed helper that cannot run, and no helper path the
+# helper installer refuses). It never runs through doctor, and never replaces a gitleaks
 # already in the private directory: that is selected before PATH, so the new
 # one is used from the next scan, and removing it goes back.
 setup_replaces_path_gitleaks() {
   [ "$SETUP_VIA_DOCTOR" = 0 ] && [ -n "$2" ] && [ "$1" = "$GITLEAKS_DEFAULT_VERSION" ] \
     && [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] && [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] \
     && ! gitleaks_helper_log_blocks && gitleaks_official_pin && gitleaks_clean_cache_hasher \
-    && gitleaks_helper_state_usable \
+    && gitleaks_helper_state_usable && { ! gitleaks_helper_installed || ! gitleaks_helper_unrunnable; } \
+    && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] \
+    && { [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] || [ -d "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; } \
     && [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] \
     && gitleaks_helper_blocker "${gl:-}" && [ -n "$helper_blocker" ]
 }
@@ -3660,6 +3663,33 @@ setup_install_gitleaks_helper_with_gitleaks() {
 
 HELPER_GITLEAKS_BIN_REASON='AGENT_GUARD_GITLEAKS_BIN selects the scanner, which the helper never serves; unset it to use the helper'
 
+# Succeeds when the installed helper (gitleaks_helper_installed) cannot run,
+# with why and what to do in helper_parts_why: it is for another platform, or
+# a file is not executable (hooks run only an executable client,
+# gitleaks_helper_selected, and the client starts the helper beside it).
+gitleaks_helper_unrunnable() {
+  helper_parts_why=
+  # A private directory shared by two systems can hold the other's helper,
+  # which gitleaks_helper_installed accepts by any platform's pins.
+  if [ -n "${ag_gh_target:-}" ] && gitleaks_helper_target && [ "$ag_gh_target" != "$helper_target" ]; then
+    cli_ref_init
+    helper_parts_why="it was installed for another platform, $ag_gh_target; reinstall it: $AG_CLI_REF setup --install-gitleaks-helper"
+    return 0
+  fi
+  for ag_ghu_part in "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper/agent-guard-scan" \
+    "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper/agent-guard-gitleaks-helper"; do
+    [ ! -f "$ag_ghu_part" ] || [ ! -x "$ag_ghu_part" ] || continue
+    cli_ref_init
+    case "$ag_ghu_part" in
+      */agent-guard-scan) helper_parts_why="its client $ag_ghu_part" ;;
+      *) helper_parts_why="its helper $ag_ghu_part" ;;
+    esac
+    helper_parts_why="$helper_parts_why is not executable; reinstall it: $AG_CLI_REF setup --install-gitleaks-helper"
+    return 0
+  done
+  return 1
+}
+
 # Why AGENT_GUARD_LOG_MODE keeps the helper from answering, in helper_log_why;
 # fails, leaving it empty, when the mode is on.
 gitleaks_helper_log_blocks() {
@@ -3691,13 +3721,23 @@ gitleaks_helper_state_usable() {
   if [ ! -e "$helper_state" ] && [ ! -L "$helper_state" ]; then
     ag_ghs_up=${helper_state%/*}
     while [ -n "$ag_ghs_up" ] && [ ! -e "$ag_ghs_up" ]; do ag_ghs_up=${ag_ghs_up%/*}; done
-    if [ -n "$ag_ghs_up" ] && { [ ! -d "$ag_ghs_up" ] || [ ! -w "$ag_ghs_up" ] || [ ! -x "$ag_ghs_up" ]; }; then
+    [ -n "$ag_ghs_up" ] || ag_ghs_up=/
+    if [ ! -d "$ag_ghs_up" ] || [ ! -w "$ag_ghs_up" ] || [ ! -x "$ag_ghs_up" ]; then
       helper_state_why="the state directory $helper_state cannot be created ($ag_ghs_up is not a directory you can write and search); set XDG_STATE_HOME to one"
       return 1
     fi
   fi
-  if { [ -e "$helper_state/gitleaks-helper" ] || [ -L "$helper_state/gitleaks-helper" ]; } \
-    && ! private_dir_ok "$helper_state/gitleaks-helper"; then
+  if [ ! -e "$helper_state/gitleaks-helper" ] && [ ! -L "$helper_state/gitleaks-helper" ]; then
+    # The client creates it with mode 0700 less the umask, and then refuses
+    # it unless it is exactly 0700.
+    ag_ghs_umask=$(umask)
+    case "$ag_ghs_umask" in
+      *[1-7]??)
+        helper_state_why="the umask $ag_ghs_umask would create the helper directory without the owner bits it needs (0700); use a umask such as 022 or 077"
+        return 1
+        ;;
+    esac
+  elif ! private_dir_ok "$helper_state/gitleaks-helper"; then
     helper_state_why="the helper directory $helper_state/gitleaks-helper is not private to you (a 0700 directory you own); remove it, and the helper creates it again"
     return 1
   fi
@@ -3730,10 +3770,8 @@ setup_gitleaks_helper_status_line() {
     '')
       if gitleaks_helper_installed; then
         helper_client=$AG_GITLEAKS_HELPER_CLIENT
-        # Hooks run only an executable client (gitleaks_helper_selected).
-        if [ ! -x "$helper_client" ]; then
-          cli_ref_init
-          info "$PROGRAM: gitleaks helper  not used  (its client $helper_client is not executable; reinstall it: $AG_CLI_REF setup --install-gitleaks-helper)"
+        if gitleaks_helper_unrunnable; then
+          info "$PROGRAM: gitleaks helper  not used  ($helper_parts_why)"
           return 0
         fi
       else
@@ -3782,7 +3820,7 @@ setup_gitleaks_helper_status_line() {
   elif [ -n "$helper_blocker" ]; then
     info "$PROGRAM: gitleaks helper  not used  ($helper_blocker)"
   else
-    info "$PROGRAM: gitleaks helper  installed  (it answers the selected gitleaks $gl, the official gitleaks $GITLEAKS_DEFAULT_VERSION release build)"
+    info "$PROGRAM: gitleaks helper  installed  (it can serve the selected gitleaks $gl, the official gitleaks $GITLEAKS_DEFAULT_VERSION release build; a scan it cannot serve, such as one with a .gitleaksignore, runs gitleaks itself)"
   fi
   return 0
 }
@@ -3874,7 +3912,10 @@ EOF
       if setup_install_official_gitleaks "$version" "$checksum"; then
         GITLEAKS_READY_BIN=
         if setup_gitleaks_status_line; then
-          info "$PROGRAM: hook scans now use the official gitleaks $GITLEAKS_DEFAULT_VERSION in $gl instead of $setup_path_gitleaks; to go back, remove $gl or set AGENT_GUARD_GITLEAKS_BIN=$setup_path_gitleaks"
+          setup_back_new=$gl setup_back_old=$setup_path_gitleaks
+          case "$setup_back_new" in *[!A-Za-z0-9_./:@%+,-]*) setup_back_new=$(sh_squote "$setup_back_new") ;; esac
+          case "$setup_back_old" in *[!A-Za-z0-9_./:@%+,-]*) setup_back_old=$(sh_squote "$setup_back_old") ;; esac
+          info "$PROGRAM: hook scans now use the official gitleaks $GITLEAKS_DEFAULT_VERSION in $gl instead of $setup_path_gitleaks; to go back, remove $setup_back_new or set AGENT_GUARD_GITLEAKS_BIN=$setup_back_old"
         else
           gitleaks_runtime_ok=0
           setup_suggest_gitleaks_runtime_repair || :
