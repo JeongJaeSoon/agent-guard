@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 9e8ecc7e35cd4adb682b3d7ea267af9037d76cbb -->
+<!-- translated-from: docs/installation.md; source-blob: 5ae16ea79a3cb3eabb8244518e5395b3755ccc19 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -94,7 +94,7 @@ export AGENT_GUARD_GITLEAKS_HELPER=off
 않을 때 그 이유와 할 일을 한 줄로 알립니다. 선택된 gitleaks가 다른 빌드나 버전일 때,
 상태 디렉터리가 깊어 helper의 소켓 경로가 103바이트를 넘거나 그 디렉터리가 내 소유의
 0700 일반 절대 경로가 아닐 때, helper가 다른
-Agent Guard 버전용으로 설치되었을 때, 위의 두 변수 중 하나를 설정했을 때입니다.
+Agent Guard 버전이나 플랫폼용으로 설치되었을 때, 위의 두 변수 중 하나를 설정했을 때입니다.
 gitleaks 파일을 이 버전에 기록된 공식 빌드의 SHA-256과 비교하며, 아무것도 시작하거나
 설치하지 않습니다. 직접 소스에서
 빌드한 것을 쓰려면 `AGENT_GUARD_GITLEAKS_HELPER`를 그 `agent-guard-scan`의 절대

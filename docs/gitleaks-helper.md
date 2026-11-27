@@ -216,7 +216,7 @@ it answers.
 
 | Situation | What happens | Test |
 | --- | --- | --- |
-| No helper installed, one installed for another Agent Guard version, the variable `off`, or a path that is not an executable file | Real gitleaks; no client is started | `tests/gitleaks-helper-routing.sh`, `tests/gitleaks-helper-install.sh` |
+| No helper installed, one installed for another Agent Guard version or platform, the variable `off`, or a path that is not an executable file | Real gitleaks; no client is started | `tests/gitleaks-helper-routing.sh`, `tests/gitleaks-helper-install.sh` |
 | Downloaded helper differs from the pinned checksums, holds a link instead of a file, or the download fails | Nothing is installed; scans run the real gitleaks | `tests/gitleaks-helper-install.sh` |
 | Client present, helper binary missing | Real gitleaks | `tests/gitleaks-helper.sh` |
 | No helper running (first call, or after idle exit) | Real gitleaks; one helper starts in the background (at most one start per minute per key) | same |

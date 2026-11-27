@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 9e8ecc7e35cd4adb682b3d7ea267af9037d76cbb -->
+<!-- translated-from: docs/installation.md; source-blob: 5ae16ea79a3cb3eabb8244518e5395b3755ccc19 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -96,7 +96,7 @@ helperを使いません。helperが応答するのは `agent-guard setup --inst
 場合に、その理由とすべきことを1行で表示します。選択されたgitleaksが別のビルドや
 バージョンの場合、状態ディレクトリが深くhelperのソケットパスが103バイトを超えるか、
 そのディレクトリが自分の所有する0700の通常の絶対パスでない場合、
-helperが別のAgent Guardバージョン用にインストールされた場合、上の2つの変数の
+helperが別のAgent Guardバージョンまたはプラットフォーム用にインストールされた場合、上の2つの変数の
 どちらかを設定している場合です。gitleaksのファイルをこのバージョンに記録された公式
 ビルドのSHA-256と比較し、何も起動もインストールもしません。自分でソースから
 ビルドしたものを使うには、
