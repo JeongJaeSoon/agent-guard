@@ -509,6 +509,30 @@ fn compare(args: &Args, out_path: &Path) -> Result<()> {
     };
     let corpus = read_json(&corpus_path)?;
     let selected = args.all("--case");
+    // The locale every hook runs in; without the option they get none. One
+    // this system lacks would leave both sides in the C locale without a
+    // word, so the name has to be one that `locale -a` lists.
+    let locale = match args.get("--locale") {
+        Ok(name) => {
+            ensure(
+                !name.is_empty()
+                    && name
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || "_.@-".contains(c)),
+                "locale must be a locale name",
+            )?;
+            // The name this system lists is the one a hook gets: another
+            // spelling can pass here and still not be a locale to the C library.
+            let plain = |name: &str| name.to_ascii_lowercase().replace('-', "");
+            let installed = version(&["locale", "-a"])?
+                .lines()
+                .find(|listed| plain(listed) == plain(&name))
+                .map(str::to_owned)
+                .ok_or(format!("this system has no locale {name}"))?;
+            Some(installed)
+        }
+        Err(_) => None,
+    };
 
     let sandbox = Sandbox::new()?;
     eprintln!("sandbox {}", sandbox.base.display());
@@ -607,6 +631,11 @@ fn compare(args: &Args, out_path: &Path) -> Result<()> {
                 .map(|arg| arg.as_str().unwrap().to_owned())
                 .collect();
             let mut env = sandbox.env();
+            // No locale of the caller's reaches a hook: the option sets the only one.
+            env.retain(|name, _| name != "LANG" && !name.starts_with("LC_"));
+            if let Some(locale) = &locale {
+                env.insert("LC_ALL".into(), locale.clone());
+            }
             env.insert(
                 "AGENT_GUARD_GITLEAKS_BIN_DIR".into(),
                 bin.display().to_string(),
@@ -758,6 +787,7 @@ fn compare(args: &Args, out_path: &Path) -> Result<()> {
         "tool": "cli-differential",
         "platform": version(&["uname", "-a"])?,
         "entry": entry,
+        "locale": locale,
         "baseline": describe(&sides[0])?,
         "candidate": describe(&sides[1])?,
         "scanner_version": scanner_version,
