@@ -227,6 +227,11 @@ chmod 755 "$PRIV/gitleaks-helper/agent-guard-scan"
 expect "an installed client that lost its execute bit: the line says not used and how to reinstall" \
   'hl | grep -qF "gitleaks helper  not used  (its client $PRIV/gitleaks-helper/agent-guard-scan is not executable; reinstall it: " \
    && hl | grep -qF "setup --install-gitleaks-helper)"'
+chmod 644 "$PRIV/gitleaks-helper/agent-guard-gitleaks-helper"
+doc
+chmod 755 "$PRIV/gitleaks-helper/agent-guard-gitleaks-helper"
+expect "an installed helper whose server cannot run: the line says not used and how to reinstall" \
+  'hl | grep -qF "gitleaks helper  not used  (its helper $PRIV/gitleaks-helper/agent-guard-gitleaks-helper is not executable; reinstall it: "'
 (XDG_STATE_HOME=relative-state; doc)
 expect "a state directory that is not a plain absolute path: not used, and what to do" \
   'hl | grep -qF "gitleaks helper  not used  (the state directory relative-state/agent-guard is not a plain absolute path (relative, or through a symbolic link); set XDG_STATE_HOME to one)"'
@@ -681,6 +686,14 @@ HTTP
   sleep 1
   expect "a replacement download ended by SIGHUP leaves no staging or temporary directory" \
     '[ ! -e "$P/gitleaks" ] && [ -z "$(find "$P" -name ".gitleaks.*" 2>/dev/null)" ] && no_temp_left'
+  # A state home under / that does not exist: only a user who can write / could
+  # create it.
+  if [ ! -w / ]; then
+    P="$CASE/p-path-state-root"
+    si "$P" XDG_STATE_HOME="/agent-guard-missing-$$"
+    expect "with XDG_STATE_HOME missing directly under an unwritable / setup --install keeps the PATH build" \
+      '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  fi
   # A state home that is a file: hooks could never create the state directory.
   P="$CASE/p-path-state-file"
   : >"$CASE/state-file"

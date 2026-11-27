@@ -3691,7 +3691,8 @@ gitleaks_helper_state_usable() {
   if [ ! -e "$helper_state" ] && [ ! -L "$helper_state" ]; then
     ag_ghs_up=${helper_state%/*}
     while [ -n "$ag_ghs_up" ] && [ ! -e "$ag_ghs_up" ]; do ag_ghs_up=${ag_ghs_up%/*}; done
-    if [ -n "$ag_ghs_up" ] && { [ ! -d "$ag_ghs_up" ] || [ ! -w "$ag_ghs_up" ] || [ ! -x "$ag_ghs_up" ]; }; then
+    [ -n "$ag_ghs_up" ] || ag_ghs_up=/
+    if [ ! -d "$ag_ghs_up" ] || [ ! -w "$ag_ghs_up" ] || [ ! -x "$ag_ghs_up" ]; then
       helper_state_why="the state directory $helper_state cannot be created ($ag_ghs_up is not a directory you can write and search); set XDG_STATE_HOME to one"
       return 1
     fi
@@ -3730,12 +3731,18 @@ setup_gitleaks_helper_status_line() {
     '')
       if gitleaks_helper_installed; then
         helper_client=$AG_GITLEAKS_HELPER_CLIENT
-        # Hooks run only an executable client (gitleaks_helper_selected).
-        if [ ! -x "$helper_client" ]; then
+        # Hooks run only an executable client (gitleaks_helper_selected),
+        # and the client starts the helper beside it.
+        for ag_ghs_part in "$helper_client" "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper/agent-guard-gitleaks-helper"; do
+          [ ! -f "$ag_ghs_part" ] || [ ! -x "$ag_ghs_part" ] || continue
           cli_ref_init
-          info "$PROGRAM: gitleaks helper  not used  (its client $helper_client is not executable; reinstall it: $AG_CLI_REF setup --install-gitleaks-helper)"
+          case "$ag_ghs_part" in
+            "$helper_client") ag_ghs_part="its client $ag_ghs_part" ;;
+            *) ag_ghs_part="its helper $ag_ghs_part" ;;
+          esac
+          info "$PROGRAM: gitleaks helper  not used  ($ag_ghs_part is not executable; reinstall it: $AG_CLI_REF setup --install-gitleaks-helper)"
           return 0
-        fi
+        done
       else
         cli_ref_init
         if [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
