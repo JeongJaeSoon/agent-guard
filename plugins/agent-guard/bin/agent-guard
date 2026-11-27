@@ -25,11 +25,15 @@ if [ "${AG_SCRIPT_PID:-}" = "$$" ]; then
 else
   # shellcheck disable=SC3028,SC3044 # reached only by bash
   case "${BASH:-}:$0:$-:${SHELLOPTS:-}" in
+    # A script named by a descriptor shares its offset with this shell's.
+    *:/dev/*) ;;
     */sh:*/*:huB:braceexpand:hashall:interactive-comments:nounset:posix)
       ag_dash=
       # $SHELLOPTS does not hold shopt options: one that changes matching or
-      # expansion (sh -O nocasematch) is the caller's choice of bash as well.
-      if ! shopt -q nocasematch && ! shopt -q nocaseglob && ! shopt -q nullglob \
+      # expansion (sh -O nocasematch) is the caller's choice of bash as well,
+      # and a login shell (sh -l) has read profile files whose unexported
+      # settings a handover would drop.
+      if ! shopt -q login_shell && ! shopt -q nocasematch && ! shopt -q nocaseglob && ! shopt -q nullglob \
           && ! shopt -q dotglob && ! shopt -q failglob && ! shopt -q extglob; then
         for ag_dash in /bin/dash /usr/bin/dash; do
           [ ! -x "$ag_dash" ] || break

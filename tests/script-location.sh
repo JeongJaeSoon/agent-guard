@@ -125,7 +125,15 @@ awk 'NR == 2 { print; print "mv \"$0.next\" \"$0\""; next } { print }' "$ROOT/pl
 printf '%s\n' '#!/bin/sh' 'echo replaced' >"$CASE/swap/bin/agent-guard.next"
 chmod 755 "$CASE/swap/bin/agent-guard" "$CASE/swap/bin/agent-guard.next"
 check "$CASE/swap/bin/agent-guard"
+# A login shell reads profile files whose unexported settings die with a
+# handover: it stays the shell it is.
+interpreter sh env HOME="$CASE" sh -l "$CASE/payload with spaces/bin/agent-guard"
 if [ "$want" = dash ]; then
+  # A script named by a descriptor is not reopened from its first byte.
+  sh /dev/fd/7 version 7<"$CASE/payload with spaces/bin/agent-guard" >"$CASE/out"
+  grep -q '^agent-guard [0-9]' "$CASE/out"
+  count=$((count + 1))
+  printf 'ok - script location contract %s (named by a descriptor)\n' "$count"
   # Read from standard input, the script's own name is the shell's.
   sh -s -- version <"$CASE/payload with spaces/bin/agent-guard" >"$CASE/out"
   grep -q '^agent-guard [0-9]' "$CASE/out"
