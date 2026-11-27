@@ -24,6 +24,9 @@ elif [ ! -f "$REAL_GITLEAKS" ] || [ ! -x "$REAL_GITLEAKS" ] \
   # gitleaks PATH has next.
   printf 'not ok - AGENT_GUARD_TEST_REAL_GITLEAKS must be an executable file named gitleaks: %s\n' "$REAL_GITLEAKS"
   exit 1
+else
+  # Some suites change directory before they scan.
+  REAL_GITLEAKS=$(CDPATH= cd -- "$(dirname -- "$REAL_GITLEAKS")" && pwd -P)/gitleaks || exit 1
 fi
 # Exit before the cleanup trap exists: an empty CASE would make `cd -- ""`
 # resolve to the current directory, which the trap then removes.
@@ -68,11 +71,7 @@ run_suite() {
   fi
   fail=$((fail + 1))
   printf 'not ok - %s (%s, exit %s, %ss)\n' "$1" "$2" "$status" "$seconds"
-  if grep -Eq '^(not ok|skip) ' "$CASE/out"; then
-    grep -E '^(not ok|skip) ' "$CASE/out" | sed 's/^/  /'
-  else
-    tail -n 20 "$CASE/out" | sed 's/^/  /'
-  fi
+  sed 's/^/  /' "$CASE/out"
 }
 
 run_suite 'auto-wake dispatch ids under --key are clean while key-shaped values stay found' auto-wake-key-allowlist.sh

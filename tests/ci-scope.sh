@@ -602,7 +602,8 @@ expected_rule_suites=$(printf '%s\n' auto-wake-key-allowlist.sh figma-file-key.s
   reference-id-allowlist.sh)
 [ "$rule_suites" = "$expected_rule_suites" ] || fail "the rule suite driver runs exactly the real-gitleaks suites: $(printf '%s ' $rule_suites)"
 for rule_path in plugins/agent-guard/config/gitleaks.toml tests/real-gitleaks-rules.sh \
-    tests/fixtures/prompt-issue-reference.txt $(printf 'tests/%s ' $rule_suites); do
+    tests/fixtures/prompt-issue-reference.txt tests/fixtures/prompt-prose-reference.txt \
+    tests/fixtures/prompt-route-reference.txt $(printf 'tests/%s ' $rule_suites); do
   [ -f "$ROOT/$rule_path" ] || fail "a rule suite input exists: $rule_path"
   rule_scope=$(printf '%s' "$rule_path" | sh "$ROOT/.github/scripts/ci-scope.sh" pull_request feature/rules)
   printf '%s\n' "$rule_scope" | grep -Fxq 'tests=true' || fail "a change to $rule_path runs the suites"
@@ -644,6 +645,11 @@ trap 'rm -rf "$rules_tmp"' 0
 mkdir -p "$rules_tmp/tree/tests" "$rules_tmp/bin" "$rules_tmp/linux"
 cp "$rules_driver" "$rules_tmp/tree/tests/"
 for rule_suite in $rule_suites; do printf 'echo "ok - stand-in"\n' >"$rules_tmp/tree/tests/$rule_suite"; done
+# One stand-in changes directory, as a suite with a fixture repository does.
+# shellcheck disable=SC2016
+printf '%s\n' 'cd / || exit 1' \
+  '[ -z "${AGENT_GUARD_TEST_REAL_GITLEAKS:-}" ] || [ -x "$AGENT_GUARD_TEST_REAL_GITLEAKS" ] || { echo "not ok - scanner path"; exit 1; }' \
+  'echo "ok - stand-in"' >"$rules_tmp/tree/tests/figma-file-key.sh"
 printf '#!/bin/sh\necho 8.30.1\n' >"$rules_tmp/bin/gitleaks"
 printf '#!/bin/sh\necho Linux\n' >"$rules_tmp/linux/uname"
 cp "$rules_tmp/bin/gitleaks" "$rules_tmp/bin/gitleaks-other"
@@ -656,6 +662,7 @@ rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" || fail '
 printf 'echo "not ok - stand-in"\nexit 1\n' >"$rules_tmp/tree/tests/prefixed-uuid-key.sh"
 if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then fail 'a failing rule suite fails the driver'; fi
 grep -q '^not ok - .*(prefixed-uuid-key[.]sh, exit 1' "$rules_tmp/out" || fail 'the driver names the failing rule suite'
+grep -Fxq '  not ok - stand-in' "$rules_tmp/out" || fail "the driver shows a failing rule suite's output"
 printf 'echo "skip - real gitleaks is not installed"\n' >"$rules_tmp/tree/tests/prefixed-uuid-key.sh"
 rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS= || fail 'outside Linux CI a suite may skip without a real gitleaks'
 [ "$(grep -c '^ok - ' "$rules_tmp/out")" -eq 7 ] || fail 'without a real gitleaks the other suites still run'
@@ -667,6 +674,8 @@ printf 'echo "ok - stand-in"\n' >"$rules_tmp/tree/tests/prefixed-uuid-key.sh"
 rules_run CI=true PATH="$rules_tmp/linux:$PATH" AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" \
   || fail 'on Linux CI the driver passes when every suite ran'
 if rules_run CI=true PATH="$rules_tmp/linux:$PATH" AGENT_GUARD_TEST_REAL_GITLEAKS=; then fail 'Linux CI without gitleaks fails the driver'; fi
+(cd "$rules_tmp/bin" && rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS=./gitleaks) \
+  || fail 'a relative scanner path still names the same file after a suite changes directory'
 if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks-other"; then
   fail 'a scanner the suites would not run by name is refused'
 fi
@@ -676,5 +685,5 @@ chmod -x "$rules_tmp/bin/gitleaks"
 if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then fail 'a scanner that is not executable is refused'; fi
 rm -rf "$rules_tmp"
 trap - 0
-pass=$((pass + 21))
+pass=$((pass + 23))
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"
