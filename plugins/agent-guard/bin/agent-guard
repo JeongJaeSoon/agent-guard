@@ -3661,10 +3661,18 @@ setup_install_gitleaks_helper_with_gitleaks() {
 HELPER_GITLEAKS_BIN_REASON='AGENT_GUARD_GITLEAKS_BIN selects the scanner, which the helper never serves; unset it to use the helper'
 
 # Succeeds when the installed helper (gitleaks_helper_installed) cannot run,
-# with why and what to do in helper_parts_why: hooks run only an executable
-# client (gitleaks_helper_selected), and the client starts the helper beside it.
+# with why and what to do in helper_parts_why: it is for another platform, or
+# a file is not executable (hooks run only an executable client,
+# gitleaks_helper_selected, and the client starts the helper beside it).
 gitleaks_helper_unrunnable() {
   helper_parts_why=
+  # A private directory shared by two systems can hold the other's helper,
+  # which gitleaks_helper_installed accepts by any platform's pins.
+  if [ -n "${ag_gh_target:-}" ] && gitleaks_helper_target && [ "$ag_gh_target" != "$helper_target" ]; then
+    cli_ref_init
+    helper_parts_why="it was installed for another platform, $ag_gh_target; reinstall it: $AG_CLI_REF setup --install-gitleaks-helper"
+    return 0
+  fi
   for ag_ghu_part in "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper/agent-guard-scan" \
     "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper/agent-guard-gitleaks-helper"; do
     [ ! -f "$ag_ghu_part" ] || [ ! -x "$ag_ghu_part" ] || continue
@@ -3716,8 +3724,17 @@ gitleaks_helper_state_usable() {
       return 1
     fi
   fi
-  if { [ -e "$helper_state/gitleaks-helper" ] || [ -L "$helper_state/gitleaks-helper" ]; } \
-    && ! private_dir_ok "$helper_state/gitleaks-helper"; then
+  if [ ! -e "$helper_state/gitleaks-helper" ] && [ ! -L "$helper_state/gitleaks-helper" ]; then
+    # The client creates it with mode 0700 less the umask, and then refuses
+    # it unless it is exactly 0700.
+    ag_ghs_umask=$(umask)
+    case "$ag_ghs_umask" in
+      *[1-7]??)
+        helper_state_why="the umask $ag_ghs_umask would create the helper directory without the owner bits it needs (0700); use a umask such as 022 or 077"
+        return 1
+        ;;
+    esac
+  elif ! private_dir_ok "$helper_state/gitleaks-helper"; then
     helper_state_why="the helper directory $helper_state/gitleaks-helper is not private to you (a 0700 directory you own); remove it, and the helper creates it again"
     return 1
   fi
@@ -3892,7 +3909,10 @@ EOF
       if setup_install_official_gitleaks "$version" "$checksum"; then
         GITLEAKS_READY_BIN=
         if setup_gitleaks_status_line; then
-          info "$PROGRAM: hook scans now use the official gitleaks $GITLEAKS_DEFAULT_VERSION in $gl instead of $setup_path_gitleaks; to go back, remove $gl or set AGENT_GUARD_GITLEAKS_BIN=$setup_path_gitleaks"
+          setup_back_new=$gl setup_back_old=$setup_path_gitleaks
+          case "$setup_back_new" in *[!A-Za-z0-9_./:@%+,-]*) setup_back_new=$(sh_squote "$setup_back_new") ;; esac
+          case "$setup_back_old" in *[!A-Za-z0-9_./:@%+,-]*) setup_back_old=$(sh_squote "$setup_back_old") ;; esac
+          info "$PROGRAM: hook scans now use the official gitleaks $GITLEAKS_DEFAULT_VERSION in $gl instead of $setup_path_gitleaks; to go back, remove $setup_back_new or set AGENT_GUARD_GITLEAKS_BIN=$setup_back_old"
         else
           gitleaks_runtime_ok=0
           setup_suggest_gitleaks_runtime_repair || :

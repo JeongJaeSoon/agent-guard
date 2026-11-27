@@ -232,6 +232,17 @@ doc
 chmod 755 "$PRIV/gitleaks-helper/agent-guard-gitleaks-helper"
 expect "an installed helper whose server cannot run: the line says not used and how to reinstall" \
   'hl | grep -qF "gitleaks helper  not used  (its helper $PRIV/gitleaks-helper/agent-guard-gitleaks-helper is not executable; reinstall it: "'
+cp "$CASE/plugin/config/gitleaks-helper.sha256" "$CASE/helper-pins.keep"
+sed "s|  $target/|  riscv64-unknown-linux-musl/|" "$CASE/helper-pins.keep" >>"$CASE/plugin/config/gitleaks-helper.sha256"
+doc
+cp "$CASE/helper-pins.keep" "$CASE/plugin/config/gitleaks-helper.sha256"
+expect "a helper installed for another platform (a shared private directory): not used, and how to reinstall" \
+  'hl | grep -qF "gitleaks helper  not used  (it was installed for another platform, riscv64-unknown-linux-musl; reinstall it: "'
+mv "$CASE/xs/agent-guard/gitleaks-helper" "$CASE/helper-sub.keep" 2>/dev/null
+(umask 177; doc)
+[ ! -e "$CASE/helper-sub.keep" ] || mv "$CASE/helper-sub.keep" "$CASE/xs/agent-guard/gitleaks-helper"
+expect "a umask that takes the owner's search bit: not used, since the client would create its directory without it" \
+  'hl | grep -qF "gitleaks helper  not used  (the umask 0177 would create the helper directory without the owner bits it needs"'
 (XDG_STATE_HOME=relative-state; doc)
 expect "a state directory that is not a plain absolute path: not used, and what to do" \
   'hl | grep -qF "gitleaks helper  not used  (the state directory relative-state/agent-guard is not a plain absolute path (relative, or through a symbolic link); set XDG_STATE_HOME to one)"'
@@ -678,6 +689,14 @@ HTTP
   expect "with an installed helper that cannot run setup --install keeps the PATH build and says how to reinstall" \
     '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] \
      && grep -qF "gitleaks helper  not used  (its helper $P/gitleaks-helper/agent-guard-gitleaks-helper is not executable; reinstall it: " "$CASE/s.err"'
+  # The way back names the PATH build in a form the shell keeps.
+  P="$CASE/p-path-space"
+  mkdir -p "$CASE/sp gl" && cp "$CASE/path-gl/gitleaks" "$CASE/sp gl/gitleaks"
+  TOOLS_PATH="$CASE/sp gl:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  expect "the way back quotes a PATH build whose path holds a space" \
+    '[ "$(status)" = 0 ] && grep -qF "or set AGENT_GUARD_GITLEAKS_BIN='"'"'$CASE/sp gl/gitleaks'"'"'" "$CASE/s.err"'
   # A state home hooks cannot search: they could not create the state directory.
   P="$CASE/p-path-state-noexec"
   mkdir -p "$CASE/state-noexec" && chmod 600 "$CASE/state-noexec"
