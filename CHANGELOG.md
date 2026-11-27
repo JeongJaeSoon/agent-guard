@@ -1,3 +1,9 @@
+## v3.15.1 - 2026-11-27
+
+- ci(test): deny-rule-characters를 partition 8로 옮겨 macOS partition 3이 25분 제한 안에 끝나게 한다 (#712)
+- fix(policy): 경로 규칙의 와일드카드를 모든 셸과 locale에서 같은 글자 단위로 맞춘다 (#710)
+- fix(bash): 보호 경로 글 매칭 차단 메시지가 단어 위치를 전체 명령 글 기준으로 센다고 밝힌다 (#709)
+
 ## v3.15.0 - 2026-11-27
 
 - fix(helper): 여러 시스템이 함께 쓰는 private 디렉터리에 다른 플랫폼용 helper가 있으면 hook은 그것을 실행하지 않고 gitleaks를 직접 실행한다 (#707)
