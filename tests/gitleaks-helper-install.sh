@@ -188,8 +188,8 @@ expect "setup's status line does not run the client or start a helper" \
 # the same line and starts, installs and creates nothing.
 hl() { grep 'gitleaks helper  ' "$CASE/s.err"; }
 doc() { "$GUARD" doctor "$@" >"$CASE/s.out" 2>"$CASE/s.err"; echo "$?" >"$CASE/s.status"; }
-expect "the official build on PATH: the line says the helper answers it" \
-  'hl | grep -qF "gitleaks helper  installed  (it answers the selected gitleaks $CASE/bin/gitleaks, the official gitleaks $glv release build)"'
+expect "the official build on PATH: the line says the helper can serve it" \
+  'hl | grep -qF "gitleaks helper  installed  (it can serve the selected gitleaks $CASE/bin/gitleaks, the official gitleaks $glv release build; a scan it cannot serve, such as one with a .gitleaksignore, runs gitleaks itself)"'
 # Deep state directories, around the client's 103-byte socket limit:
 # <state>/agent-guard/gitleaks-helper/<20 hex digits>.sock.
 deep_state() { # $1 = length of XDG_STATE_HOME; prints the directory
@@ -200,7 +200,7 @@ deep_state() { # $1 = length of XDG_STATE_HOME; prints the directory
 at_limit=$(deep_state 49)
 over_limit=$(deep_state 50)
 (XDG_STATE_HOME=$at_limit; setup)
-expect "a state directory whose socket path is exactly 103 bytes keeps the helper" 'hl | grep -q "gitleaks helper  installed  (it answers"'
+expect "a state directory whose socket path is exactly 103 bytes keeps the helper" 'hl | grep -q "gitleaks helper  installed  (it can serve"'
 : >"$URLS"
 : >"$CALLS"
 (XDG_STATE_HOME=$over_limit; doc)
@@ -220,7 +220,7 @@ mkdir -p "$CASE/back\\slash"
 cp "$CASE/bin/gitleaks" "$CASE/back\\slash/gitleaks"
 (PATH="$CASE/back\\slash:$PATH"; doc)
 expect "the official build in a directory whose name holds a backslash is still recognized" \
-  'hl | grep -qF "gitleaks helper  installed  (it answers the selected gitleaks $CASE/back"'
+  'hl | grep -qF "gitleaks helper  installed  (it can serve the selected gitleaks $CASE/back"'
 chmod 644 "$PRIV/gitleaks-helper/agent-guard-scan"
 doc
 chmod 755 "$PRIV/gitleaks-helper/agent-guard-scan"
@@ -670,6 +670,14 @@ HTTP
   expect "a directory another process puts at the private gitleaks name meanwhile gets no link inside it" \
     '[ "$(status)" != 0 ] && [ -d "$P/gitleaks" ] && [ -z "$(ls -A "$P/gitleaks")" ] \
      && ! grep -qF "installed gitleaks v" "$CASE/s.err" && [ -z "$(find "$P" -name ".gitleaks.*")" ]'
+  # An installed helper that cannot run: replacing the PATH build gains nothing.
+  P="$CASE/p-path-helper-broken"
+  mkdir -p "$P" && cp -Rp "$CASE/p-path/gitleaks-helper" "$P/gitleaks-helper"
+  chmod 644 "$P/gitleaks-helper/agent-guard-gitleaks-helper"
+  si "$P"
+  expect "with an installed helper that cannot run setup --install keeps the PATH build and says how to reinstall" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] \
+     && grep -qF "gitleaks helper  not used  (its helper $P/gitleaks-helper/agent-guard-gitleaks-helper is not executable; reinstall it: " "$CASE/s.err"'
   # A state home hooks cannot search: they could not create the state directory.
   P="$CASE/p-path-state-noexec"
   mkdir -p "$CASE/state-noexec" && chmod 600 "$CASE/state-noexec"
