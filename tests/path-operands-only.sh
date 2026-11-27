@@ -9,7 +9,12 @@
 # redirection, every string literal that names a file, a suffix literal the
 # program could build a name from, the body of sh -c and eval, a command
 # substitution, and every argument of a command that is not on that list.
-# Each fixture runs through both hosts' native event shapes.
+# Every case runs in Claude's native event shape. The host changes the block
+# message and the output envelope, never the decision, and Codex's shape differs
+# only in where the event carries the working directory. So only the cases
+# marked "both_hosts" also run in Codex's shape: the must-pass cases whose
+# result depends on the event workdir, each with the block case after it, and
+# the cases that set a workdir of their own.
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD=${AGENT_GUARD_TEST_BINARY:-$ROOT/plugins/agent-guard/bin/agent-guard}
@@ -50,13 +55,31 @@ jq -e '. as $all | all(range(0; length); . as $i
   printf 'not ok - every must-pass case in %s needs a must-still-block case right after it\n' "$FIXTURE"
   exit 1
 }
+# Each fixture keeps a must-pass case for Codex, a must-pass case that runs
+# there has its block case there too, and so does a case with its own workdir.
+jq -e '. as $all | any(.[]; .both_hosts == true and .classification == "must-pass")
+       and all(.[]; (has("both_hosts") | not) or (.both_hosts | type == "boolean"))
+       and all(.[]; (has("workdir") | not) or .both_hosts == true)
+       and all(range(0; length); . as $i
+         | ($all[$i].both_hosts // false) == false
+           or $all[$i].classification == "must-still-block"
+           or ($all[$i + 1].both_hosts // false) == true)' "$FIXTURE" >/dev/null || {
+  printf 'not ok - %s needs a both_hosts must-pass case; its block case and each case with a workdir need the mark too\n' "$FIXTURE"
+  exit 1
+}
 jq -c --arg repo "$REPO" --arg suffix "$SUFFIXDIR" '
   .[] | .workdir = ((if .workdir == null then "@REPO@" else .workdir end) | gsub("@REPO@"; $repo) | gsub("@SUFFIXDIR@"; $suffix))' \
   "$FIXTURE" >"$CASE_ROOT/cases" || exit 1
 while IFS= read -r row; do
   expected=$(printf '%s' "$row" | jq -r '.expected_status')
   name=$(printf '%s' "$row" | jq -r '.id + " (" + .classification + "): " + .description')
-  for host in claude codex; do
+  # An empty host list would skip the case without a failure.
+  hosts=$(printf '%s' "$row" | jq -r 'if .both_hosts == true then "claude codex" else "claude" end') \
+    && [ -n "$hosts" ] || {
+      printf 'not ok - %s: cannot read which hosts run the case\n' "$name"
+      exit 1
+    }
+  for host in $hosts; do
     case "$host" in
       codex) shape='{tool_name:"Bash",tool_input:({command:.command} + (if .workdir == "" then {} else {workdir:.workdir} end))}' ;;
       *) shape='{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:.command}} + (if .workdir == "" then {} else {cwd:.workdir} end)' ;;
