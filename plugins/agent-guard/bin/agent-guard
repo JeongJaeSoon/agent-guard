@@ -3518,8 +3518,8 @@ gitleaks_helper_blocker() {
 
 # `setup --install` installs the helper as well, when the gitleaks scans run
 # is the official build the helper answers, from the private directory or
-# PATH. The helper answers for no other scanner, so any other gets one line
-# saying why nothing was downloaded. It is skipped without a word where the status
+# PATH. The helper answers for no other scanner, so any other, or one this
+# cannot check, gets one line saying why nothing was downloaded. It is skipped without a word where the status
 # line has already said it: turned off or replaced by the user's own client
 # (AGENT_GUARD_GITLEAKS_HELPER set), no helper released for this platform, or
 # this version's helper already installed; a reason the status line printed
@@ -3537,7 +3537,7 @@ setup_install_gitleaks_helper_with_gitleaks() {
   elif gitleaks_helper_blocker "${gl:-}"; then
     helper_reason=$helper_blocker
   else
-    helper_reason=
+    helper_reason="could not tell whether the selected gitleaks ${gl:-} is the official gitleaks $GITLEAKS_DEFAULT_VERSION release build that the helper answers; to install the helper anyway: $AG_CLI_REF setup --install-gitleaks-helper"
   fi
   if [ -n "$helper_reason" ]; then
     [ "$helper_reason" = "${helper_status_said:-}" ] \
