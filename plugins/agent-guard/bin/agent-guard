@@ -3505,10 +3505,9 @@ setup_replaces_path_gitleaks() {
 # hash tool. It reads files and starts no gitleaks.
 gitleaks_helper_blocker() {
   helper_blocker=
-  [ "$GITLEAKS_PROBE_STATE" = ready ] && [ -n "${1:-}" ] || return 1
+  [ "$GITLEAKS_PROBE_STATE" = ready ] && [ -n "${1:-}" ] && gitleaks_helper_target || return 1
   if [ "$GITLEAKS_PROBE_VERSION" = "$GITLEAKS_DEFAULT_VERSION" ]; then
-    gitleaks_helper_target && [ -f "$ROOT_DIR/config/gitleaks-official.sha256" ] \
-      && gitleaks_clean_cache_hasher || return 1
+    [ -f "$ROOT_DIR/config/gitleaks-official.sha256" ] && gitleaks_clean_cache_hasher || return 1
     ag_ghb_sum=$(gitleaks_clean_cache_hash "$1" 2>/dev/null) || return 1
     ag_ghb_sum=${ag_ghb_sum%% *}
     [ "${#ag_ghb_sum}" -eq 64 ] || return 1
@@ -3605,6 +3604,9 @@ setup_gitleaks_helper_status_line() {
         cli_ref_init
         if [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
           info "$PROGRAM: gitleaks helper  not used  (installed for another Agent Guard version; run: $AG_CLI_REF setup --install-gitleaks-helper)"
+        elif [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
+          helper_status_said=$HELPER_GITLEAKS_BIN_REASON
+          info "$PROGRAM: gitleaks helper  not installed  ($HELPER_GITLEAKS_BIN_REASON)"
         elif gitleaks_helper_blocker "${gl:-}" && [ -n "$helper_blocker" ]; then
           helper_status_said=$helper_blocker
           info "$PROGRAM: gitleaks helper  not installed  (it would not answer: $helper_blocker)"
@@ -3736,8 +3738,14 @@ EOF
       setup_install_gitleaks "$version" "$checksum"
       GITLEAKS_READY_BIN=
       if ! setup_gitleaks_status_line; then
+        # Only this run put a gitleaks there: remove it, so that scans keep
+        # the working one.
+        setup_broken_gitleaks=$gl
+        rm -f "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks"
+        GITLEAKS_READY_BIN=
+        setup_gitleaks_status_line || :
+        info "$PROGRAM: the gitleaks downloaded to $setup_broken_gitleaks does not run, so it was removed; hook scans keep using $setup_path_gitleaks"
         gitleaks_runtime_ok=0
-        setup_suggest_gitleaks_runtime_repair || :
       elif gitleaks_helper_blocker "$gl" && [ -z "$helper_blocker" ]; then
         info "$PROGRAM: hook scans now use the official gitleaks $GITLEAKS_DEFAULT_VERSION in $gl instead of $setup_path_gitleaks; to go back, remove $gl or set AGENT_GUARD_GITLEAKS_BIN=$setup_path_gitleaks"
       else

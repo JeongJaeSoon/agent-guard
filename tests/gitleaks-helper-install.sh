@@ -261,6 +261,9 @@ mv "$INST" "$CASE/inst.keep"
 (PATH="$CASE/wrap-bin:$PATH"; doc)
 expect "no helper and a gitleaks it would not answer: the line does not suggest installing it" \
   'hl | grep -qF "gitleaks helper  not installed  (it would not answer: the selected gitleaks $CASE/wrap-bin/gitleaks is version 8.30.0" && ! hl | grep -q "optional"'
+(AGENT_GUARD_GITLEAKS_BIN="$CASE/wrap-bin/gitleaks"; export AGENT_GUARD_GITLEAKS_BIN; doc)
+expect "no helper and AGENT_GUARD_GITLEAKS_BIN: the line names the variable, not an install" \
+  'hl | grep -qF "gitleaks helper  not installed  (AGENT_GUARD_GITLEAKS_BIN selects the scanner, which the helper never serves; unset it to use the helper)"'
 doc
 expect "no helper and the official build: the line suggests the helper" \
   'hl | grep -qF "gitleaks helper  not installed  (optional; keeps gitleaks loaded between scans: "'
@@ -577,6 +580,29 @@ HTTP
   expect "a non-official private gitleaks is kept, with advice to remove it and rerun" \
     '[ "$(status)" = 0 ] && cmp -s "$P/gitleaks" "$CASE/path-gl/gitleaks" && [ "$(urls)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] \
      && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -qF "remove $P/gitleaks, then run"'
+  # A replacement that does not run is removed again, so the working PATH
+  # build stays selected; setup fails and says so.
+  P="$CASE/p-path-broken"
+  cp "$CASE/download/$gl_archive" "$CASE/gl-archive.keep"
+  mkdir -p "$CASE/broken-gl"
+  printf '#!/bin/sh\nexit 3\n' >"$CASE/broken-gl/gitleaks"
+  chmod 755 "$CASE/broken-gl/gitleaks"
+  tar -C "$CASE/broken-gl" -czf "$CASE/download/$gl_archive" gitleaks
+  broken_sum=$(shasum -a 256 "$CASE/download/$gl_archive" | awk '{ print $1 }')
+  si "$P" -- --install --gitleaks-checksum "$broken_sum"
+  expect "a replacement that does not run is removed, the PATH build stays selected, and setup fails saying so" \
+    '[ "$(status)" != 0 ] && [ ! -e "$P/gitleaks" ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(helper_url)" = 0 ] \
+     && grep -qF "the gitleaks downloaded to $P/gitleaks does not run, so it was removed; hook scans keep using $CASE/path-gl/gitleaks" "$CASE/s.err"'
+  cp "$CASE/gl-archive.keep" "$CASE/download/$gl_archive"
+  # No helper for this platform: nothing to gain, so the PATH build stays.
+  P="$CASE/p-path-platform"
+  mkdir -p "$CASE/path-old"
+  cp "$CASE/old-gitleaks" "$CASE/path-old/gitleaks"
+  TOOLS_PATH="$CASE/uname-bin:$CASE/path-old:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  expect "on a platform without a helper release setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && grep -q "gitleaks already available" "$CASE/s.err"'
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
   # Another version asked for: the helper would not answer it either, so the
   # PATH build stays.
   P="$CASE/p-path-version"
