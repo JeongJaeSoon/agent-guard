@@ -903,6 +903,8 @@ if [ -n "$target" ]; then
   expect "Codex: the hint is a user message only, kept out of the model context" \
     '[ "$(cat "$CASE/ss.status")" = 0 ] && hint_is \
      && [ "$(jq -c "keys" "$CASE/ss.out")" = "[\"systemMessage\"]" ]'
+  ss "$S" AGENT_GUARD_HOOK_HOST=codex
+  expect "Codex: the next session start of the same install shows nothing" 'quiet'
   # Codex with a warning the model must see: the warning keeps its context,
   # and the hint is added to the user message alone.
   S="$CASE/hs3"
