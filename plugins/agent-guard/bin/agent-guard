@@ -50,7 +50,7 @@ else
           [ "$ag_fd" = /dev/fd/255 ] || [ ! "$ag_fd" -ef "$0" ] || { ag_dash=; break; }
         done
       fi
-      if [ -n "$ag_dash" ] && [ ! -e /dev/fd/9 ] && { command exec 9<"$0"; } 2>/dev/null; then
+      if [ -n "$ag_dash" ] && [ -f "$0" ] && [ ! -e /dev/fd/9 ] && { command exec 9<"$0"; } 2>/dev/null; then
         shopt -s execfail 2>/dev/null || :
         # bash's test answers for a /dev/fd name by itself; dash needs one
         # that the directory lists.

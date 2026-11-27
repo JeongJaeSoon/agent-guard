@@ -56,7 +56,9 @@ if sh -c 'case ${BASH:-} in */sh) exit 0 ;; esac; exit 1'; then
     if [ -x "$candidate" ]; then want=dash; break; fi
   done
 fi
-printf '%s\n' '#!/bin/sh' "exec '$CASE/payload with spaces/bin/agent-guard' \"\$@\"" >"$CASE/tools/wrapper"
+printf '%s\n' '#!/bin/sh' 'exec "$AG_TEST_PAYLOAD" "$@"' >"$CASE/tools/wrapper"
+AG_TEST_PAYLOAD="$CASE/payload with spaces/bin/agent-guard"
+export AG_TEST_PAYLOAD
 chmod 755 "$CASE/tools/wrapper"
 mkfifo "$CASE/hold"
 # interpreter EXPECTED COMMAND...: the program running the CLI while it waits
@@ -142,6 +144,26 @@ if [ "$want" = dash ]; then
     count=$((count + 1))
     printf 'ok - script location contract %s (named by a descriptor: %s)\n' "$count" "$alias"
   done
+  # A named pipe cannot be opened a second time: the handover would wait for
+  # a second writer that never comes.
+  mkfifo "$CASE/script-fifo"
+  cat "$CASE/payload with spaces/bin/agent-guard" >"$CASE/script-fifo" &
+  sh "$CASE/script-fifo" version >"$CASE/out" 2>&1 &
+  reader=$!
+  tries=0
+  while kill -0 "$reader" 2>/dev/null && [ "$tries" -lt 50 ]; do
+    tries=$((tries + 1))
+    sleep 0.1
+  done
+  if kill -0 "$reader" 2>/dev/null; then
+    kill "$reader" 2>/dev/null || :
+    printf 'not ok - a script read from a named pipe hangs\n' >&2
+    exit 1
+  fi
+  wait "$reader" || :
+  grep -q '^agent-guard [0-9]' "$CASE/out"
+  count=$((count + 1))
+  printf 'ok - script location contract %s (named pipe)\n' "$count"
   # Read from standard input, the script's own name is the shell's.
   sh -s -- version <"$CASE/payload with spaces/bin/agent-guard" >"$CASE/out"
   grep -q '^agent-guard [0-9]' "$CASE/out"
