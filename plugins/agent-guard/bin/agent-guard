@@ -11960,7 +11960,7 @@ bash_file_mover_swap() {
 deny_path_report_print() {
   [ -n "$deny_path_report" ] || return 0
   if [ -n "${deny_path_regex-}" ] && deny_path_where=$(bash_match_words "$1" "$deny_path_regex"); then
-    deny_path_report="$deny_path_report at $deny_path_where of the command (counted over the full command text; separators such as && and ; count as words, newlines do not)"
+    deny_path_report="$deny_path_report at $deny_path_where of the command (counted over the full command text; operators such as && and ; count as words)"
   fi
   printf '%s\n' "$deny_path_report"
 }
@@ -16386,7 +16386,7 @@ $joined_cmd"
           if [ -z "$dp_where_text" ]; then
             dp_where=' in quoted text that a shell runs'
           elif dp_words=$(bash_match_words "$dp_where_text" "$dp_entry"); then
-            dp_where=" at $dp_words of the command (counted over the full command text; separators such as && and ; count as words, newlines do not)"
+            dp_where=" at $dp_words of the command (counted over the full command text; operators such as && and ; count as words)"
           fi
           info "$PROGRAM: matched deny-bash-patterns line $dp_hit ($DENY_BASH_PATTERNS)$dp_where"
           [ "${#dp_entry}" -le 120 ] || dp_entry=$(printf '%s' "$dp_entry" | cut -c 1-117)...
