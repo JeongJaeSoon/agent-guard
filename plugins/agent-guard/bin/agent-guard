@@ -298,6 +298,7 @@ Usage:
   agent-guard exec [--] <cmd> [args...]
   agent-guard shell-init [--bash|--zsh] [--no-command-wrapping]
   agent-guard setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]
+  agent-guard setup-shell [--bash|--zsh|--rc FILE] --print-command-wrapping
   agent-guard pii-filter [--check]
   agent-guard mask-file [--key-paths] [--] FILE
   agent-guard scan-staged
@@ -1519,6 +1520,171 @@ audit_prune() (
     | xargs -0 rm -f -- 2>/dev/null
 )
 
+# Run directories no trap removed (a KILL; see AGENT_GUARD_RUNDIR) keep scan
+# text on disk, so a later run removes them: at most once an interval, timed
+# by a marker in the private state directory (one read on the hot path), and
+# only for state that audit_begin validated. A first marker only starts the
+# clock. The age is an hour past the longest hook timeout (60 s); a run that
+# lasts longer keeps its directory while its PID, in the name, is alive.
+RUNDIR_REAP_INTERVAL_SECONDS=3600
+RUNDIR_REAP_AGE_MINUTES=61
+# A name without a PID comes from a version before the PID was added, so no
+# live owner can be ruled out: it has to be a week old (the support log's
+# retention) instead.
+RUNDIR_REAP_LEGACY_AGE_MINUTES=10080
+
+# The marker holds one "<seconds> <directory>" line per temp directory, so a
+# busy TMPDIR does not use up the interval of another one. A rewrite puts its
+# own line last and keeps the 7 latest others, so the least recent goes first.
+# Reading it is a builtin loop. A first line is created with noclobber (no
+# process); a change is written to a new file and renamed over the marker, so
+# neither follows a symlink.
+rundir_reap() {
+  [ -n "$AG_STATE_DIR" ] && [ -n "$AGENT_GUARD_RUNDIR" ] || return 0
+  case "$AG_UID" in ''|*[!0123456789]*) return 0 ;; esac
+  case "$AG_AUDIT_START" in ''|0|*[!0123456789]*) return 0 ;; esac
+  ag_rr_dir=${AGENT_GUARD_RUNDIR%/*}
+  # The marker is keyed by this path: a relative one would name a different
+  # directory from each working directory.
+  case "$ag_rr_dir" in /*) ;; *) return 0 ;; esac
+  case "$ag_rr_dir" in *'
+'*) return 0 ;; esac
+  ag_rr_marker="$AG_STATE_DIR/rundir-reap"
+  ag_rr_last= ag_rr_keep= ag_rr_lines=0
+  if [ -L "$ag_rr_marker" ] || { [ -e "$ag_rr_marker" ] && [ ! -f "$ag_rr_marker" ]; }; then
+    return 0
+  fi
+  if [ -f "$ag_rr_marker" ]; then
+    while IFS= read -r ag_rr_line; do
+      ag_rr_time=${ag_rr_line%% *}
+      # A leading zero would be octal to shell arithmetic; dash aborts on 8 or 9.
+      case "$ag_rr_time" in ''|0*|*[!0123456789]*) continue ;; esac
+      [ "${#ag_rr_time}" -le 12 ] || continue
+      if [ "${ag_rr_line#* }" = "$ag_rr_dir" ]; then
+        ag_rr_last=$ag_rr_time
+      else
+        ag_rr_keep="$ag_rr_keep$ag_rr_line
+"
+        if [ "$ag_rr_lines" -lt 7 ]; then
+          ag_rr_lines=$((ag_rr_lines + 1))
+        else
+          ag_rr_keep=${ag_rr_keep#*"
+"}
+        fi
+      fi
+    done <"$ag_rr_marker" 2>/dev/null
+    # A marker from the future (a clock set back) is due.
+    if [ -n "$ag_rr_last" ] && [ "$ag_rr_last" -le "$AG_AUDIT_START" ] \
+        && [ "$((AG_AUDIT_START - ag_rr_last))" -lt "$RUNDIR_REAP_INTERVAL_SECONDS" ]; then
+      return 0
+    fi
+    # Restarted before the pass, so concurrent runs mostly skip it.
+    ag_rr_tmp=$(umask 077; mktemp "$ag_rr_marker.XXXXXX" 2>/dev/null) || return 0
+    if ! { printf '%s%s %s\n' "$ag_rr_keep" "$AG_AUDIT_START" "$ag_rr_dir" >"$ag_rr_tmp" \
+        && mv -f "$ag_rr_tmp" "$ag_rr_marker"; } 2>/dev/null; then
+      rm -f "$ag_rr_tmp" 2>/dev/null
+      return 0
+    fi
+  else
+    # Mode 0600 and never an existing name, without a process.
+    private_writes_begin || return 0
+    { printf '%s %s\n' "$AG_AUDIT_START" "$ag_rr_dir" >"$ag_rr_marker"; } 2>/dev/null || :
+    private_writes_end
+    # A new marker only starts the clock (no process on a first run). A
+    # directory missing from an existing one, as after its line was dropped,
+    # is due.
+    return 0
+  fi
+  # Where this run's directory went: TMPDIR, or /tmp when TMPDIR could not
+  # hold it, so a setting that keeps falling back is reaped where it leaves.
+  # The pass runs as a new session and nobody waits for it: a slow or large
+  # TMPDIR never takes from the hook's time limit, and a host that kills the
+  # hook's process group when it ends does not stop it. Without setsid or perl
+  # it runs in the background of this group instead.
+  if select_gitleaks_probe_launcher; then
+    (exec_in_new_session sh "$SELF_BIN" __reap-run-dirs "$ag_rr_dir") </dev/null >/dev/null 2>&1 &
+  else
+    (rundir_stale "$ag_rr_dir" remove) </dev/null >/dev/null 2>&1 &
+  fi
+}
+
+# Works inside the directory it lists (cd -P, CDPATH cleared), so a TMPDIR
+# symlink that changes between listing and removal cannot move rm elsewhere,
+# and only in one where no other user can replace an entry between the check
+# and rm: sticky, or writable by its owner alone, and owned by this user or
+# root. A glob lists names without a stat per entry (a TMPDIR can hold
+# 100,000 entries); the loops keep this CLI's mktemp names only, which hold
+# no blank or newline, and skip a live owner (kill -0 fails for another
+# user's process, which owns no directory of this user). find stats only
+# those names, in batches, does not descend, and keeps directories that are
+# no symlink, owned by this user, mode 0700 and old enough. rm -rf does not
+# follow symlinks inside. MODE remove deletes them; count prints how many
+# there are and changes nothing (doctor).
+# GNU xargs runs it once on empty input, and find with no operand lists ".".
+# The run's own directory keeps "." too new to match, but no list means none.
+# Succeeds when no other user can add, rename or remove an entry of the
+# current directory: owned by this user or root, sticky or writable by its
+# owner alone, and no ACL that lets anyone else in (mask_allow_acl).
+rundir_parent_safe() {
+  [ -n "$(find . -prune \( -user "$AG_UID" -o -user 0 \) \
+      \( -perm -1000 -o \( ! -perm -0020 ! -perm -0002 \) \) -print 2>/dev/null)" ] \
+    && mask_allow_acl .
+}
+
+# Owner-only: rwx for the owner and nothing for group or others. A setgid bit
+# that mktemp -d inherits from a setgid TMPDIR (Linux) is allowed. A failed
+# find prints "!", so count can tell an incomplete check from none found.
+RUNDIR_STALE_FIND='u=$1 a=$2; shift 2; [ "$#" -gt 0 ] || exit 0; find "$@" -prune -type d -user "$u" -perm -0700 ! -perm -0040 ! -perm -0020 ! -perm -0010 ! -perm -0004 ! -perm -0002 ! -perm -0001 -mmin "+$a" -print || echo "!"'
+
+# Keeps only the absolute PATH entries, for a caller that is about to cd into
+# the temp directory: there an empty or relative entry names that directory,
+# where another user can plant a tool. Fails when none is left, since an empty
+# PATH names the current directory too.
+rundir_absolute_path() {
+  ag_ap_path= ag_ap_rest=$PATH:
+  while [ -n "$ag_ap_rest" ]; do
+    ag_ap_dir=${ag_ap_rest%%:*}
+    ag_ap_rest=${ag_ap_rest#*:}
+    case "$ag_ap_dir" in /*) ag_ap_path=${ag_ap_path:+$ag_ap_path:}$ag_ap_dir ;; esac
+  done
+  [ -n "$ag_ap_path" ] || return 1
+  PATH=$ag_ap_path
+  export PATH
+}
+
+rundir_stale() ( # DIR MODE
+  # count prints "unreadable" when it cannot list or check the directory.
+  rundir_absolute_path || { [ "$2" = remove ] || echo unreadable; exit 0; }
+  CDPATH= cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo unreadable; exit 0; }
+  [ -r . ] || { [ "$2" = remove ] || echo unreadable; exit 0; }
+  [ "$2" != remove ] || rundir_parent_safe || exit 0
+  {
+    for ag_rs_name in agent-guard-run.*.*; do
+      ag_rs_pid=${ag_rs_name#agent-guard-run.}
+      ag_rs_rest=${ag_rs_pid#*.}
+      ag_rs_pid=${ag_rs_pid%%.*}
+      case "$ag_rs_pid" in ''|0*|*[!0123456789]*) continue ;; esac
+      [ "${#ag_rs_pid}" -le 10 ] || continue
+      case "$ag_rs_rest" in
+        ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) continue ;;
+      esac
+      [ "${#ag_rs_rest}" -eq 6 ] || continue
+      ! kill -0 "$ag_rs_pid" 2>/dev/null || continue
+      printf './%s\n' "$ag_rs_name"
+    done | xargs sh -c "$RUNDIR_STALE_FIND" sh "$AG_UID" "$RUNDIR_REAP_AGE_MINUTES" 2>/dev/null || echo "!"
+    for ag_rs_name in agent-guard-run.??????; do
+      case "${ag_rs_name#agent-guard-run.}" in
+        *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) continue ;;
+      esac
+      printf './%s\n' "$ag_rs_name"
+    done | xargs sh -c "$RUNDIR_STALE_FIND" sh "$AG_UID" "$RUNDIR_REAP_LEGACY_AGE_MINUTES" 2>/dev/null || echo "!"
+  } | if [ "$2" = remove ]; then
+    grep '^\./agent-guard-run\.' | xargs rm -rf -- 2>/dev/null
+  else
+    awk '/^!/ { bad = 1; next } { n++ } END { if (bad) print "unreadable"; else print n + 0 }'
+  fi
+)
+
 audit_begin() {
   case "${AGENT_GUARD_LOG_MODE:-on}" in
     on) ag_log=on ;;
@@ -1573,7 +1739,7 @@ audit_finish() {
   ag_outcome=pass
   case "$ag_exit" in
     0) ;;
-    130|143) ag_outcome=interrupted ;;
+    129|130|143) ag_outcome=interrupted ;;
     *)
       case "$AG_AUDIT_COMMAND:$ag_exit" in
         hook-*:2|scan-*:1|pii-filter:1) ag_outcome=blocked ;;
@@ -1589,7 +1755,7 @@ audit_finish() {
     done
     IFS=$ag_finish_ifs
   fi
-  case "$ag_exit" in 130|143) ag_outcome=interrupted ;; esac
+  case "$ag_exit" in 129|130|143) ag_outcome=interrupted ;; esac
   ag_reason=null
   # Recorded only beside a nonzero exit: a closed infrastructure block keeps
   # its degraded outcome but still names why it stopped the call.
@@ -3416,6 +3582,18 @@ setup_gitleaks_helper_status_line() {
   return 0
 }
 
+# Install arguments reach setup through doctor only during their deprecation.
+# Warned once, as setup's parser reads the first one, so an argument it never
+# reads (after --help or an unknown one) is not; the warning names no value.
+SETUP_VIA_DOCTOR=0
+SETUP_HELP_SHOWN=0
+setup_doctor_install_arg() {
+  [ "$SETUP_VIA_DOCTOR" = 1 ] || return 0
+  SETUP_VIA_DOCTOR=2
+  cli_ref_init
+  info "$PROGRAM: install arguments to doctor are deprecated: doctor still passes them to setup now, but a later release refuses them in doctor. To install, run $AG_CLI_REF setup with --install or --install-gitleaks-helper."
+}
+
 do_setup() {
   install=0
   helper_install=0
@@ -3423,20 +3601,22 @@ do_setup() {
   checksum=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --install) install=1 ;;
+      --install) install=1; setup_doctor_install_arg ;;
       --gitleaks-version)
+        setup_doctor_install_arg
         shift
         [ $# -gt 0 ] || die "setup: --gitleaks-version requires a value"
         version=$1
         ;;
-      --gitleaks-version=*) version=${1#--gitleaks-version=} ;;
+      --gitleaks-version=*) setup_doctor_install_arg; version=${1#--gitleaks-version=} ;;
       --gitleaks-checksum)
+        setup_doctor_install_arg
         shift
         [ $# -gt 0 ] || die "setup: --gitleaks-checksum requires a value"
         checksum=$1
         ;;
-      --gitleaks-checksum=*) checksum=${1#--gitleaks-checksum=} ;;
-      --install-gitleaks-helper) helper_install=1 ;;
+      --gitleaks-checksum=*) setup_doctor_install_arg; checksum=${1#--gitleaks-checksum=} ;;
+      --install-gitleaks-helper) helper_install=1; setup_doctor_install_arg ;;
       -h|--help)
         cat >&2 <<'EOF'
 Usage:
@@ -3459,6 +3639,7 @@ helper for this platform from the Agent Guard release. It is installed only
 when it matches the checksums built into this CLI, and scans then use it
 without further setup. AGENT_GUARD_GITLEAKS_HELPER=off turns it off.
 EOF
+        SETUP_HELP_SHOWN=1
         return 0
         ;;
       *) die "setup: unknown argument: $1" ;;
@@ -3928,6 +4109,7 @@ pii_regex_adapter_filter() (
 
 pii_endpoint_adapter_filter() {
   provider=$1
+  pii_request_from=${2:-}
   need_cmd curl
   need_cmd jq
   url=${AGENT_GUARD_PII_REDACT_URL:-}
@@ -3939,7 +4121,10 @@ pii_endpoint_adapter_filter() {
   esac
   [ "$timeout" -gt 0 ] 2>/dev/null \
     || die "pii-filter: AGENT_GUARD_PII_TIMEOUT_SECONDS must be a positive integer"
-  if [ "${AGENT_GUARD_PII_HOOK_REQUEST:-}" = 1 ] && [ "$timeout" -gt 5 ]; then
+  # A hook caps its request at 5 seconds. The environment flag is the
+  # deprecated outside form of the same cap (pii_filter warns about it).
+  if { [ "$pii_request_from" = hook ] || [ "${AGENT_GUARD_PII_HOOK_REQUEST:-}" = 1 ]; } \
+      && [ "$timeout" -gt 5 ]; then
     timeout=5
   fi
 
@@ -3994,11 +4179,11 @@ pii_endpoint_adapter_filter() {
   rm -f "$out"
 }
 
-pii_adapter_filter() {
+pii_adapter_filter() {  # [provider] [hook]
   provider=${1:-${AGENT_GUARD_PII_PROVIDER:-regex}}
   case "$provider" in
     regex) pii_regex_adapter_filter ;;
-    http|pleno) pii_endpoint_adapter_filter "$provider" ;;
+    http|pleno) pii_endpoint_adapter_filter "$provider" "${2:-}" ;;
     *) pii_unsupported_provider "$provider" ;;
   esac
 }
@@ -4034,6 +4219,9 @@ pii_filter() {
     shift
   done
 
+  if [ "${AGENT_GUARD_PII_HOOK_REQUEST:-}" = 1 ]; then
+    info "$PROGRAM: AGENT_GUARD_PII_HOOK_REQUEST is internal and deprecated: it still caps the provider request at 5 seconds now, but a later release ignores it. Set AGENT_GUARD_PII_TIMEOUT_SECONDS instead."
+  fi
   provider=${AGENT_GUARD_PII_PROVIDER:-regex}
   # Validate here, not only inside the adapter: --check never reaches the adapter
   # and would otherwise report "ok" for a skip set every real run refuses.
@@ -4048,7 +4236,7 @@ pii_filter() {
 pii_text_has_match() {
   text=$1
   [ -n "$text" ] || return 1
-  masked=$(printf '%s' "$text" | AGENT_GUARD_PII_HOOK_REQUEST=1 pii_adapter_filter)
+  masked=$(printf '%s' "$text" | pii_adapter_filter "" hook)
   status=$?
   [ "$status" -eq 0 ] || exit "$status"
   [ "$masked" != "$text" ]
@@ -5024,6 +5212,8 @@ lockfile_whole_kind() {
   return 1
 }
 
+# Internal: not in usage(). The CLI runs itself with this subcommand through
+# xargs while it prepares lockfiles for a scan.
 filter_lockfile_hashes() {
   path=$1
   original_source=${2:-$path}
@@ -24080,9 +24270,215 @@ doctor_shell_integration_report() {
   return 0
 }
 
+# doctor's settings section: what doctor itself reads in its own environment.
+# Fields: name, kind, default, accepted spellings (comma-separated; mirrors the
+# accepted-values table of docs/configuration.md). A value is printed only when
+# it is an accepted spelling or a plain number; a path or URL prints as "set"
+# and anything unrecognized is never echoed. Kinds: mode (always listed),
+# enum, list, number (accepted = min-max), helper, path, deprecated (accepted =
+# what is deprecated). The deprecated entries are the ones whose warning
+# period runs now; drop each one when its setting is removed.
+DOCTOR_SETTINGS='INFRA_FAILURE_MODE mode unset open,closed
+PROMPT_GUARD_MODE mode block block,warn,off,mask
+OUTPUT_REDACT mode mask mask,off
+DENY_READ_MODE mode block block,mask
+PII_HOOK_MODE mode off off,block,mask
+LOG_MODE mode on on,off
+SESSION_ROLE enum unset review
+COMMAND_WRAPPING enum on on,off,OFF,0,false,FALSE,no,NO
+KEY_NAME_REDACT enum off off,on
+TRACKED_FILE_EXCEPTION enum on on,off
+KNOWN_VALUE_REDACT enum on on,off
+SCAN_CACHE enum on on,off
+RELEASE_CHECK enum on on,off
+CODEX_TRUST_CHECK enum on on,off
+EXPERIMENTAL_REDACTOR enum rust rust,shell
+PII_PROVIDER enum regex regex,http,pleno
+PII_LANGUAGE enum en en,ja
+PII_SKIP list unset EMAIL,PHONE,IP_ADDRESS
+SCAN_INPUT_MAX_BYTES number 10485760 10485760-999999999999999999
+PII_TIMEOUT_SECONDS number 30 1-
+GITLEAKS_HELPER_IDLE_SECONDS number 600 1-86400
+GITLEAKS_HELPER_MAX_RSS_MIB number 160 96-4096
+GITLEAKS_HELPER helper unset -
+DENY_READ_PATHS path bundled -
+DENY_BASH_PATTERNS path bundled -
+GITLEAKS_CONFIG path bundled -
+MASK_DENY_VALUES path unset -
+GITLEAKS_BIN path unset -
+GITLEAKS_BIN_DIR path unset -
+RUST_CORE_BIN path unset -
+PII_REDACT_URL path unset -
+GITLEAKS_HELPER_TRACE path unset -
+BIN path unset -
+BIN_DIR deprecated - gitleaks-dir
+GITLEAKS_CHECKSUMS_URL deprecated - outside-tests
+REPO deprecated - outside-tests
+PII_HOOK_REQUEST deprecated - internal'
+
+# Informational only: never changes doctor's status.
+doctor_settings_report() {
+  info "$PROGRAM: settings: as read by this doctor run; hook environments (host or managed settings) may differ"
+  # No pathname expansion of a list value's words.
+  printf '%s\n' "$DOCTOR_SETTINGS" | { set -f; while read -r ds_name ds_kind ds_default ds_accepted; do
+    # Names come from the fixed table above, never from input.
+    eval "ds_isset=\${AGENT_GUARD_$ds_name+x} ds_value=\${AGENT_GUARD_$ds_name-}"
+    # Logging off turns the scan cache off unless it is set on explicitly.
+    [ "$ds_name:${AGENT_GUARD_LOG_MODE:-}" != SCAN_CACHE:off ] || ds_default=off
+    if [ -z "$ds_isset" ]; then
+      [ "$ds_kind" = mode ] || continue
+      ds_shown="$ds_default (default)"
+    elif [ -z "$ds_value" ]; then
+      ds_shown=empty
+    else
+      ds_ok=0
+      case $ds_kind in
+        mode|enum)
+          case $ds_value in
+            *,*) ;;
+            *) case ",$ds_accepted," in *",$ds_value,"*) ds_ok=1 ;; esac ;;
+          esac
+          ;;
+        list)
+          # The parse of pii_skip_set, without its error exit: words split on
+          # commas and spaces; an endpoint provider refuses a non-empty list.
+          ds_ok=1 ds_words=0
+          ds_oifs=$IFS
+          IFS=', '
+          for ds_word in $ds_value; do
+            ds_words=1
+            case ",$ds_accepted," in *",$ds_word,"*) ;; *) ds_ok=0 ;; esac
+          done
+          IFS=$ds_oifs
+          case $ds_value in *"$(printf '\t')"*|*"
+"*) ds_ok=0 ;; esac
+          [ "$ds_words" -eq 0 ] || case ${AGENT_GUARD_PII_PROVIDER:-regex} in http|pleno) ds_ok=0 ;; esac
+          ;;
+        number)
+          # The runtime parsers drop leading zeros; the helper's Go Atoi also
+          # reads a leading plus sign.
+          case $ds_name:$ds_value in GITLEAKS_HELPER_*:+*) ds_value=${ds_value#+} ;; esac
+          ds_value=${ds_value#"${ds_value%%[!0]*}"}
+          case $ds_value in
+            '') ds_value=0 ;;
+          esac
+          case $ds_value in
+            *[!0-9]*) ;;
+            *)
+              # No maximum (PII timeout): the runtime's own positive-integer test.
+              if [ -z "${ds_accepted#*-}" ]; then
+                [ "$ds_value" -ge "${ds_accepted%-*}" ] 2>/dev/null && ds_ok=1
+              elif [ "${#ds_value}" -le 18 ] && [ "$ds_value" -ge "${ds_accepted%-*}" ] \
+                  && [ "$ds_value" -le "${ds_accepted#*-}" ]; then
+                ds_ok=1
+              fi
+              ;;
+          esac
+          ;;
+      esac
+      case $ds_kind in
+        path) ds_shown=set ;;
+        deprecated)
+          case $ds_accepted in
+            gitleaks-dir) ds_shown="set; deprecated as the gitleaks directory, still the installer link directory" ;;
+            outside-tests) ds_shown="set; deprecated outside tests" ;;
+            *) ds_shown="set; internal and deprecated" ;;
+          esac
+          ;;
+        helper) case $ds_value in /*) ds_shown=set ;; *) ds_shown="off (not an absolute path)" ;; esac ;;
+        *)
+          if [ "$ds_ok" -eq 0 ]; then
+            ds_shown="unrecognized value; docs/configuration.md says how this setting treats one"
+          elif [ "$ds_value" = "$ds_default" ]; then
+            ds_shown=$ds_value
+          else
+            ds_shown="$ds_value (differs from the default: $ds_default)"
+          fi
+          ;;
+      esac
+    fi
+    # audit_begin keeps no state for an unrecognized log mode, so no cache.
+    case $ds_name:${AGENT_GUARD_LOG_MODE:-on} in
+      SCAN_CACHE:on|SCAN_CACHE:off) ;;
+      SCAN_CACHE:*) ds_shown="no effect: an unrecognized AGENT_GUARD_LOG_MODE turns the cache off" ;;
+    esac
+    info "$PROGRAM: setting  AGENT_GUARD_$ds_name  $ds_shown"
+  done; }
+  return 0
+}
+
 # doctor is setup plus a release-staleness line; the setup status is returned
 # unchanged so a failed lookup never turns a healthy doctor red.
+# Read-only: shows what rundir_reap would remove from the temp directory this
+# run uses, so a user without the private state directory (LOG_MODE=off),
+# where nothing reaps, can notice leftovers.
+doctor_rundir_report() {
+  [ -n "$AGENT_GUARD_RUNDIR" ] || return 0
+  AG_UID=${AG_UID:-$(id -u 2>/dev/null)}
+  case "$AG_UID" in ''|*[!0123456789]*) return 0 ;; esac
+  doctor_rundir_dir=${AGENT_GUARD_RUNDIR%/*}
+  doctor_rundir_count=$(rundir_stale "$doctor_rundir_dir" count 2>/dev/null </dev/null) || doctor_rundir_count=
+  case "$doctor_rundir_count" in
+    unreadable)
+      info "$PROGRAM: temp: could not check $doctor_rundir_dir for stale run directories"
+      return 0
+      ;;
+    ''|*[!0123456789]*) return 0 ;;
+  esac
+  if [ "$doctor_rundir_count" -eq 0 ]; then
+    info "$PROGRAM: temp: no stale run directories in $doctor_rundir_dir"
+    return 0
+  fi
+  # The settings under which audit_begin prepares the private state, a state
+  # directory that is missing (the next run makes it) or passes its checks,
+  # and a marker rundir_reap would use.
+  doctor_rundir_why='the private state directory is off, as with AGENT_GUARD_LOG_MODE=off'
+  case "${AGENT_GUARD_LOG_MODE:-on}:${AGENT_GUARD_SCAN_CACHE:-}" in
+    on:*|off:on)
+      doctor_rundir_why=
+      doctor_rundir_state=$(audit_location)
+      if ! plain_absolute_path "$doctor_rundir_state"; then
+        doctor_rundir_why='the private state directory path is not a plain absolute path'
+      elif [ -e "$doctor_rundir_state" ] || [ -L "$doctor_rundir_state" ]; then
+        if ! audit_directory >/dev/null 2>&1; then
+          doctor_rundir_why='the private state directory fails its ownership or mode check'
+        elif [ ! -w "$doctor_rundir_state" ]; then
+          doctor_rundir_why='the private state directory refuses new files'
+        elif [ -L "$doctor_rundir_state/rundir-reap" ] \
+            || { [ -e "$doctor_rundir_state/rundir-reap" ] && [ ! -f "$doctor_rundir_state/rundir-reap" ]; }; then
+          doctor_rundir_why='its marker in the private state directory is not a regular file'
+        fi
+      else
+        # mkdir -p makes it under the nearest entry that exists.
+        doctor_rundir_up=$doctor_rundir_state
+        while [ ! -e "$doctor_rundir_up" ] && [ ! -L "$doctor_rundir_up" ]; do
+          doctor_rundir_up=${doctor_rundir_up%/*}
+          [ -n "$doctor_rundir_up" ] || doctor_rundir_up=/
+        done
+        [ -d "$doctor_rundir_up" ] && [ -w "$doctor_rundir_up" ] \
+          || doctor_rundir_why='the private state directory cannot be created'
+      fi
+      ;;
+  esac
+  case "$doctor_rundir_dir" in
+    *'
+'*) [ -n "$doctor_rundir_why" ] || doctor_rundir_why='the temp directory path contains a newline' ;;
+    /*) ;;
+    *) [ -n "$doctor_rundir_why" ] || doctor_rundir_why='TMPDIR is a relative path' ;;
+  esac
+  if [ -z "$doctor_rundir_why" ] && ! (rundir_absolute_path && CDPATH= cd -P -- "$doctor_rundir_dir" && rundir_parent_safe) 2>/dev/null; then
+    doctor_rundir_why='other users can change entries in that directory'
+  fi
+  case "$doctor_rundir_why" in
+    '')
+    info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; a later hook or scan tries to remove them, at most once an hour; remove any that stay by hand)" ;;
+    *)
+    info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; nothing removes them while $doctor_rundir_why; remove them by hand or fix that)" ;;
+  esac
+}
+
 do_doctor() {
+  SETUP_VIA_DOCTOR=1
   do_setup "$@"
   doctor_status=$?
   if [ -e .gitleaksignore ] || [ -L .gitleaksignore ]; then
@@ -24096,6 +24492,8 @@ do_doctor() {
       ;;
   esac
   doctor_shell_integration_report
+  doctor_rundir_report
+  [ "$SETUP_HELP_SHOWN" = 1 ] || doctor_settings_report
   if command -v codex >/dev/null 2>&1; then
     doctor_here=$(pwd -P 2>/dev/null) || doctor_here=$PWD
     codex_trust_probe "$doctor_here"
@@ -24157,35 +24555,55 @@ do_update() {
 # Per-invocation temp workspace. Every scan temp file (gitleaks stdin captures,
 # read-loop payloads) may hold plaintext secrets, so route them all under one
 # directory (see mktemp_file) and remove it with a single trap on exit —
-# including the catchable signals the host actually sends: SIGTERM when it kills
-# the PostToolUse/Stop hook at its timeout, SIGINT on Ctrl-C. mktemp -d (not a
-# predictable $$-based name) because these files hold secrets and a guessable
-# path in a shared /tmp invites a symlink / pre-create race. Non-fatal: if the
-# dir cannot be created, mktemp_file falls back to per-file temps so no command
-# breaks; only a scan of hook input, which runs from this directory
-# (gitleaks_hook_scan_dir), then reports that it could not run. An
-# un-trappable SIGKILL also leaves the dir to the OS temp reaper.
+# including the catchable signals a host sends to the hook's process group:
+# TERM at the hook timeout (Claude Code, which sends KILL about 1.5 s later),
+# INT on Ctrl-C, HUP when the terminal goes. dash runs no EXIT trap for a
+# signal without a trap of its own, so each of the three has one. mktemp -d
+# makes the name unguessable; the PID in it only tells rundir_reap the owner.
+# Non-fatal: if the dir cannot be created, mktemp_file falls back to per-file
+# temps so no command breaks; only a scan of hook input, which runs from this
+# directory (gitleaks_hook_scan_dir), then reports that it could not run. A
+# KILL (Codex kills a timed-out hook's group with it) runs no trap;
+# rundir_reap removes such leftovers later.
 # This is the process's only EXIT trap: a command running in this shell that
 # needs its own temp directory removed sets AG_EXIT_TMP_DIR instead of
 # replacing the trap, which would skip everything else here.
-AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.XXXXXX" 2>/dev/null \
-  || mktemp -d /tmp/agent-guard-run.XXXXXX 2>/dev/null || printf '')
-# A relative TMPDIR gives a relative path, which a scan started from this
-# directory could not use for its own files.
-case "$AGENT_GUARD_RUNDIR" in ''|/*) ;; *) AGENT_GUARD_RUNDIR=$PWD/$AGENT_GUARD_RUNDIR ;; esac
+# The detached reap pass writes no temp file and adds no entry where it reaps.
+case ${1:-} in
+  __reap-run-dirs) AGENT_GUARD_RUNDIR= ;;
+  *)
+    AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.$$.XXXXXX" 2>/dev/null \
+      || mktemp -d "/tmp/agent-guard-run.$$.XXXXXX" 2>/dev/null || printf '')
+    ;;
+esac
 AG_EXIT_TMP_DIR=
 # Saved once so rundir_temp_file can restore it without a process per file.
 AG_UMASK=$(umask 2>/dev/null) || AG_UMASK=
 # Logging is independent of stdout and never changes the guard's exit status.
 # SIGKILL cannot be trapped; a started-only record remains useful evidence.
 trap 'ag_final_status=$?; clear_gitleaks_probe_processes; clear_codex_trust_probe_processes; claude_block_capture_finish "$ag_final_status"; audit_finish "$ag_final_status"; [ -z "$AGENT_GUARD_RUNDIR" ] || rm -rf "$AGENT_GUARD_RUNDIR"; [ -z "$AG_EXIT_TMP_DIR" ] || rm -rf "$AG_EXIT_TMP_DIR"; exit "$ag_final_status"' 0
+trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 cmd=${1:-}
 audit_begin "$cmd"
+rundir_reap
+# A relative TMPDIR gives a relative path, which a scan started from this
+# directory could not use for its own files. Made absolute only here:
+# rundir_reap leaves a relative one alone.
+case "$AGENT_GUARD_RUNDIR" in ''|/*) ;; *) AGENT_GUARD_RUNDIR=$PWD/$AGENT_GUARD_RUNDIR ;; esac
 case "$cmd" in
   hook-pre-tool) claude_block_capture_begin PreToolUse; hook_pre_tool ;;
+  # Internal: the detached pass rundir_reap starts. It removes only what
+  # rundir_stale selects, from an absolute directory.
+  __reap-run-dirs)
+    case "${2:-}" in /*) ;; *) exit 2 ;; esac
+    AG_UID=$(id -u 2>/dev/null) || exit 2
+    case "$AG_UID" in ''|*[!0123456789]*) exit 2 ;; esac
+    rundir_stale "$2" remove </dev/null >/dev/null 2>&1
+    exit 0
+    ;;
   hook-post-tool) hook_post_tool ;;
   hook-post-tool-failure) hook_post_tool_failure ;;
   hook-stop) claude_block_capture_begin Stop; hook_stop ;;
@@ -24198,7 +24616,7 @@ case "$cmd" in
   scan-staged) shift; gitleaks_bin_dir_notice >&2 || :; scan_staged "$@" ;;
   scan-working-tree) shift; gitleaks_bin_dir_notice >&2 || :; scan_working_tree "$@" ;;
   scan-path) shift; gitleaks_bin_dir_notice >&2 || :; scan_path "$@" ;;
-  filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;
+  filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;  # internal
   logs) shift; audit_logs "$@" ;;
   plugin) shift; do_plugin "$@" ;;
   check) check_deps ;;

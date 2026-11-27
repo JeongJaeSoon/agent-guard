@@ -24,6 +24,7 @@ pass=0 fail=0 n=0 blocked=0 allowed=0
 ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$1"; }
 bad() { fail=$((fail + 1)); printf 'not ok - %s\n' "$1"; }
 
+codex_kept=
 check() { # $1 expected status, $2 command
   n=$((n + 1))
   w="$CASE/w$n"
@@ -38,6 +39,13 @@ check() { # $1 expected status, $2 command
     return
   fi
   for host in claude codex; do
+    # Both hosts get the same event, and the host changes the block message
+    # and the output envelope, never the decision. Codex keeps the first
+    # blocking and the first passing command.
+    if [ "$host" = codex ]; then
+      case "$codex_kept" in *":$1:"*) continue ;; esac
+      codex_kept="$codex_kept:$1:"
+    fi
     jq -nc --arg c "$2" --arg d "$w" \
       '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:"secret-env-write"}' \
       | AGENT_GUARD_HOOK_HOST=$host "$BIN" hook-pre-tool >/dev/null 2>"$CASE/err"
