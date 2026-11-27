@@ -1,6 +1,7 @@
 [
   {
     "id": "script-then-jq",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "94S-2135 case: a script run before a jq that reads the to_entries field names",
@@ -99,6 +100,7 @@
   },
   {
     "id": "script-then-jq-operand",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-block",
     "description": "a protected file as the input operand of a later-segment jq",
