@@ -54,6 +54,17 @@ cases. To install only the helper:
 agent-guard setup --install-gitleaks-helper
 ```
 
+When the helper would answer the selected gitleaks (the official release
+build on a platform with a helper release, a socket path that fits, neither
+`AGENT_GUARD_GITLEAKS_HELPER` nor `AGENT_GUARD_GITLEAKS_BIN` set, logging on)
+but none is installed, SessionStart shows one line, once per install, saying
+that the helper makes hooks faster, with this command. The state directory
+records `gitleaks-helper-hint`: `shown`, or that the gitleaks file (by the
+probe cache's identity) is another build, so that file is not hashed again.
+Without the state directory (`AGENT_GUARD_LOG_MODE=off`) there is no line.
+Claude gets it as a `systemMessage`; Codex gets it as a `systemMessage` too,
+and not in `additionalContext`, so the model is not asked to act on it.
+
 The command works the same for a plugin, Homebrew or standalone install. It
 downloads `agent-guard-gitleaks-helper-<target>.tar.gz` from the GitHub
 release of the running Agent Guard version, takes the two binaries out of it,
