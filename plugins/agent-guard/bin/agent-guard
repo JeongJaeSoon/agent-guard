@@ -3491,7 +3491,8 @@ setup_install_gitleaks_helper() {
 # is wanted and released here, and the user gave the checksum for the version
 # the helper links, and the helper could run here (logging on, a pin for this
 # platform and a hash tool to check the download against it, a usable state
-# directory, and no installed helper that cannot run). It never runs through doctor, and never replaces a gitleaks
+# directory, no installed helper that cannot run, and no helper path the
+# helper installer refuses). It never runs through doctor, and never replaces a gitleaks
 # already in the private directory: that is selected before PATH, so the new
 # one is used from the next scan, and removing it goes back.
 setup_replaces_path_gitleaks() {
@@ -3499,6 +3500,8 @@ setup_replaces_path_gitleaks() {
     && [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] && [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] \
     && ! gitleaks_helper_log_blocks && gitleaks_official_pin && gitleaks_clean_cache_hasher \
     && gitleaks_helper_state_usable && { ! gitleaks_helper_installed || ! gitleaks_helper_unrunnable; } \
+    && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] \
+    && { [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] || [ -d "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; } \
     && [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] \
     && gitleaks_helper_blocker "${gl:-}" && [ -n "$helper_blocker" ]
 }

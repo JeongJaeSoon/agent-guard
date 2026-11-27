@@ -697,6 +697,13 @@ HTTP
   TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
   expect "the way back quotes a PATH build whose path holds a space" \
     '[ "$(status)" = 0 ] && grep -qF "or set AGENT_GUARD_GITLEAKS_BIN='"'"'$CASE/sp gl/gitleaks'"'"'" "$CASE/s.err"'
+  # A helper path the installer would refuse (a symbolic link): replacing the
+  # PATH build would gain nothing.
+  P="$CASE/p-path-helper-link"
+  mkdir -p "$P" "$CASE/elsewhere" && ln -s "$CASE/elsewhere" "$P/gitleaks-helper"
+  si "$P"
+  expect "with a symbolic link at the helper path setup --install keeps the PATH build" \
+    '[ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && [ -L "$P/gitleaks-helper" ]'
   # A state home hooks cannot search: they could not create the state directory.
   P="$CASE/p-path-state-noexec"
   mkdir -p "$CASE/state-noexec" && chmod 600 "$CASE/state-noexec"
