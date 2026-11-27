@@ -3503,7 +3503,8 @@ setup_replaces_path_gitleaks() {
   [ "$SETUP_VIA_DOCTOR" = 0 ] && [ -n "$2" ] && [ "$1" = "$GITLEAKS_DEFAULT_VERSION" ] \
     && [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] && [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] \
     && ! gitleaks_helper_log_blocks && gitleaks_official_pin && gitleaks_clean_cache_hasher \
-    && gitleaks_helper_state_usable && { ! gitleaks_helper_installed || ! gitleaks_helper_unrunnable; } \
+    && gitleaks_helper_state_usable \
+    && if gitleaks_helper_installed; then ! gitleaks_helper_unrunnable; else [ -z "$AG_GITLEAKS_HELPER_FOREIGN" ]; fi \
     && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] \
     && { [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] || [ -d "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; } \
     && [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] \
@@ -3629,6 +3630,7 @@ setup_install_gitleaks_helper_with_gitleaks() {
   [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] || return 0
   gitleaks_helper_target || return 0
   ! gitleaks_helper_installed || return 0
+  [ -z "$AG_GITLEAKS_HELPER_FOREIGN" ] || return 0
   cli_ref_init
   if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
     helper_reason=$HELPER_GITLEAKS_BIN_REASON
@@ -3773,8 +3775,10 @@ setup_gitleaks_helper_status_line() {
         fi
       else
         cli_ref_init
-        if [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] && ! gitleaks_helper_target; then
-          info "$PROGRAM: gitleaks helper  not used  (no warm gitleaks helper is released for this platform, so scans run gitleaks directly; $GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper can be removed)"
+        if [ -n "$AG_GITLEAKS_HELPER_FOREIGN" ]; then
+          info "$PROGRAM: gitleaks helper  not used  (installed for another platform, $AG_GITLEAKS_HELPER_FOREIGN; scans here run gitleaks directly)"
+        elif [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] && ! gitleaks_helper_target; then
+          info "$PROGRAM: gitleaks helper  not used  (no warm gitleaks helper is released for this platform, so scans run gitleaks directly)"
         elif [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
           info "$PROGRAM: gitleaks helper  not used  (installed for another Agent Guard version or platform; run: $AG_CLI_REF setup --install-gitleaks-helper)"
         elif [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
@@ -4824,6 +4828,7 @@ run_gitleaks_stdin() {
 gitleaks_helper_installed() {
   if [ -z "${AG_GITLEAKS_HELPER_INSTALLED+set}" ]; then
     AG_GITLEAKS_HELPER_INSTALLED=
+    AG_GITLEAKS_HELPER_FOREIGN=
     ag_gh_dir=$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper
     ag_gh_helper=
     ag_gh_client=
@@ -4840,18 +4845,29 @@ gitleaks_helper_installed() {
         *) ag_gh_client= ;;
       esac
       ag_gh_target=
-      # Only this platform's pins: a private directory shared by two systems
-      # can hold the other's helper, which could not execute here. Asked
-      # only once a helper is installed, so the default path forks nothing.
-      if [ "${#ag_gh_helper}" -eq 64 ] && [ "${#ag_gh_client}" -eq 64 ] && gitleaks_helper_target; then
+      ag_gh_match=
+      if [ "${#ag_gh_helper}" -eq 64 ] && [ "${#ag_gh_client}" -eq 64 ]; then
         while IFS= read -r ag_gh_line; do
           case "$ag_gh_line" in
-            "$ag_gh_helper  $helper_target/agent-guard-gitleaks-helper") ag_gh_target=$helper_target ;;
-            "$ag_gh_client  $helper_target/agent-guard-scan")
-              [ -z "$ag_gh_target" ] || AG_GITLEAKS_HELPER_INSTALLED=$ag_gh_dir/agent-guard-scan
+            "$ag_gh_helper  "*/agent-guard-gitleaks-helper)
+              ag_gh_target=${ag_gh_line#*  }
+              ag_gh_target=${ag_gh_target%/agent-guard-gitleaks-helper}
+              ;;
+            "$ag_gh_client  $ag_gh_target/agent-guard-scan")
+              [ -z "$ag_gh_target" ] || ag_gh_match=$ag_gh_target
               ;;
           esac
         done 2>/dev/null <"$ROOT_DIR/config/gitleaks-helper.sha256"
+      fi
+      # A private directory shared by two systems can hold the other's
+      # helper, which could not execute here but must not be replaced.
+      # uname is asked only once a helper matched, so the default path forks nothing.
+      if [ -n "$ag_gh_match" ]; then
+        if gitleaks_helper_target && [ "$ag_gh_match" = "$helper_target" ]; then
+          AG_GITLEAKS_HELPER_INSTALLED=$ag_gh_dir/agent-guard-scan
+        else
+          AG_GITLEAKS_HELPER_FOREIGN=$ag_gh_match
+        fi
       fi
     fi
   fi

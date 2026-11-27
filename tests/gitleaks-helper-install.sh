@@ -236,8 +236,9 @@ cp "$CASE/plugin/config/gitleaks-helper.sha256" "$CASE/helper-pins.keep"
 sed "s|  $target/|  riscv64-unknown-linux-musl/|" "$CASE/helper-pins.keep" >"$CASE/plugin/config/gitleaks-helper.sha256"
 doc
 cp "$CASE/helper-pins.keep" "$CASE/plugin/config/gitleaks-helper.sha256"
-expect "a helper installed for another platform (a shared private directory): not used, and how to reinstall" \
-  'hl | grep -qF "gitleaks helper  not used  (installed for another Agent Guard version or platform; run: "'
+expect "a helper installed for another platform (a shared private directory): not used, named, and not reinstalled over" \
+  'hl | grep -qF "gitleaks helper  not used  (installed for another platform, riscv64-unknown-linux-musl; scans here run gitleaks directly)" \
+   && ! hl | grep -q "install-gitleaks-helper"'
 mv "$CASE/xs/agent-guard/gitleaks-helper" "$CASE/helper-sub.keep" 2>/dev/null
 (umask 177; doc)
 [ ! -e "$CASE/helper-sub.keep" ] || mv "$CASE/helper-sub.keep" "$CASE/xs/agent-guard/gitleaks-helper"
@@ -592,7 +593,7 @@ HTTP
   env PATH="$CASE/uname-bin:$CASE/path-gl:$CASE/http-bin:$CASE/tools" TMPDIR="$CASE/tmp" AGENT_GUARD_GITLEAKS_BIN_DIR="$P" \
     "$GUARD" doctor >"$CASE/s.out" 2>"$CASE/s.err"
   expect "a helper left on a platform with no helper release: not used, scans run gitleaks directly, no reinstall advice" \
-    'grep -qF "gitleaks helper  not used  (no warm gitleaks helper is released for this platform, so scans run gitleaks directly; $P/gitleaks-helper can be removed)" "$CASE/s.err" \
+    'grep -qF "gitleaks helper  not used  (no warm gitleaks helper is released for this platform, so scans run gitleaks directly)" "$CASE/s.err" \
      && ! grep -q "install-gitleaks-helper" "$CASE/s.err"'
   # Asked for with setup --install and a checksum, the official build goes to
   # the private directory, which is selected before PATH, with one line that
@@ -709,6 +710,27 @@ HTTP
   expect "with an installed helper that cannot run setup --install keeps the PATH build and says how to reinstall" \
     '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] \
      && grep -qF "gitleaks helper  not used  (its helper $P/gitleaks-helper/agent-guard-gitleaks-helper is not executable; reinstall it: " "$CASE/s.err"'
+  # A helper another platform installed in a shared private directory (its
+  # recorded sums match that platform's pins) is kept, and setup --install
+  # puts no gitleaks there that the other system would then select.
+  cp "$CASE/plugin/config/gitleaks-helper.sha256" "$CASE/helper-pins.keep"
+  printf '%064d  riscv64-unknown-linux-musl/agent-guard-gitleaks-helper\n%064d  riscv64-unknown-linux-musl/agent-guard-scan\n' 1 2 \
+    >>"$CASE/plugin/config/gitleaks-helper.sha256"
+  for P in "$CASE/p-path-foreign" "$CASE/p-path-foreign-sum"; do
+    mkdir -p "$P" && cp -Rp "$CASE/p-path/gitleaks-helper" "$P/gitleaks-helper"
+    printf '%064d  agent-guard-gitleaks-helper\n%064d  agent-guard-scan\n' 1 2 >"$P/gitleaks-helper/SHA256SUMS"
+  done
+  foreign_kept() { [ "$(head -c 64 "$1/gitleaks-helper/SHA256SUMS")" = "$(printf %064d 1)" ]; }
+  P="$CASE/p-path-foreign"
+  si "$P" -- --install
+  expect "a helper installed for another platform in a shared private directory: setup --install keeps it and downloads nothing" \
+    '[ "$(status)" = 0 ] && [ "$(urls)" = 0 ] && foreign_kept "$P" && [ ! -e "$P/gitleaks" ] \
+     && grep -qF "gitleaks helper  not used  (installed for another platform, riscv64-unknown-linux-musl; scans here run gitleaks directly)" "$CASE/s.err"'
+  P="$CASE/p-path-foreign-sum"
+  si "$P"
+  expect "with that helper and a checksum setup --install keeps the PATH build and the helper" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && foreign_kept "$P"'
+  cp "$CASE/helper-pins.keep" "$CASE/plugin/config/gitleaks-helper.sha256"
   # The way back names the PATH build in a form the shell keeps.
   P="$CASE/p-path-space"
   mkdir -p "$CASE/sp gl" && cp "$CASE/path-gl/gitleaks" "$CASE/sp gl/gitleaks"
