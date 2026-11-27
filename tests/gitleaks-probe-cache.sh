@@ -228,12 +228,12 @@ else
 fi
 
 # The gitleaks rule suites, hosted here and not in run.sh, which is already near
-# ShellCheck's memory limit. On Linux CI they are a step of the Codex
-# navigation job instead (ci.yml): this job is the longest of a pull request.
-# They scan with the real binary when there is one, so drop this file's shim
-# override.
-if [ "${CI:-}" = true ] && [ "$(uname -s)" = Linux ]; then
-  printf '# gitleaks rule suites: run by the Linux Codex navigation job\n'
+# ShellCheck's memory limit. A workflow that runs them as a step of its own
+# says so with AGENT_GUARD_TEST_RULE_SUITES_STEP: ci.yml does on Linux, where
+# this job is the longest of a pull request. They scan with the real binary
+# when there is one, so drop this file's shim override.
+if [ -n "${AGENT_GUARD_TEST_RULE_SUITES_STEP:-}" ]; then
+  printf '# gitleaks rule suites: left to their own workflow step\n'
 else
   check 'the gitleaks rule suites pass' \
     env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \

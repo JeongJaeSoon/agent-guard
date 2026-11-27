@@ -193,6 +193,9 @@ jobs:
         env:
           TEST_PARTITIONS: ${{ matrix.shards }}
           AGENT_GUARD_TEST_NAVIGATION_HOST: ${{ matrix.navigation_host }}
+          # On Linux the gitleaks rule suites are a step of the Codex navigation
+          # job (below), so partition 4 leaves them to it.
+          AGENT_GUARD_TEST_RULE_SUITES_STEP: ${{ runner.os == 'Linux' && '1' || '' }}
         run: |
           jq --version
           # IDs come only from the checked-in matrix; the driver validates

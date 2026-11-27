@@ -83,8 +83,8 @@ substitute for the complete CI gates. A real scanner on PATH enables
 additional integration assertions; CI requires them and the smoke test on its
 Linux scanner job, and other partitions use synthetic scanner fixtures. The
 suites that check the rules of `gitleaks.toml` run through
-`tests/real-gitleaks-rules.sh`, which partition 4 starts everywhere except on
-Linux CI (see "Test partitions").
+`tests/real-gitleaks-rules.sh`, which partition 4 starts unless the workflow
+runs it as a step (see "Test partitions").
 
 The full suite includes subprocess, file-mode and process-cleanup cases. Keep
 HOME, warning/session state, Git repositories and output files isolated. Do
@@ -402,9 +402,11 @@ the eight suites that check the rules and allowlists of `gitleaks.toml`, there
 against the real scanner. They are a step of that job, not a job of their own,
 because branch protection requires the job by name and the scanner job is the
 longest of a pull request. The step fails the job when a suite fails or skips,
-or when the scanner is missing. Everywhere else `tests/gitleaks-probe-cache.sh`
-(partition 4) starts the same file, as one assertion; without a real scanner
-five of the suites skip and three run on the mock. `tests/ci-scope.sh` checks
+or when the scanner is missing. The workflow sets
+`AGENT_GUARD_TEST_RULE_SUITES_STEP` for its Linux test jobs; without it, on
+macOS and in a local run, `tests/gitleaks-probe-cache.sh` (partition 4) starts
+the same file as one assertion, and without a real scanner five of the suites
+skip and three run on the mock. `tests/ci-scope.sh` checks
 that wiring and that a change to the config, a suite or the driver runs the
 job.
 

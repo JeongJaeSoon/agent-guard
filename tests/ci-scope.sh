@@ -618,13 +618,24 @@ printf '%s\n' "$rules_step" | grep -Fxq "        if: runner.os == 'Linux' && mat
 printf '%s\n' "$rules_step" | grep -Fxq '        run: sh tests/real-gitleaks-rules.sh' || fail 'the step runs the rule suite driver and nothing else'
 printf '%s\n' "$shards_job" | grep -Fxq "        if: runner.os == 'Linux' && (matrix.bundle == 'scanner' || matrix.bundle == 'navigation-codex') && needs.secret-guard.outputs.tests == 'true'" \
   || fail 'the Codex navigation job installs the same pinned gitleaks as the scanner job'
-# Outside Linux CI tests/run.sh still starts the suites, through the
+# Without that step tests/run.sh still starts the suites, through the
 # probe-cache suite: three of them check prompt blocking and output masking on
-# the mock when there is no real gitleaks, which is every macOS job.
-grep -Fxq 'if [ "${CI:-}" = true ] && [ "$(uname -s)" = Linux ]; then' "$ROOT/tests/gitleaks-probe-cache.sh" \
-  || fail 'only Linux CI leaves the rule suites to the navigation job'
+# the mock when there is no real gitleaks, which is every macOS job. Only the
+# workflow with the step may turn that off, on Linux, and every run of it has
+# the job with the step.
+grep -Fxq 'if [ -n "${AGENT_GUARD_TEST_RULE_SUITES_STEP:-}" ]; then' "$ROOT/tests/gitleaks-probe-cache.sh" \
+  || fail 'the probe-cache suite leaves the rule suites out only when a workflow step runs them'
 grep -Fxq '    sh "$ROOT/tests/real-gitleaks-rules.sh"' "$ROOT/tests/gitleaks-probe-cache.sh" \
-  || fail 'outside Linux CI the probe-cache suite starts the rule suites'
+  || fail 'without a workflow step the probe-cache suite starts the rule suites'
+[ "$(grep -rl AGENT_GUARD_TEST_RULE_SUITES_STEP "$ROOT/.github")" = "$ci_yml" ] || fail 'only ci.yml moves the rule suites to a step'
+printf '%s\n' "$shards_job" | grep -Fxq "          AGENT_GUARD_TEST_RULE_SUITES_STEP: \${{ runner.os == 'Linux' && '1' || '' }}" \
+  || fail 'ci.yml moves the rule suites to a step on Linux only'
+for rule_run in 'pull_request release/v1.2.3' 'push main' 'push main true' 'schedule main' 'workflow_dispatch main'; do
+  # shellcheck disable=SC2086
+  sh "$ROOT/.github/scripts/ci-scope.sh" $rule_run </dev/null | sed -n 's/^include=//p' \
+    | jq -e 'any(.[]; .bundle == "navigation-codex" and (has("os") | not))' >/dev/null \
+    || fail "every run has the Linux Codex navigation job: $rule_run"
+done
 # The driver's own contract, on a copy with stand-in suites. A failing suite
 # fails it everywhere. On Linux CI a skipped suite and a missing gitleaks fail
 # it too; elsewhere the suites still start without one.
@@ -659,7 +670,11 @@ if rules_run CI=true PATH="$rules_tmp/linux:$PATH" AGENT_GUARD_TEST_REAL_GITLEAK
 if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks-other"; then
   fail 'a scanner the suites would not run by name is refused'
 fi
+mkdir -p "$rules_tmp/dir/gitleaks"
+if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/dir/gitleaks"; then fail 'a scanner that is not a file is refused'; fi
+chmod -x "$rules_tmp/bin/gitleaks"
+if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then fail 'a scanner that is not executable is refused'; fi
 rm -rf "$rules_tmp"
 trap - 0
-pass=$((pass + 16))
+pass=$((pass + 21))
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

@@ -1,11 +1,12 @@
 #!/bin/sh
 # The suites that check the rules and allowlists of
 # plugins/agent-guard/config/gitleaks.toml, one after another.
-# tests/gitleaks-probe-cache.sh starts this file everywhere except on Linux CI,
-# where it is a step of the Codex navigation job (see CONTRIBUTING.md "Test
-# partitions"). Without a real gitleaks a suite skips or uses the mock. On
-# Linux CI a missing gitleaks and a skipped suite are failures: a green step
-# must mean every suite ran against the real scanner.
+# tests/gitleaks-probe-cache.sh starts this file unless the workflow runs it
+# as a step of its own, which ci.yml does in the Linux Codex navigation job
+# (see CONTRIBUTING.md "Test partitions"). Without a real gitleaks a suite
+# skips or uses the mock. On Linux CI a missing gitleaks and a skipped suite
+# are failures: a green step must mean every suite ran against the real
+# scanner.
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 REAL_GITLEAKS=${AGENT_GUARD_TEST_REAL_GITLEAKS-$(command -v gitleaks 2>/dev/null || :)}
@@ -16,10 +17,12 @@ if [ -z "$REAL_GITLEAKS" ]; then
     printf 'not ok - real gitleaks is required for the rule suites on Linux CI\n'
     exit 1
   fi
-elif [ "$(basename -- "$REAL_GITLEAKS")" != gitleaks ]; then
+elif [ ! -f "$REAL_GITLEAKS" ] || [ ! -x "$REAL_GITLEAKS" ] \
+    || [ "$(basename -- "$REAL_GITLEAKS")" != gitleaks ]; then
   # The suites put this file's directory on PATH and run gitleaks by name, so
-  # under another name they would scan with whichever gitleaks PATH has next.
-  printf 'not ok - AGENT_GUARD_TEST_REAL_GITLEAKS must be a file named gitleaks: %s\n' "$REAL_GITLEAKS"
+  # without an executable of that name there they would scan with whichever
+  # gitleaks PATH has next.
+  printf 'not ok - AGENT_GUARD_TEST_REAL_GITLEAKS must be an executable file named gitleaks: %s\n' "$REAL_GITLEAKS"
   exit 1
 fi
 # Exit before the cleanup trap exists: an empty CASE would make `cd -- ""`
