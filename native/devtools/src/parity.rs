@@ -228,6 +228,20 @@ fn change(path: &str, entry: &Entry) -> Change {
                 format!("t/agent-guard-warnings-#{marker}"),
                 lines.join(&b'\n'),
             )
+        } else if path == "s/agent-guard/rundir-reap" {
+            // A line per temp directory, led by the time it was last reaped.
+            let lines: Vec<Vec<u8>> = bytes
+                .split(|byte| *byte == b'\n')
+                .map(|line| {
+                    let digits = line.iter().take_while(|byte| byte.is_ascii_digit()).count();
+                    if digits == 0 {
+                        line.to_vec()
+                    } else {
+                        [b"#".as_slice(), &line[digits..]].concat()
+                    }
+                })
+                .collect();
+            ("state-file", path.to_owned(), lines.join(&b'\n'))
         } else if path.starts_with("repo/.git/") {
             let volatile = GIT_VOLATILE.iter().any(|prefix| path.starts_with(prefix));
             (
@@ -1013,6 +1027,28 @@ mod tests {
             "temporary-directory"
         );
         assert_eq!(change("home/x", &entry(0o600, "")).0, "home-file");
+    }
+    #[test]
+    fn the_reap_marker_loses_only_its_times() {
+        let marker = |text: &str| {
+            change(
+                "s/agent-guard/rundir-reap",
+                &(0o600, text.as_bytes().to_vec()),
+            )
+        };
+        assert_eq!(
+            marker("1795700000 /sandbox/t\n1795700001 /tmp\n"),
+            marker("1795700042 /sandbox/t\n1795700043 /tmp\n")
+        );
+        assert_ne!(
+            marker("1795700000 /sandbox/t\n"),
+            marker("1795700000 /tmp\n")
+        );
+        assert_ne!(
+            marker("1795700000 /sandbox/t\n"),
+            marker("1795700000 /sandbox/t\n1795700000 /tmp\n")
+        );
+        assert_eq!(marker("1795700000 /sandbox/t\n").0, "state-file");
     }
     #[test]
     fn a_signal_is_not_an_exit_status() {
