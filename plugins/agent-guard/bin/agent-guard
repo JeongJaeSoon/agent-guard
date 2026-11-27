@@ -24230,7 +24230,7 @@ doctor_rundir_report() {
   fi
   case "$doctor_rundir_why" in
     '')
-    info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; a later hook or scan removes them, at most once an hour)" ;;
+    info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; a later hook or scan tries to remove them, at most once an hour; remove any that stay by hand)" ;;
     *)
     info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; nothing removes them while $doctor_rundir_why; remove them by hand or fix that)" ;;
   esac

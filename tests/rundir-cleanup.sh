@@ -539,7 +539,7 @@ for mode in on off; do
     AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
     sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
   case $mode in
-    on) want='temp: 4 stale run directories in [^ ]* (left by a killed run; a later hook or scan removes them' ;;
+    on) want='temp: 4 stale run directories in [^ ]* (left by a killed run; a later hook or scan tries to remove them, at most once an hour; remove any that stay by hand)' ;;
     off) want='temp: 4 stale run directories in [^ ]* (left by a killed run; nothing removes them while the private state directory is off' ;;
   esac
   after=$(find "$DOC_TMP" | LC_ALL=C sort)
@@ -605,7 +605,7 @@ env HOME="$CASE/home" XDG_STATE_HOME="$CASE/doctor-state" TMPDIR="$CASE/planted-
   PATH=":.:$PATH" AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
   sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
 if ! ls "$CASE"/planted-ran-* >/dev/null 2>&1 && [ "$gone_planted" = yes ] \
-  && grep -q 'temp: 1 stale run directories in .*a later hook or scan removes them' "$CASE/doctor-out"; then
+  && grep -q 'temp: 1 stale run directories in .*a later hook or scan tries to remove them' "$CASE/doctor-out"; then
   ok "cleanup and doctor run no tool planted in the temp directory through a relative PATH entry"
 else
   not_ok "cleanup and doctor run no tool planted in the temp directory through a relative PATH entry"
