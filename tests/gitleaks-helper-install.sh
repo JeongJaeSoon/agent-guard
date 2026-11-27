@@ -221,6 +221,12 @@ cp "$CASE/bin/gitleaks" "$CASE/back\\slash/gitleaks"
 (PATH="$CASE/back\\slash:$PATH"; doc)
 expect "the official build in a directory whose name holds a backslash is still recognized" \
   'hl | grep -qF "gitleaks helper  installed  (it answers the selected gitleaks $CASE/back"'
+chmod 644 "$PRIV/gitleaks-helper/agent-guard-scan"
+doc
+chmod 755 "$PRIV/gitleaks-helper/agent-guard-scan"
+expect "an installed client that lost its execute bit: the line says not used and how to reinstall" \
+  'hl | grep -qF "gitleaks helper  not used  (its client $PRIV/gitleaks-helper/agent-guard-scan is not executable; reinstall it: " \
+   && hl | grep -qF "setup --install-gitleaks-helper)"'
 (XDG_STATE_HOME=relative-state; doc)
 expect "a state directory that is not a plain absolute path: not used, and what to do" \
   'hl | grep -qF "gitleaks helper  not used  (the state directory relative-state/agent-guard is not a plain absolute path (relative, or through a symbolic link); set XDG_STATE_HOME to one)"'
@@ -659,6 +665,22 @@ HTTP
   expect "a directory another process puts at the private gitleaks name meanwhile gets no link inside it" \
     '[ "$(status)" != 0 ] && [ -d "$P/gitleaks" ] && [ -z "$(ls -A "$P/gitleaks")" ] \
      && ! grep -qF "installed gitleaks v" "$CASE/s.err" && [ -z "$(find "$P" -name ".gitleaks.*")" ]'
+  # A state home hooks cannot search: they could not create the state directory.
+  P="$CASE/p-path-state-noexec"
+  mkdir -p "$CASE/state-noexec" && chmod 600 "$CASE/state-noexec"
+  si "$P" XDG_STATE_HOME="$CASE/state-noexec"
+  chmod 700 "$CASE/state-noexec"
+  expect "with XDG_STATE_HOME writable but not searchable setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  # The terminal closing during the replacement download leaves nothing behind.
+  P="$CASE/p-path-hup"
+  printf '#!/bin/sh\nkill -HUP "$PPID"\nsleep 1\nexit 22\n' >"$CASE/race-bin/curl"
+  TOOLS_PATH="$CASE/race-bin:$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  sleep 1
+  expect "a replacement download ended by SIGHUP leaves no staging or temporary directory" \
+    '[ ! -e "$P/gitleaks" ] && [ -z "$(find "$P" -name ".gitleaks.*" 2>/dev/null)" ] && no_temp_left'
   # A state home that is a file: hooks could never create the state directory.
   P="$CASE/p-path-state-file"
   : >"$CASE/state-file"
