@@ -143,9 +143,9 @@ chmod +x "$MOCK_BIN/gitleaks"
 # unset runs every shard in order. A shard skips the other shards' blocks, so it
 # must build its own fixtures rather than reuse one an earlier shard created.
 case ${AGENT_GUARD_TEST_SHARD:-} in
-  ''|1|2|3|4|5|6|7) ;;
+  ''|1|2|3|4|5|6|7|8) ;;
   *)
-    say "AGENT_GUARD_TEST_SHARD must be unset or 1-7, got: $AGENT_GUARD_TEST_SHARD" >&2
+    say "AGENT_GUARD_TEST_SHARD must be unset or 1-8, got: $AGENT_GUARD_TEST_SHARD" >&2
     exit 2
     ;;
 esac
@@ -190,8 +190,8 @@ suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.s
 ci_include=$(sh "$ROOT/.github/scripts/ci-scope.sh" push main < /dev/null | sed -n 's/^include=//p')
 ci_shards=$(printf '%s\n' "$ci_include" | jq -r '.[].shards' | tr ' ' '\n' | sort | tr '\n' ' ')
 ci_navigation_hosts=$(printf '%s\n' "$ci_include" | jq -r '.[].navigation_host // empty' | sort | tr '\n' ' ')
-if [ -n "$suite_shards" ] && [ "$suite_shards" = '1 2 3 4 5 6 7 ' ] \
-  && [ "$ci_shards" = '1 1 2 2 3 3 4 5 5 6 6 7 7 ' ] \
+if [ -n "$suite_shards" ] && [ "$suite_shards" = '1 2 3 4 5 6 7 8 ' ] \
+  && [ "$ci_shards" = '1 1 2 2 3 3 4 5 5 6 6 7 7 8 8 ' ] \
   && [ "$ci_navigation_hosts" = 'claude codex ' ]; then
   ok "every test shard and navigation host runs in the CI matrix"
 else
@@ -5199,8 +5199,6 @@ if in_shard 3; then
 # a Linux container.
 run_expect 0 "the protected-path regex cache only rules commands out and never changes a verdict" \
   sh "$ROOT/tests/deny-path-regex-cache.sh"
-run_expect 0 "a deny-read rule matches whole characters in every shell and locale" \
-  sh "$ROOT/tests/deny-rule-characters.sh"
 run_expect 0 "orca/gh/git message values leave out no protected read" \
   sh "$ROOT/tests/message-value-prose.sh"
 
@@ -5812,6 +5810,14 @@ run_expect 0 "sed addresses, echo words and plain heredoc expansions are data; r
 run_expect 0 "hand-back reports that name credential settings without values pass, real values still block" \
   sh "$ROOT/tests/handback-values.sh"
 fi # end of shard 7
+
+if in_shard 8; then
+# Partition 3 took 17 to 19 minutes on macOS before this suite joined it, and
+# the suite alone took 433 seconds there: the job hit its 25-minute limit at
+# the v3.15.1 release. tests/partition-membership.sh keeps it here.
+run_expect 0 "a deny-read rule matches whole characters in every shell and locale" \
+  sh "$ROOT/tests/deny-rule-characters.sh"
+fi # end of shard 8
 
 if in_shard 5; then
 # A shell cd moves the commit to another repository: the scan must follow a

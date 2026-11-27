@@ -15,7 +15,7 @@ check() {
   include=$(printf '%s\n' "$actual" | sed -n 's/^include=//p')
   printf '%s\n' "$include" | jq -e '.' > /dev/null || { printf 'not ok - include is JSON for %s\n' "$event"; exit 1; }
   macos_legs=$(printf '%s\n' "$include" | jq '[.[] | select(.os == "macos-latest")] | length')
-  case "$scope:$macos_legs" in full:5|subset:0|main:0) ;; *) printf 'not ok - macOS legs for %s/%s: %s\n' "$event" "$branch" "$macos_legs"; exit 1 ;; esac
+  case "$scope:$macos_legs" in full:6|subset:0|main:0) ;; *) printf 'not ok - macOS legs for %s/%s: %s\n' "$event" "$branch" "$macos_legs"; exit 1 ;; esac
   actual=$(printf '%s\n' "$actual" | grep -v '^include=')
   expected=$(printf '%s\ntests=%s' "$expected" "$tests")
   if [ "$actual" != "$expected" ]; then
@@ -132,11 +132,11 @@ for variant in mawk gawk busybox; do
 done
 check=$(printf 'ci.yml\tCore, host adapters and Git (partition 3) (macos-latest)')
 grep -Fxq "$check" "$ROOT/.github/release-checks.tsv" || fail 'release requires the macOS partition 3 check'
-for name in 'Core, host adapters and Git (partition 6) (macos-latest)' 'Command policies (partition 7) (macos-latest)'; do
+for name in 'Core, host adapters and Git (partition 6) (macos-latest)' 'Command policies (partition 7) (macos-latest)' 'Command policies (partition 8) (macos-latest)'; do
   check=$(printf 'ci.yml\t%s' "$name")
   grep -Fxq "$check" "$ROOT/.github/release-checks.tsv" || fail "release requires the macOS check $name"
 done
-pass=$((pass + 3))
+pass=$((pass + 4))
 grep -Fq 'env AGENT_GUARD_TEST_REQUIRE_AWKS= AGENT_GUARD_TEST_LONG_INPUT_AWKS=default sh' "$ROOT/tests/run.sh" \
   || fail 'the default-awk subset clears inherited implementation requirements'
 # Overridable so a must-fail control can point the checks at a mutated copy.

@@ -291,7 +291,7 @@ matrix can be verified before merging a CI change.
 | --- | --- |
 | Agent Guard | Real scanner against the checked-out tree |
 | Named suites (ubuntu-latest) | All suite partitions on Linux; real scanner integration and smoke test in partition 4; the real-scanner rule suites as a step of Shell navigation (Codex) |
-| Named suites (macos-latest) | Core, host adapters and Git as three jobs (partition 1 under that name, partitions 3 and 6 as `Core, host adapters and Git (partition 3)` and `(partition 6)`) and Command policies as two (partition 2 under that name, partition 7 as `Command policies (partition 7)`), plus every other partition, on release merges, the nightly run, manual dispatch and `release/` PRs, with the mock scanner |
+| Named suites (macos-latest) | Core, host adapters and Git as three jobs (partition 1 under that name, partitions 3 and 6 as `Core, host adapters and Git (partition 3)` and `(partition 6)`) and Command policies as three (partition 2 under that name, partitions 7 and 8 as `Command policies (partition 7)` and `(partition 8)`), plus every other partition, on release merges, the nightly run, manual dispatch and `release/` PRs, with the mock scanner |
 | Test (ubuntu-latest), Test (macos-latest) | Full-matrix aggregate on release merges, the nightly run, release PRs and manual dispatch; names consumed by release |
 | Main subset test (ubuntu-latest), Main subset test (macos-latest) | Linux aggregate on a main push of an ordinary PR merge |
 | PR subset test (ubuntu-latest), PR subset test (macos-latest) | Ordinary PR aggregate of every selected shard, including cancelled/failed jobs |
@@ -368,16 +368,17 @@ configuration and sessions.
 | Internal ID | Actions suite | Contents |
 | --- | --- | --- |
 | 1 | Core, host adapters and Git (with 3 and 6 on Linux; alone on macOS) | Core, host adapter and Git contracts, direct unit suites, protected-path fixture suites |
-| 2 | Command policies (with 7 on Linux; alone on macOS) | Command policies, git aliases and mask suites, plus the Bash text-as-data and operand fixture suites moved from partition 1 |
+| 2 | Command policies (with 7 and 8 on Linux; alone on macOS) | Command policies, git aliases and mask suites, plus the Bash text-as-data and operand fixture suites moved from partition 1 |
 | 3 | Core, host adapters and Git (with 1 and 6 on Linux; `Core, host adapters and Git (partition 3)` on macOS) | Auto-staging cases and the heaviest hook fixture suites |
 | 4 | CLI, scanner and output | Real scanner integration, output masking, PII and shell setup |
 | 5 | Shell navigation (Claude), Shell navigation (Codex) | Shell navigation, split by host |
 | 6 | Core, host adapters and Git (with 1 and 3 on Linux; `Core, host adapters and Git (partition 6)` on macOS) | The suites moved from partition 1 that each run the hook hundreds of times: the search, gh/jq program, here-document, environment-lookup, tool-coverage, plugin-management and long-input suites |
-| 7 | Command policies (with 2 on Linux; `Command policies (partition 7)` on macOS) | `tests/bash-path-text-data.sh` and `tests/handback-values.sh`, moved from partition 2 |
+| 7 | Command policies (with 2 and 8 on Linux; `Command policies (partition 7)` on macOS) | `tests/bash-path-text-data.sh` and `tests/handback-values.sh`, moved from partition 2 |
+| 8 | Command policies (with 2 and 7 on Linux; `Command policies (partition 8)` on macOS) | `tests/deny-rule-characters.sh`, moved from partition 3 |
 
 Partitions are balanced by measured macOS job time, not assertion count. On
 Linux one core runner runs partitions 1, 3 and 6 side by side, and one command
-runner runs 2 and 7, so the slowest of each set sets the job time; on macOS each
+runner runs 2, 7 and 8, so the slowest of each set sets the job time; on macOS each
 runs on its own runner to stay under the 25-minute job limit (partitions 1 and 2
 alone measured 21 to 25 minutes before 6 and 7 were split off). Heavy fixture suites
 that run the hook hundreds of times go where there is room:
@@ -387,7 +388,9 @@ that run the hook hundreds of times go where there is room:
 `tests/path-operands-only.sh`, `tests/redaction-wrapped-values.sh` and
 `tests/tracked-file-exception.sh` run in partition 2, which had room while
 partition 1 alone reached the 25-minute limit on macOS;
-`tests/partition-membership.sh` keeps them there. The CI log of each core job
+`tests/deny-rule-characters.sh` runs alone in partition 8: it took 433 seconds
+on macOS and pushed partition 3, which had taken 17 to 19 minutes, past the
+limit. `tests/partition-membership.sh` keeps them there. The CI log of each core job
 prints per-suite seconds and, per partition, the total beside the timed-suite
 sum, so the next move can be chosen from measured numbers. When you move a suite,
 compare the macOS job times of both partitions. Do not raise the timeout, and
