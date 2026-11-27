@@ -157,6 +157,15 @@ count=$((count + 1))
 if bash_path=$(command -v bash 2>/dev/null) && [ "${bash_path##*/}" = bash ]; then
   interpreter bash "$bash_path" "$CASE/payload with spaces/bin/agent-guard"
 fi
+# exec resolves the command the way the shell that started the CLI does: a
+# function bash exports reaches it only in bash.
+if [ "$want" = dash ] && command -v bash >/dev/null 2>&1; then
+  bash -c 'ag_fn() { echo function-ran; }; export -f ag_fn; sh "$1" exec -- ag_fn' _ \
+    "$ROOT/plugins/agent-guard/bin/agent-guard" >"$CASE/out"
+  test "$(cat "$CASE/out")" = function-ran
+  count=$((count + 1))
+  printf 'ok - script location contract %s (exec keeps the shell)\n' "$count"
+fi
 # The scanner report is bounded in bytes: dash counts the ulimit -f it sets in
 # 512-byte blocks, so a report past 64 KiB is cut and the output is masked as
 # an unreadable scan. A smaller one is read, and the output stays as it is.
@@ -173,7 +182,7 @@ if [ "$want" = dash ] || sh -c 'case ${BASH:-} in */sh) exit 1 ;; esac'; then
       | HOME="$CASE/home" XDG_STATE_HOME="$CASE/state" AGENT_GUARD_GITLEAKS_BIN="$CASE/tools/report-gitleaks" \
         AGENT_GUARD_TEST_REPORT_BYTES=$pad sh "$ROOT/plugins/agent-guard/bin/agent-guard" hook-post-tool >"$CASE/out" 2>/dev/null
     if [ "$pad" -lt 65536 ]; then
-      ! grep -q 'REDACTED' "$CASE/out"
+      if grep -q 'REDACTED' "$CASE/out"; then exit 1; fi
     else
       grep -q '"updatedToolOutput":"\[REDACTED\]"' "$CASE/out"
     fi
