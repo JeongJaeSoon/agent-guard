@@ -1,6 +1,72 @@
 #!/usr/bin/env sh
 set -u
 
+# bash acting as sh (macOS) parses and runs this script several times slower
+# than dash. Started that way, and with no shell option of the caller's own,
+# hand the same file and arguments to a system dash before anything else is
+# read. $BASH ends in /sh only when bash was started as sh, so an explicit
+# `bash agent-guard` keeps bash, and a name without a slash is left to the
+# shell that found it; $- is exactly what a script file with `set -u` has,
+# so a script read from standard input or a command string stays too. dash
+# reads the script from descriptor 9, which this shell opens and hands over
+# only when it is the file this shell is reading itself (bash keeps a script
+# on descriptor 255): dash never opens the path, so a file that an update
+# removes or replaces meanwhile neither ends dash with a status that reads as
+# a verdict nor swaps the version mid-call. If the file cannot be opened or is
+# another one, descriptor 9 is the caller's, or dash cannot start (execfail),
+# this shell runs the script as before. The dash
+# started here is told so by a shell variable holding the process ID, which
+# exec keeps: no child inherits it, and a value from the environment does not
+# match by accident. It closes the descriptor at once, so nothing the CLI
+# runs inherits that either.
+if [ "${AG_SCRIPT_PID:-}" = "$$" ]; then
+  unset AG_SCRIPT_PID
+  exec 9<&-
+else
+  # shellcheck disable=SC3028,SC3044 # reached only by bash
+  case "${BASH:-}:$0:$-:${SHELLOPTS:-}" in
+    */sh:*/*:huB:braceexpand:hashall:interactive-comments:nounset:posix)
+      ag_dash=
+      # $SHELLOPTS does not hold shopt options: one that changes matching or
+      # expansion (sh -O nocasematch) is the caller's choice of bash as well,
+      # and a login shell (sh -l) has read profile files whose unexported
+      # settings a handover would drop.
+      if ! shopt -q login_shell && ! shopt -q nocasematch && ! shopt -q nocaseglob && ! shopt -q nullglob \
+          && ! shopt -q dotglob && ! shopt -q failglob && ! shopt -q extglob; then
+        for ag_dash in /bin/dash /usr/bin/dash; do
+          [ ! -x "$ag_dash" ] || break
+          ag_dash=
+        done
+      fi
+      # exec runs the caller's command the way the shell that started the CLI
+      # resolves it (a function bash exports), so it stays in that shell.
+      [ "${1:-}" != exec ] || ag_dash=
+      # Sourced by another script, this file is not the one the shell runs.
+      # shellcheck disable=SC3028
+      [ "${BASH_SOURCE:-}" = "$0" ] || ag_dash=
+      # A script named through a descriptor of this process (/dev/fd/7, a path
+      # or link to it) shares that descriptor's read position: opening it again
+      # does not start at its first byte. Another descriptor on the file is
+      # reason enough to stay.
+      if [ -n "$ag_dash" ]; then
+        for ag_fd in /dev/fd/*; do
+          [ "$ag_fd" = /dev/fd/255 ] || [ ! "$ag_fd" -ef "$0" ] || { ag_dash=; break; }
+        done
+      fi
+      if [ -n "$ag_dash" ] && [ -f "$0" ] && [ ! -e /dev/fd/9 ] && { command exec 9<"$0"; } 2>/dev/null; then
+        shopt -s execfail 2>/dev/null || :
+        # bash's test answers for a /dev/fd name by itself; dash needs one
+        # that the directory lists.
+        for ag_fd in /dev/fd/[9]; do :; done
+        [ "$ag_fd" != /dev/fd/9 ] || [ ! /dev/fd/9 -ef /dev/fd/255 ] \
+          || exec "$ag_dash" -c "AG_SCRIPT_PID=$$; . /dev/fd/9" "$0" "$@"
+        exec 9<&-
+      fi
+      unset ag_dash ag_fd
+      ;;
+  esac
+fi
+
 PROGRAM=agent-guard
 VERSION=3.15.1
 
@@ -2140,7 +2206,8 @@ probe_gitleaks() {
   }
   ag_gl_probe_timeout=$GITLEAKS_PROBE_FILE
   (
-    # POSIX ulimit -f uses 512-byte blocks. Bounding the regular output file
+    # POSIX ulimit -f uses 512-byte blocks (macOS bash 3.2 as sh counts 1024,
+    # so dash is the one that holds this to 8 KiB). Bounding the regular output file
     # prevents a broken version command from filling memory before parsing.
     ulimit -f 16 >/dev/null 2>&1 || exit 125
     exec_in_new_session "$ag_gl_probe_bin" version
