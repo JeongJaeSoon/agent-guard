@@ -1,3 +1,29 @@
+## v3.14.0 - 2026-11-27
+
+- fix(cli): 시그널과 KILL로 남은 임시 작업 디렉터리를 정리하고, 기존 잔여물도 자동으로 지운다 (#689)
+- feat(pii)!: AGENT_GUARD_PII_HOOK_REQUEST 환경 변수를 폐기 예정으로 두고 내부 인자로 넘긴다 (#686)
+- ci: 실제 gitleaks 규칙 suite 8개를 Linux Codex navigation job의 step으로 옮긴다 (#701)
+- test(force-with-lease): 프롬프트 가드 행도 Claude로만 실행한다 (#700)
+- feat(doctor): doctor 설정 절과 최상위 usage 정리 (P-4, P-5) (#687)
+- feat(devtools): cli-differential에 hook의 로캘을 정하는 --locale 옵션을 추가한다 (#699)
+- test(hooks): 같은 이벤트를 두 host로 보내던 Bash 정책 행을 Claude로 실행한다 (#697)
+- test(force-with-lease): Bash 명령 검사 행은 Claude로만 실행한다 (#696)
+- test(program-segments): gh/jq 프로그램 텍스트 행은 Claude 형태로만 실행한다 (#694)
+- test(path-operands): 종료 코드만 보는 행은 Claude 형태로만 실행한다 (#693)
+- ci: main push는 같은 tree로 통과한 PR run을 재사용하고 macOS는 nightly로 옮긴다 (#692)
+- ci(mutation): fixture만 바뀐 PR은 mutation을 건너뛰고 release verify가 release SHA에서 요구한다 (#691)
+- feat(doctor)!: doctor에 준 설치 인자를 폐기 예정으로 두고 setup을 안내한다 (#685)
+- feat(install)!: 체크섬 주소와 설치 저장소 재정의를 폐기 예정으로 두고 테스트 모드 뒤로 옮긴다 (#684)
+- test(reference-id): clean 기대 124행을 scan-path 한 번으로 묶는다 (#690)
+- feat(devtools): CLI 두 빌드를 hook 입력 말뭉치로 비교하는 cli-differential 명령을 추가한다 (#688)
+- feat(setup)!: CLI가 AGENT_GUARD_BIN_DIR를 gitleaks 디렉터리로 읽는 동작을 폐기 예정으로 두고 알린다 (#683)
+- fix!: 알 수 없는 AGENT_GUARD_SESSION_ROLE·require-checksum 값은 이제 실패한다 (#681)
+- feat(devtools): hook 지연을 arm별로 재는 hook-latency 명령을 추가한다 (#682)
+- ci: bump actions/setup-go from 7.0.0 to 7.1.0 (#674)
+- ci: bump hashgraph-online/ai-plugin-scanner-action (#673)
+- fix(doctor): guard가 죽어도 Codex trust probe가 스스로 끝난다 (#679)
+- docs(configuration): 설정 참조를 층으로 나누고 문서 오류를 고친다 (#680)
+
 ## v3.13.9 - 2026-11-26
 
 - feat(bash): 리뷰 세션이 다른 세션 소유 컨테이너에 들어가지 못하게 한다 (#677)
