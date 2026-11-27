@@ -398,15 +398,19 @@ jq -e '.differences == 0 and ([.cases[].steps[0].stdout.bytes[0]] | .[0] > 0 and
 # --locale sets LC_ALL for every hook to the name this system lists, whatever
 # spelling was given, and the report says which. Without it the hooks get no
 # locale variable at all, not the caller's either.
-listed=$(locale -a | grep -i -x -e 'C.UTF-8' -e 'C.utf8' | head -n 1)
-test -n "$listed"
-mutant needs-locale '[ "${LC_ALL:-}${LANG:-}${LC_CTYPE:-}" = '"$listed"' ] || exit 3'
-for spelling in C.UTF-8 c.utf8; do
-  "$TOOLS" cli-differential --baseline "$CASE/needs-locale/agent-guard/bin/agent-guard" --candidate "$CASE/needs-locale/agent-guard/bin/agent-guard" \
-    --scanner "$MOCK" --locale "$spelling" --case pre-read-clean --out "$CASE/parity-locale.json" >/dev/null 2>&1
-  jq -e --arg listed "$listed" '.differences == 0 and .locale == $listed and .cases[0].steps[0].status == [0, 0]' "$CASE/parity-locale.json" >/dev/null
-done
-LC_ALL=$listed LANG=$listed LC_CTYPE=$listed "$TOOLS" cli-differential --baseline "$CASE/needs-locale/agent-guard/bin/agent-guard" \
+listed=$(locale -a 2>/dev/null | grep -i -E '\.utf-?8$' | head -n 1) || :
+mutant needs-locale '[ "${LC_ALL:-}${LANG:-}${LC_CTYPE:-}" = "'"$listed"'" ] && [ -n "${LC_ALL:-}" ] || exit 3'
+if [ -n "$listed" ]; then
+  # The name as listed, and the same name spelled another way.
+  for spelling in "$listed" "$(printf %s "$listed" | tr '[:lower:]' '[:upper:]' | sed 's/\.UTF-*8$/.utf8/')"; do
+    "$TOOLS" cli-differential --baseline "$CASE/needs-locale/agent-guard/bin/agent-guard" --candidate "$CASE/needs-locale/agent-guard/bin/agent-guard" \
+      --scanner "$MOCK" --locale "$spelling" --case pre-read-clean --out "$CASE/parity-locale.json" >/dev/null 2>&1
+    jq -e --arg listed "$listed" '.differences == 0 and .locale == $listed and .cases[0].steps[0].status == [0, 0]' "$CASE/parity-locale.json" >/dev/null
+  done
+else
+  echo 'skip - no UTF-8 locale is installed: --locale is checked for refusals only' >&2
+fi
+LC_ALL=${listed:-C} LANG=${listed:-C} LC_CTYPE=${listed:-C} "$TOOLS" cli-differential --baseline "$CASE/needs-locale/agent-guard/bin/agent-guard" \
   --candidate "$CASE/needs-locale/agent-guard/bin/agent-guard" --scanner "$MOCK" --case pre-read-clean --out "$CASE/parity-no-locale.json" >/dev/null 2>&1
 jq -e '.locale == null and .cases[0].steps[0].status == [3, 3]' "$CASE/parity-no-locale.json" >/dev/null
 # A locale this system does not have would be read as C by both sides without
