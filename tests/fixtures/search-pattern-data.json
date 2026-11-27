@@ -43,6 +43,7 @@
   },
   {
     "id": "grep-after-gh-run-log",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a grep pattern after a gh run log with stderr merged",
@@ -50,6 +51,7 @@
   },
   {
     "id": "grep-after-gh-run-log-reads-file",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a grep that reads a key file after a gh run log",
@@ -407,6 +409,7 @@
   },
   {
     "id": "var-tilde-path-sed-program",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "sed programs after greps whose operand is a short variable holding a home-relative path (#636)",
@@ -414,6 +417,7 @@
   },
   {
     "id": "var-tilde-protected-path",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "the same pipeline when the variable holds a home-relative key file",
@@ -421,6 +425,7 @@
   },
   {
     "id": "cd-tilde-sed-program",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "sed programs after a cd to a home-relative path (#636)",
@@ -428,6 +433,7 @@
   },
   {
     "id": "tilde-protected-operand",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a sed program after a grep whose operand is a home-relative key file",
@@ -435,6 +441,7 @@
   },
   {
     "id": "cd-bare-tilde-sed-program",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a sed program after a cd to the home directory itself",
@@ -442,6 +449,7 @@
   },
   {
     "id": "cd-tilde-user",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "the same pipeline after a cd to another user's home directory",
@@ -449,6 +457,7 @@
   },
   {
     "id": "var-absolute-path-sed-program",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a sed program after a grep whose operand is a short variable holding an absolute path",
@@ -456,6 +465,7 @@
   },
   {
     "id": "cd-tilde-expansion",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "the same pipeline after a cd to a home-relative path with an expansion in it",
@@ -463,6 +473,7 @@
   },
   {
     "id": "var-tilde-sed-operand",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a sed program whose file operand is a short variable holding a home-relative path",
@@ -470,6 +481,7 @@
   },
   {
     "id": "var-from-substitution",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "the same pipeline when the variable is assigned from a command substitution",
@@ -477,6 +489,7 @@
   },
   {
     "id": "var-tilde-jq-operand",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a jq filter whose file operand is a short variable holding a home-relative path",
@@ -484,6 +497,7 @@
   },
   {
     "id": "var-from-expansion",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a jq filter whose operand variable is assigned from another variable",
@@ -491,6 +505,7 @@
   },
   {
     "id": "var-tilde-two-letter-name",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a two-letter variable holding a home-relative path before a sed program",
@@ -498,6 +513,7 @@
   },
   {
     "id": "var-value-read-after-cd",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a variable holding a relative name read after a cd into a key directory",
@@ -582,6 +598,7 @@
   },
   {
     "id": "sed-program-after-sequenced-gh-queries",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a sed regex in a log pipeline that follows gh queries sequenced with && (#502 case 15)",
@@ -589,6 +606,7 @@
   },
   {
     "id": "sed-reads-file-after-sequenced-gh-query",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a sed that reads a dotenv file after a sequenced gh query",
@@ -596,6 +614,7 @@
   },
   {
     "id": "sed-program-after-gh-checks-semicolon",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "the same sed regex after a gh query sequenced with a semicolon",
@@ -603,6 +622,7 @@
   },
   {
     "id": "sed-program-after-gh-download",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "the same sed regex after a gh command that writes files",
@@ -617,6 +637,7 @@
   },
   {
     "id": "grep-pattern-after-sequenced-gh-query",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a grep pattern after a gh query sequenced with &&, read as it is behind a piped one",
@@ -624,6 +645,7 @@
   },
   {
     "id": "grep-reads-file-after-sequenced-gh-query",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "a grep that reads a dotenv file after a sequenced gh query",

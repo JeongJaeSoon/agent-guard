@@ -1,6 +1,7 @@
 [
   {
     "id": "report-cd-and-gh",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "report case: a gh call after cd and another gh query",
@@ -92,6 +93,7 @@
   },
   {
     "id": "report-subst-then-gh",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "residual",
     "description": "report case: a gh call after an assignment from a substitution that runs gh (an expansion in the command keeps the program in the scan for now)",

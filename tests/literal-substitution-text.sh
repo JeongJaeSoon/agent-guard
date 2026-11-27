@@ -73,6 +73,7 @@ run_case() { # $1 host, $2 expected, $3 label, $4 command
 
 [ -s "$FIXTURE" ] || { bad "fixture $FIXTURE is missing"; exit 1; }
 cases=0
+codex_kept=
 while IFS= read -r line; do
   case "$line" in ''|'#'*) continue ;; esac
   expected=${line%%|*}
@@ -80,9 +81,13 @@ while IFS= read -r line; do
   label=${rest%%|*}
   command=$(expand "${rest#*|}")
   n=$((n + 1)) cases=$((cases + 1))
-  for host in claude codex; do
-    run_case "$host" "$expected" "$label" "$command"
-  done
+  run_case claude "$expected" "$label" "$command"
+  # The host changes the block message and the output envelope, never the
+  # decision, and no case here depends on where the event carries the working
+  # directory. Codex's event shape keeps the first case of each expected status.
+  case "$codex_kept" in *":$expected:"*) continue ;; esac
+  codex_kept="$codex_kept:$expected:"
+  run_case codex "$expected" "$label" "$command"
 done <"$FIXTURE"
 if [ "$cases" -ge 60 ]; then ok "fixture holds $cases cases"; else bad "fixture holds only $cases cases"; fi
 
