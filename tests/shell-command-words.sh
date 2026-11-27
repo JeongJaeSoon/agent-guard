@@ -26,8 +26,16 @@ TAB='	'
 failed=0
 checked=0
 note() { printf 'not ok - shell words %s: %s\n' "$checked" "$1"; failed=$((failed + 1)); }
+# Both hosts get the same event, and the host changes the block message and
+# the output envelope, never the decision. Codex keeps the first blocking and
+# the first passing command.
+codex_kept=
 case_run() {
   expected=$1 label=$2 command=$3
+  if [ "$HOST" = codex ]; then
+    case "$codex_kept" in *":$expected:"*) return ;; esac
+    codex_kept="$codex_kept:$expected:"
+  fi
   checked=$((checked + 1))
   label="$HOST: $label"
   jq -nc --arg c "$command" --arg w "$W" \

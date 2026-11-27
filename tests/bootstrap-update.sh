@@ -95,6 +95,26 @@ AGENT_GUARD_BIN_DIR="$CASE_ROOT/override" run "$CASE_ROOT/custom bin/agent-guard
 healthy "$CASE_ROOT/override/agent-guard"
 check 'explicit update link-directory override is honored'
 
+# A gitleaks beside the link. A bootstrap run with AGENT_GUARD_BIN_DIR exported
+# reports what the CLI selects in that environment: the deprecated reading as
+# the gitleaks directory, with its notice. update picks the link directory
+# itself, so it passes the gitleaks directory in use and the setup that the new
+# bootstrap runs does not read the link directory as one.
+mkdir -p "$CASE_ROOT/link-gl"
+printf '#!/bin/sh\nexit 0\n' >"$CASE_ROOT/link-gl/gitleaks"
+chmod +x "$CASE_ROOT/link-gl/gitleaks"
+# tests/run.sh exports a gitleaks selection of its own, which wins over it.
+(unset AGENT_GUARD_GITLEAKS_BIN_DIR AGENT_GUARD_GITLEAKS_BIN
+  AGENT_GUARD_BIN_DIR="$CASE_ROOT/link-gl" run sh "$ROOT/bootstrap.sh")
+grep -qF "$CASE_ROOT/link-gl/gitleaks" "$CASE_ROOT/err"
+grep -qF 'AGENT_GUARD_BIN_DIR is deprecated' "$CASE_ROOT/err"
+check 'bootstrap with the link directory exported reports the gitleaks the CLI selects, with the notice'
+# An assignment before a function call can outlive it in sh; unset it here.
+(unset AGENT_GUARD_BIN_DIR AGENT_GUARD_GITLEAKS_BIN_DIR AGENT_GUARD_GITLEAKS_BIN
+  run "$CASE_ROOT/link-gl/agent-guard" update)
+if grep -F -e "$CASE_ROOT/link-gl/gitleaks" -e 'AGENT_GUARD_BIN_DIR is deprecated' "$CASE_ROOT/err"; then exit 1; fi
+check 'update does not make its own link directory the gitleaks directory'
+
 # Formula-owned payloads must not invoke the standalone updater. Shadow curl
 # so these checks prove refusal happens before a download or any install write.
 mkdir -p "$CASE_ROOT/no-curl-bin"

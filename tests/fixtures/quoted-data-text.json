@@ -1,6 +1,7 @@
 [
   {
     "id": "grep-alternation-env",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "a grep -E alternation whose branch ends in the word env",
@@ -8,6 +9,7 @@
   },
   {
     "id": "env-piped-after-grep",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "must-still-block",
     "description": "an environment dump piped after such a grep",

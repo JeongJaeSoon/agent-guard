@@ -156,6 +156,59 @@ summary. `--scanner` must be the official gitleaks release build for the
 helper arms; `--unverified` accepts a test double whose runs cannot be
 told from a hook without a scan, and the report then says `verified: false`.
 
+## CLI differential
+
+`cli-differential` runs two builds of the CLI over a corpus of hook inputs
+and fails on any difference. It is the parity check for a change that must
+not alter a decision: another interpreter, a launcher change, a refactor.
+
+```sh
+sh scripts/devtools.sh cli-differential --baseline /abs/base/plugins/agent-guard/bin/agent-guard \
+  --candidate "$PWD/plugins/agent-guard/bin/agent-guard" --scanner /abs/gitleaks \
+  --out bench/local/cli-differential.json
+```
+
+Each case of `tests/fixtures/cli-differential.json` (or `--corpus`) is a
+list of steps run in order in one fresh sandbox: the repository, home, state
+and temporary directories are rebuilt at the same path before each side
+runs, so both start from the same state and neither sees the caller's
+variables. Compared for every step: exit status, the decision the host is
+told, standard output and standard error byte for byte, the audit events
+written, and the files left behind. `--baseline-shell` and
+`--candidate-shell` run a side under a named interpreter;
+`--entry manifest` runs the host's plugin manifest command.
+
+What two runs of one build may differ in is not compared and is listed in the
+report as `not_compared`: the time, run identifier and duration of an audit
+event, the content of the CLI's cache files and the times and hashes in their
+names, the times Git keeps in its logs and beside its index entries (the
+index is compared as `git ls-files --stage -v` lists it), and the time a
+warning marker holds. Every other entry of the sandbox is compared by name,
+permission bits and content. A new entry there needs a reason; a difference is otherwise a bug in
+the change.
+
+The report holds case names, sizes, equality, the first differing offset and
+a count of what each step left by kind (audit event, cache, state file,
+temporary file, home file, repository file, other sandbox file), never the
+text of an input or
+an output and never a file name, which can hold a session identifier. So the
+same command is safe on a corpus that is not synthetic. `--names` prints the
+names of the entries that differ to standard error, for a synthetic corpus.
+A comparison that cannot finish (a timeout, state it cannot read, a build
+that wrote to the scanner directory both sides share) replaces any earlier
+report with one that says `complete: false`; `--out` may not name a file
+the comparison reads. A corpus is trusted input: a
+step can be `exec`, which runs a command. Its `env` may set only
+`AGENT_GUARD_` variables, and no value may be a path other than one under
+`/nonexistent/`. Corpus strings may use `{{REPO}}`, `{{TOKEN}}`,
+`{{HEX}}` and `{{KEY_BLOCK}}`; the last three are values built at run time
+that a scanner must report, so the corpus itself holds none.
+
+Before trusting a result, qualify the comparison on the machine at hand: a
+build against itself must report no difference (run it twice), and
+`tests/devtools.sh` shows that a changed message and a changed deny list are
+both found.
+
 ## Rule mutation check
 
 `tests/mutations.json` lists hand-written mutants of the core detection rules:
@@ -207,8 +260,14 @@ not among the policy settings, and add its row to
 
 ## CI checks
 
-CI runs on pull requests and pushes to `main`: the first validates a proposed
-change, the second validates the merged tree. Plugin Validation and HOL scan
+CI runs on pull requests, pushes to `main` and nightly on `main`: the first
+validates a proposed change, the second validates the merged tree. A main
+push of an ordinary PR merge reuses the newest CI run at that PR's head when
+it succeeded and its `tested-tree` artifact (the tree of the merge commit the
+run checked out, recorded only when its suites ran) equals the pushed tree;
+otherwise it runs every suite on Linux only, under `Main subset test` names. The nightly run covers the macOS legs
+and is skipped when `main` has not changed since the last green nightly run.
+Any failed lookup runs everything. Plugin Validation and HOL scan
 have the same triggers but own different checks; they are not duplicate suite
 runs. The release workflow relies on the existing check names and does not
 rerun the suite itself. The required check/workflow mapping lives in
@@ -223,12 +282,14 @@ matrix can be verified before merging a CI change.
 | --- | --- |
 | Agent Guard | Real scanner against the checked-out tree |
 | Named suites (ubuntu-latest) | All suite partitions on Linux; real scanner integration and smoke test in partition 4 |
-| Named suites (macos-latest) | Core, host adapters and Git as three jobs (partition 1 under that name, partitions 3 and 6 as `Core, host adapters and Git (partition 3)` and `(partition 6)`) and Command policies as two (partition 2 under that name, partition 7 as `Command policies (partition 7)`), plus every other partition, on main and `release/` PRs, with the mock scanner |
-| Test (ubuntu-latest), Test (macos-latest) | Full-matrix aggregate on main, release PRs and manual dispatch; names consumed by release |
+| Named suites (macos-latest) | Core, host adapters and Git as three jobs (partition 1 under that name, partitions 3 and 6 as `Core, host adapters and Git (partition 3)` and `(partition 6)`) and Command policies as two (partition 2 under that name, partition 7 as `Command policies (partition 7)`), plus every other partition, on release merges, the nightly run, manual dispatch and `release/` PRs, with the mock scanner |
+| Test (ubuntu-latest), Test (macos-latest) | Full-matrix aggregate on release merges, the nightly run, release PRs and manual dispatch; names consumed by release |
+| Main subset test (ubuntu-latest), Main subset test (macos-latest) | Linux aggregate on a main push of an ordinary PR merge |
 | PR subset test (ubuntu-latest), PR subset test (macos-latest) | Ordinary PR aggregate of every selected shard, including cancelled/failed jobs |
 | Lint | ShellCheck on tracked shell scripts and actionlint on workflows |
 | Plugin Layout | Codex, Claude, marketplaces, release archive, and submission metadata |
 | HOL Plugin Scanner | Independent plugin scanner |
+| Rule mutations fail a test (group) | Each hand-written rule mutant fails a listed test; runs on pull requests that change the CLI, the mutation list, the checker or test code, and release verification dispatches every group at the release SHA |
 
 Only Linux partition 4 installs the pinned, checksum-verified real scanner; the
 other partitions use the suite's mock. No cache is used: downloading the small
@@ -351,12 +412,13 @@ success on the same SHA cannot replace full macOS evidence, and the full
 `Test` names are never emitted by a reduced run. Coverage and check identity
 share one scope decision in the Agent Guard job; test shards start after that
 job succeeds. `sh tests/ci-scope.sh` tests that decision and its workflow
-wiring. Ordinary PRs defer macOS command, navigation and scanner/output
-coverage until main, so macOS-specific failures outside the core bundle are
-found later.
+wiring. Ordinary PRs and their merges defer macOS coverage to the nightly
+run and the release PR, so macOS-specific failures are found up to a day
+later.
 
 Legacy jq/awk and Rust contracts also run after relevant changes merge to
-main, under their own check names. Rust contracts compile with the pinned
+main, under their own check names, unless the PR run of the same workflow
+already passed on the same tree (the macOS developer tools job always runs). Rust contracts compile with the pinned
 toolchain and exercise differential, real-scanner, fallback and output/audit
 regressions on Linux; the regular macOS suite does not imply native-helper
 validation on macOS.

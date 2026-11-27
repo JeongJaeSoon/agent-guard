@@ -6,6 +6,11 @@ on:
   push:
     branches:
       - main
+  # An ordinary merge runs Linux only, so the macOS legs run nightly on main
+  # (skipped when main has not changed since the last green nightly run), on
+  # release PRs and on manual runs.
+  schedule:
+    - cron: '41 18 * * *'
 
 # Replace only obsolete runs: of the same PR, or of an older main push. Manual
 # runs keep unique groups, so the release gate's dispatch at a release SHA is
@@ -30,25 +35,44 @@ env:
 
 jobs:
   release-evidence:
+    # Only a main push or a nightly run can reuse evidence; pull requests and
+    # manual runs skip this job, so the required scan never waits for it.
+    if: github.event_name == 'push' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    # Agent Guard waits for this job; a stalled lookup must not hold it.
+    timeout-minutes: 5
     permissions:
       actions: read
       contents: read
       checks: read
       pull-requests: read
     outputs:
-      reuse: ${{ steps.evidence.outputs.reuse }}
+      reuse: ${{ steps.release.outputs.reuse == 'true' || steps.tested.outputs.reuse == 'true' }}
+      ordinary: ${{ steps.tested.outputs.ordinary }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 0
+          # Only a main push compares release history. Strings: a numeric 0
+          # is false in an expression.
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '1' }}
           persist-credentials: false
-      - id: evidence
+      - id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: sh .github/scripts/reuse-release-tree.sh >> "$GITHUB_OUTPUT"
+      # A main push of a tree its PR run already passed, or a nightly run of
+      # an unchanged main, reuses that run.
+      - id: tested
+        if: steps.release.outputs.reuse != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh .github/scripts/reuse-tested-tree.sh ci.yml >> "$GITHUB_OUTPUT"
   secret-guard:
     name: Agent Guard
+    # Agent Guard is required: it reports even when evidence lookup fails,
+    # and an empty answer selects full coverage.
+    needs: release-evidence
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -69,13 +93,14 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           HEAD_REF: ${{ github.head_ref }}
+          ORDINARY: ${{ needs.release-evidence.outputs.ordinary }}
         run: |
           if [ "$EVENT_NAME" = pull_request ]; then
             git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
           else
             : > "$RUNNER_TEMP/changed"
           fi
-          sh .github/scripts/ci-scope.sh "$EVENT_NAME" "$HEAD_REF" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"
+          sh .github/scripts/ci-scope.sh "$EVENT_NAME" "$HEAD_REF" "$ORDINARY" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"
 
       - name: Scan for secrets
         uses: ./
@@ -84,10 +109,32 @@ jobs:
           gitleaks-version: ${{ env.GITLEAKS_VERSION }}
           gitleaks-checksum: ${{ env.GITLEAKS_CHECKSUM_LINUX_X64 }}
 
+      # The tree this run tests (a PR run checks out its merge commit); the main
+      # push of the same tree, or the next nightly, reuses this run only
+      # through this record. A nightly that reused evidence records nothing. Without
+      # it the main push runs again, so a failed upload never fails the job.
+      - name: Record the tested tree
+        if: (github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true') || (github.event_name == 'schedule' && needs.release-evidence.outputs.reuse != 'true')
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/tested-tree"
+          git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/tested-tree/tree"
+      - name: Upload the tested tree
+        if: (github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true') || (github.event_name == 'schedule' && needs.release-evidence.outputs.reuse != 'true')
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tested-tree
+          path: ${{ runner.temp }}/tested-tree/tree
+          retention-days: 30
+          # A re-run keeps the run id and must replace the earlier record.
+          overwrite: true
+
   test-shard:
     name: ${{ matrix.suite }} (${{ matrix.os }})
     needs: [secret-guard, release-evidence]
-    if: needs.release-evidence.outputs.reuse != 'true'
+    # A failed evidence job reuses nothing: the shards still run.
+    if: ${{ !cancelled() && needs.secret-guard.result == 'success' && needs.release-evidence.outputs.reuse != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -202,7 +249,7 @@ jobs:
             exit 1
           fi
           if [ "$REUSED" = true ] && [ "$EVIDENCE_RESULT" = success ]; then
-            echo 'Required checks passed on the identical reviewed release tree'
+            echo 'Required checks passed on the identical tested tree'
             exit 0
           fi
           if [ "$SHARDS_RESULT" != success ]; then
@@ -213,6 +260,7 @@ jobs:
   long-input:
     name: Large hook inputs (${{ matrix.awk }})
     needs: secret-guard
+    if: ${{ !cancelled() && needs.secret-guard.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -238,7 +286,7 @@ jobs:
   lint:
     name: Lint
     needs: release-evidence
-    if: needs.release-evidence.outputs.reuse != 'true'
+    if: ${{ !cancelled() && needs.release-evidence.outputs.reuse != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:

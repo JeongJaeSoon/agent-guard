@@ -1,11 +1,13 @@
 #!/usr/bin/env sh
 # CI coverage for one event.
 #
-#   sh .github/scripts/ci-scope.sh EVENT HEAD_REF < changed-paths
+#   sh .github/scripts/ci-scope.sh EVENT HEAD_REF [ORDINARY] < changed-paths
 #
 # Pull requests (except release/*) run Linux only, and a pull request that
-# changes only documentation skips the suites. Pushes, release pull requests
-# and manual runs run everything. Changed paths are read only for the pull
+# changes only documentation skips the suites. A push of an ordinary PR merge
+# (ORDINARY=true from reuse-tested-tree.sh) runs every suite on Linux only.
+# Other pushes, release pull requests, schedule and manual runs run
+# everything. Changed paths are read only for the pull
 # requests that can use them; an unreadable list never skips a suite.
 set -eu
 export LC_ALL=C
@@ -16,6 +18,8 @@ if [ "$1" = pull_request ]; then
     release/*) ;;
     *) scope=subset ;;
   esac
+elif [ "$1" = push ] && [ "${3-}" = true ]; then
+  scope=main
 fi
 
 tests=true
@@ -44,6 +48,9 @@ case "$scope" in
     ;;
   subset)
     printf '%s\n' 'oses=["ubuntu-latest"]' 'check_prefix=PR subset test' "include=[$suites]"
+    ;;
+  main)
+    printf '%s\n' 'oses=["ubuntu-latest"]' 'check_prefix=Main subset test' "include=[$suites]"
     ;;
 esac
 printf 'tests=%s\n' "$tests"
