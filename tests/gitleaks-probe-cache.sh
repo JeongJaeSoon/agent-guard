@@ -227,32 +227,5 @@ else
     test "$(grep -c 8.99.9 "$CASE/out" "$CASE/err" | awk -F: '{s+=$2} END{print s}')" = 0
 fi
 
-# Hosted here, not in run.sh, which is already near ShellCheck's memory limit.
-# The script scans with the real binary, so drop this file's shim override.
-check 'auto-wake dispatch ids under --key are clean while key-shaped values stay found' \
-  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
-  sh "$ROOT/tests/auto-wake-key-allowlist.sh"
-check 'UUID reference ids are clean while UUID-shaped credentials stay found' \
-  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
-  sh "$ROOT/tests/reference-id-allowlist.sh"
-check 'Figma MCP file keys pass while the same value elsewhere stays found' \
-  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
-  sh "$ROOT/tests/figma-file-key.sh"
-check 'issue ids after a Secret-suffixed name pass while secret shapes stay blocked' \
-  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
-  sh "$ROOT/tests/prompt-issue-reference.sh"
-check 'HTTP routes after a secret label pass while secret shapes stay blocked' \
-  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
-  sh "$ROOT/tests/prompt-route-reference.sh"
-check 'modal prose after a secret label passes while secret shapes stay blocked' \
-  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
-  sh "$ROOT/tests/prompt-prose-reference.sh"
-check 'prefixed-UUID keys are found while sdk- package names stay clean' \
-  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
-  sh "$ROOT/tests/prefixed-uuid-key.sh"
-check 'force-with-lease expectations pass while keyword assignments stay found' \
-  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
-  sh "$ROOT/tests/force-with-lease-sha.sh"
-
 printf '1..%s\n' "$((pass + fail))"
 [ "$fail" -eq 0 ]

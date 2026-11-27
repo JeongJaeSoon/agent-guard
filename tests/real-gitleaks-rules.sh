@@ -1,0 +1,73 @@
+#!/bin/sh
+# The suites that check the rules and allowlists of
+# plugins/agent-guard/config/gitleaks.toml against the real gitleaks, one after
+# another. CI runs this file as a step of the Linux Codex navigation job (see
+# CONTRIBUTING.md "Test partitions"); tests/run.sh does not start it.
+# Each suite skips without a real gitleaks. Here a skip is a failure, and so is
+# a missing gitleaks on Linux CI: a green run must mean every suite ran.
+set -u
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+REAL_GITLEAKS=${AGENT_GUARD_TEST_REAL_GITLEAKS-$(command -v gitleaks 2>/dev/null || :)}
+if [ -z "$REAL_GITLEAKS" ] || ! "$REAL_GITLEAKS" version >/dev/null 2>&1; then
+  if [ "${CI:-}" = true ] && [ "$(uname -s)" = Linux ]; then
+    printf 'not ok - real gitleaks is required for the rule suites on Linux CI\n'
+    exit 1
+  fi
+  printf '# real gitleaks not available; skipped the real-gitleaks rule suites\n'
+  exit 0
+fi
+# Exit before the cleanup trap exists: an empty CASE would make `cd -- ""`
+# resolve to the current directory, which the trap then removes.
+CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-gitleaks-rules.XXXXXX") || exit 1
+[ -n "$CASE" ] || exit 1
+CASE=$(CDPATH= cd -- "$CASE" && pwd -P) || exit 1
+trap 'rm -rf "$CASE"' 0
+mkdir -p "$CASE/home" "$CASE/private-gitleaks-empty"
+# The environment the suites had under tests/run.sh and
+# tests/gitleaks-probe-cache.sh, where they ran before.
+export HOME="$CASE/home" XDG_STATE_HOME="$CASE/state" AGENT_GUARD_LOG_MODE=on
+export AGENT_GUARD_RELEASE_CHECK=off AGENT_GUARD_PII_HOOK_MODE=off
+export AGENT_GUARD_PROMPT_GUARD_MODE=block AGENT_GUARD_INFRA_FAILURE_MODE=open
+export AGENT_GUARD_WARNING_DIR="$CASE/warnings"
+export AGENT_GUARD_GITLEAKS_CONFIG="$ROOT/plugins/agent-guard/config/gitleaks.toml"
+export AGENT_GUARD_GITLEAKS_BIN_DIR="$CASE/private-gitleaks-empty"
+export AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS"
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+unset AI_AGENT AGENT_GUARD_GITLEAKS_BIN
+pass=0 fail=0
+[ -z "${GITHUB_STEP_SUMMARY:-}" ] \
+  || printf '### Real gitleaks rule suites\n\n| Suite | Seconds | Exit |\n| --- | ---: | ---: |\n' >>"$GITHUB_STEP_SUMMARY"
+
+# $1 what the suite guards, $2 its file under tests/.
+run_suite() {
+  started=$(date +%s)
+  sh "$ROOT/tests/$2" >"$CASE/out" 2>&1
+  status=$?
+  seconds=$(($(date +%s) - started))
+  [ -z "${GITHUB_STEP_SUMMARY:-}" ] \
+    || printf '| %s | %s | %s |\n' "$2" "$seconds" "$status" >>"$GITHUB_STEP_SUMMARY"
+  if [ "$status" -eq 0 ] && ! grep -q '^skip - ' "$CASE/out"; then
+    pass=$((pass + 1))
+    printf 'ok - %s (%s, %ss)\n' "$1" "$2" "$seconds"
+    return
+  fi
+  fail=$((fail + 1))
+  printf 'not ok - %s (%s, exit %s, %ss)\n' "$1" "$2" "$status" "$seconds"
+  if grep -Eq '^(not ok|skip) ' "$CASE/out"; then
+    grep -E '^(not ok|skip) ' "$CASE/out" | sed 's/^/  /'
+  else
+    tail -n 20 "$CASE/out" | sed 's/^/  /'
+  fi
+}
+
+run_suite 'auto-wake dispatch ids under --key are clean while key-shaped values stay found' auto-wake-key-allowlist.sh
+run_suite 'UUID reference ids are clean while UUID-shaped credentials stay found' reference-id-allowlist.sh
+run_suite 'Figma MCP file keys pass while the same value elsewhere stays found' figma-file-key.sh
+run_suite 'issue ids after a Secret-suffixed name pass while secret shapes stay blocked' prompt-issue-reference.sh
+run_suite 'HTTP routes after a secret label pass while secret shapes stay blocked' prompt-route-reference.sh
+run_suite 'modal prose after a secret label passes while secret shapes stay blocked' prompt-prose-reference.sh
+run_suite 'prefixed-UUID keys are found while sdk- package names stay clean' prefixed-uuid-key.sh
+run_suite 'force-with-lease expectations pass while keyword assignments stay found' force-with-lease-sha.sh
+
+printf '1..%s\n' "$((pass + fail))"
+[ "$fail" -eq 0 ]

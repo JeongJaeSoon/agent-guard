@@ -7,7 +7,7 @@ help:
 	@printf 'Agent Guard — make targets\n'
 	@printf '\n'
 	@printf '  make help          Show this list (default).\n'
-	@printf '  make test          Run the test suite (uses a mock gitleaks).\n'
+	@printf '  make test          Run the test suite (mock gitleaks; rule suites need a real one).\n'
 	@printf '  make test-unit     Run fast direct contracts (suite inventory: CONTRIBUTING.md).\n'
 	@printf '  make test-pleno-integration  Run opt-in tests against a real pleno endpoint.\n'
 	@printf '  make smoke-test    Run real git/jq/gitleaks end-to-end checks.\n'
@@ -16,6 +16,7 @@ help:
 
 test:
 	@tests/run.sh
+	@sh tests/real-gitleaks-rules.sh
 
 test-unit:
 	@sh tests/unit-core.sh

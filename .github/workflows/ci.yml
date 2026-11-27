@@ -161,8 +161,10 @@ jobs:
           persist-credentials: false
 
       - name: Install pinned gitleaks (Linux x64)
-        # Only shard 4 consumes real gitleaks. Other shards use the bundled
-        # mock; installing the same archive there adds four unused downloads.
+        # Only shard 4 and the rule suites of the Codex navigation job consume
+        # real gitleaks. Other shards use the bundled mock; installing the
+        # same archive there adds unused downloads. The navigation partition
+        # itself keeps the mock, which tests/run.sh puts first on PATH.
         # Real gitleaks is REQUIRED on Linux shard 4 so tests/run.sh exercises its
         # real-detection block (the #124 anchored-placeholder scan-accuracy
         # regressions) and so `make smoke-test` can run end-to-end. On macOS the
@@ -170,7 +172,7 @@ jobs:
         # which gives full cross-OS coverage on main and release PRs. The
         # macOS/darwin archive has a different checksum than the pin above, so
         # the real-gitleaks + smoke steps are scoped to Linux only.
-        if: runner.os == 'Linux' && matrix.bundle == 'scanner' && needs.secret-guard.outputs.tests == 'true'
+        if: runner.os == 'Linux' && (matrix.bundle == 'scanner' || matrix.bundle == 'navigation-codex') && needs.secret-guard.outputs.tests == 'true'
         run: |
           set -euo pipefail
           archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
@@ -197,6 +199,16 @@ jobs:
           # one or two distinct IDs and preserves every child exit status.
           read -r -a partitions <<< "$TEST_PARTITIONS"
           bash .github/scripts/run-test-bundle.sh "${partitions[@]}"
+
+      - name: Real gitleaks rule suites (Linux)
+        # The suites that check the rules and allowlists of gitleaks.toml
+        # against the real scanner. They are a step of this job, not of the
+        # scanner job, because the scanner job is the longest of a pull request
+        # and this one the shortest, and not a job of their own because branch
+        # protection requires this job by name. The script fails on Linux CI
+        # when gitleaks is missing, and when a suite skips.
+        if: runner.os == 'Linux' && matrix.bundle == 'navigation-codex' && needs.secret-guard.outputs.tests == 'true'
+        run: sh tests/real-gitleaks-rules.sh
 
       - name: Require real gitleaks integration ran (Linux)
         # Fail closed if the real-detection block silently self-skipped: on a
