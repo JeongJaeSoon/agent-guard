@@ -69,6 +69,12 @@ run() { # $1 cli, $2 fixture, $3 host, $4 log mode, $5 helper env, $6 out prefix
   set -f
   rm -rf "$CASE/home" "$CASE/xs"
   mkdir -p "$CASE/home" "$CASE/xs"
+  # The one-time SessionStart hint to install the helper differs with the
+  # helper's state by design, and is shown once per install: compare the
+  # sessions after it, as every one but the first runs.
+  if [ "$4" = on ]; then
+    (umask 077 && mkdir "$CASE/xs/agent-guard" && printf 'shown\n' >"$CASE/xs/agent-guard/gitleaks-helper-hint") || exit 1
+  fi
   cut -f2- "$2" | (cd "$CASE/work" && env HOME="$CASE/home" XDG_STATE_HOME="$CASE/xs" \
     AGENT_GUARD_HOOK_HOST="$3" AGENT_GUARD_LOG_MODE="$4" ${5:+AGENT_GUARD_GITLEAKS_HELPER="$5"} \
     strace -f -qq -e trace=execve,clone,clone3,fork,vfork -e status=successful -o "$6.trace" \
