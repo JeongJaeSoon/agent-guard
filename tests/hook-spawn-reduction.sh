@@ -351,11 +351,11 @@ hook() { # $1 subcommand, $2 json -> status; stdout in $CASE/out/stdout
   : >"$CASE/gitleaks-calls"
   (cd "$CASE/repo" && printf '%s' "$2" | "$GUARD" "$1" >"$CASE/out/stdout" 2>"$CASE/out/stderr")
 }
-# PostToolUse keeps its own jq object check (its failure selects the
-# validation-recovery path), so only PreToolUse drops that one too.
+# A primed object answers the object check in both hooks; an input that is
+# not one still runs it (see the non-object PostToolUse case below).
 no_field_jq() {
   ! grep -Eq '^-r \.tool_input \| type$|^-r \.tool_name // \.tool // \.name // empty$|^-r \.tool_input\.(command|workdir|file_path|content)' "$CASE/jq-calls" \
-    && { [ "${1:-}" = post ] || ! grep -Eq '^-e type == "object"$' "$CASE/jq-calls"; }
+    && ! grep -Eq '^-e type == "object"$' "$CASE/jq-calls"
 }
 
 hook hook-pre-tool '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"ls"}}'
@@ -379,7 +379,7 @@ check "non-object hook input is still rejected" [ "$?" -eq 2 ]
 
 hook hook-post-tool '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"stdout":"README.md\n","stderr":"","interrupted":false}}'
 check "clean Bash PostToolUse passes" [ "$?" -eq 0 ]
-check "Bash PostToolUse reads its input fields without one jq run each" no_field_jq post
+check "Bash PostToolUse reads its input fields without one jq run each" no_field_jq
 check "a clean work tree adds no working-tree scanner run" \
   [ "$(grep -cx stdin "$CASE/gitleaks-calls")" -eq 1 ]
 
@@ -584,6 +584,127 @@ else
       at_most "$got" "$((${one:-0} + 1))"
   done
 fi
+
+# --- fewer jq runs per PostToolUse, fewer awk runs per Bash PreToolUse -------
+# A clean Bash PostToolUse used to start 11 jq runs, and Bash PreToolUse 13
+# awk runs for 'ls -la src' (16 for the cd, pipe and list below). Each shortcut answers what the run it replaces
+# answered: the object check the primed input already made, a NUL walk that
+# cannot change a response with no NUL, the re-validation of a bundle that is
+# exactly the empty one, two line-to-JSON runs over consecutive input, an awk
+# filter folded into the awk after the sort, and the tokenizers asked again for
+# the same text by sibling subshells. The cases below pin the counts and that
+# every mask and denial they touch still happens.
+cat >"$CASE/bin/jq" <<EOF
+#!/bin/sh
+printf 'run\n' >>"$CASE/jq-runs"
+printf '%s\n' "\$*" >>"$CASE/jq-calls"
+exec "$REAL_JQ" "\$@"
+EOF
+chmod 755 "$CASE/bin/jq"
+# An earlier case leaves a staged secret behind; Bash runs the work-tree backstop.
+(cd "$CASE/repo" && git reset -q --hard && git clean -qfd) || exit 1
+# A prefix assignment before a function call outlives it in some shells.
+export AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_LOG_MODE=on
+post_jq_runs() { # $1 json -> status of one PostToolUse; jq runs counted
+  : >"$CASE/jq-runs"
+  hook hook-post-tool "$1"
+}
+lacks() { ! grep -Fq -- "$1" "$2"; }
+count_lines() { grep -c -- "$1" "$2"; }
+nul_walk='walk(if type == "string" and (index('
+post_jq_runs '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"make"},"tool_response":{"stdout":"build ok\n","stderr":"","interrupted":false}}'
+check "clean Bash PostToolUse with jq counted passes unchanged" \
+  sh -c '[ "$1" -eq 0 ] && [ ! -s "$2" ]' _ "$?" "$CASE/out/stdout"
+got=$(wc -l <"$CASE/jq-runs" | tr -d ' ')
+check "a clean Bash PostToolUse starts at most 7 jq runs (got $got)" [ "$got" -le 7 ]
+check "a clean Bash PostToolUse makes no second object check" \
+  sh -c '! grep -Eq "^-e type == \"object\"\$" "$1"' _ "$CASE/jq-calls"
+check "a response with no NUL starts no NUL walk" lacks "$nul_walk" "$CASE/jq-calls"
+check "the empty secret bundle is not parsed again" \
+  lacks 'invalid secret bundle' "$CASE/jq-calls"
+check "compact-token lines are encoded in one jq run" \
+  [ "$(count_lines '^-Rc select(length > 0)$' "$CASE/jq-calls")" -eq 1 ]
+
+post_jq_runs '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"a\u0000b","stderr":"","interrupted":false}}'
+check "a NUL-bearing Bash output is masked with success" [ "$?" -eq 0 ]
+check "the NUL-bearing leaf is replaced whole" \
+  jq -e '.hookSpecificOutput.updatedToolOutput == {stdout: "[REDACTED]", stderr: "", interrupted: false}' "$CASE/out/stdout"
+check "a NUL-bearing response still runs the NUL walk" grep -Fq "$nul_walk" "$CASE/jq-calls"
+
+# Both compact-token detectors in one output: one jq run encodes both lines.
+seg() { od -An -N12 -tx1 /dev/urandom | tr -d ' \n'; }
+jwt_shape="eyJ$(seg).eyJ$(seg).$(seg)"
+auth_word=Bear; auth_word="${auth_word}er"
+auth_value="$(seg)$(seg)"
+post_jq_runs "$(jq -nc --arg o "id $jwt_shape and $auth_word $auth_value end" \
+  '{session_id:"s",tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$o,stderr:"",interrupted:false}}')"
+check "output with a JWT and an authorization value is masked with success" [ "$?" -eq 0 ]
+check "both compact-token values are masked" \
+  sh -c 'grep -q updatedToolOutput "$1" && ! grep -Fq "$2" "$1" && ! grep -Fq "$3" "$1"' _ \
+  "$CASE/out/stdout" "$jwt_shape" "$auth_value"
+check "the two token detectors share one jq run" \
+  [ "$(count_lines '^-Rc select(length > 0)$' "$CASE/jq-calls")" -eq 1 ]
+
+# Not an object: the object check still runs and still rejects it.
+post_jq_runs '[{"tool_name":"Bash"}]'
+check "non-object PostToolUse input keeps the jq object check" \
+  grep -Eq '^-e type == "object"$' "$CASE/jq-calls"
+
+got=$(awk_runs 'ls -la src')
+check "Bash PreToolUse for 'ls -la src' starts at most 9 awk runs (got ${got:-none})" \
+  [ "${got:-99}" -le 9 ]
+got=$(awk_runs 'cd src && grep -n TODO a.txt | head -5; echo done')
+check "Bash PreToolUse for a cd, pipe and list starts at most 12 awk runs (got ${got:-none})" \
+  [ "${got:-99}" -le 12 ]
+hook hook-pre-tool '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cd src && cat ../.env | head -5; echo done"}}'
+check "the same shape naming a protected path is still denied" [ "$?" -eq 2 ]
+
+# The memoized tokenizers hold what the command substitution holds, with the
+# same status, on a miss, on a hit, and after another text took the memo.
+sh "$ROOT/tests/helpers/extract-functions.sh" "$GUARD" "$CASE/fn" \
+  git_command_records git_command_records_to shell_command_words \
+  shell_command_words_to || exit 1
+memo_ok=$(
+  for f in git_command_records git_command_records_to shell_command_words shell_command_words_to; do
+    # shellcheck disable=SC1090
+    . "$CASE/fn/$f.sh"
+  done
+  fs=$(printf '\034')
+  nl='
+'
+  set -- 'ls -la src' 'cd src && grep -n TODO a.txt | head -5; echo done' \
+    "git commit -m \"\$(cat <<'EOF'${nl}msg${nl}EOF${nl})\"" "printf 'a${nl}b'${nl}${nl}" \
+    'echo "unclosed' "x${fs}y" '' "cd ~\"/sub\" && FOO\\=1 git push" \
+    "cat <<EOF${nl}\$(id)${nl}EOF"
+  for t in "$@"; do
+    for g in '' gate; do
+      ref=$(git_command_records "$t" "$g"); rs=$?
+      git_command_records_to "$t" "$g"; s1=$? o1=$GCR_OUT
+      git_command_records_to "$t" "$g"; s2=$? o2=$GCR_OUT
+      git_command_records_to "other $t" "$g"; git_command_records_to "$t" "$g"; s3=$? o3=$GCR_OUT
+      [ "$rs:$ref" = "$s1:$o1" ] && [ "$rs:$ref" = "$s2:$o2" ] && [ "$rs:$ref" = "$s3:$o3" ] \
+        || printf 'gcr mismatch [%s] gate=%s\n' "$t" "$g"
+    done
+    ref=$(shell_command_words "$t"); rs=$?
+    shell_command_words_to "$t"; s1=$? o1=$SCW_OUT
+    shell_command_words_to "$t"; s2=$? o2=$SCW_OUT
+    shell_command_words_to "other $t"; shell_command_words_to "$t"; s3=$? o3=$SCW_OUT
+    [ "$rs:$ref" = "$s1:$o1" ] && [ "$rs:$ref" = "$s2:$o2" ] && [ "$rs:$ref" = "$s3:$o3" ] \
+      || printf 'scw mismatch [%s]\n' "$t"
+  done
+  # A hit starts no awk; a subshell reads what its parent memoized.
+  git_command_records_to 'ls -la src'
+  shell_command_words_to 'ls -la src'
+  (
+    awk() { printf 'awk ran\n'; return 1; }
+    git_command_records_to 'ls -la src' && [ "$GCR_OUT" = "$(printf '0ls\n0-la\n0src')" ] \
+      || printf 'gcr hit failed\n'
+    shell_command_words_to 'ls -la src' && [ "$SCW_OUT" = "$(printf 'ls\n-la\nsrc')" ] \
+      || printf 'scw hit failed\n'
+  )
+  printf 'done\n'
+)
+check "memoized tokenizers match the command substitution they replace" [ "$memo_ok" = done ]
 
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

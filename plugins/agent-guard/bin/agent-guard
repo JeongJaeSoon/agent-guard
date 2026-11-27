@@ -1558,21 +1558,21 @@ audit_prune() (
   ag_cutoff=$((AG_AUDIT_START - 604800))
   find "$ag_dir" -mindepth 1 -maxdepth 1 -print 2>/dev/null \
     | head -n 2000 \
-    | AG_AUDIT_PRUNE_DIR="$ag_dir" LC_ALL=C awk '
+    | LC_ALL=C sort -r \
+    | AG_AUDIT_PRUNE_DIR="$ag_dir" LC_ALL=C awk -v cutoff="$ag_cutoff" '
         BEGIN { prefix=ENVIRON["AG_AUDIT_PRUNE_DIR"] "/" }
+        # A per-line filter, so it keeps the same lines after the sort.
         index($0, prefix) == 1 {
           name=substr($0, length(prefix)+1)
           # Older system awks lack interval expressions. Keep the same ASCII
           # filename grammar using field lengths and simple character classes.
           if (split(name, fields, "-") == 3 && fields[1] == "event" &&
               fields[2] ~ /^[0-9]+$/ && length(fields[2]) <= 12 &&
-              fields[3] ~ /^[A-Za-z0-9]+$/ && length(fields[3]) == 6) print
+              fields[3] ~ /^[A-Za-z0-9]+$/ && length(fields[3]) == 6) {
+            n=split($0, parts, "/"); split(parts[n], event, "-")
+            if (event[2]+0 < cutoff || ++kept > 999) print
+          }
         }
-      ' \
-    | LC_ALL=C sort -r \
-    | awk -v cutoff="$ag_cutoff" '
-        { n=split($0, parts, "/"); split(parts[n], event, "-")
-          if (event[2]+0 < cutoff || ++kept > 999) print }
       ' \
     | while IFS= read -r ag_old; do
         ag_old_id=${ag_old##*/event-}
@@ -7991,7 +7991,8 @@ bash_strip_exclusion_operands() {
   (
     set -f
     shell_words_marker "$1"
-    words=$(shell_command_words "$1") || { printf '%s' "$1"; exit 0; }
+    shell_command_words_to "$1" || { printf '%s' "$1"; exit 0; }
+    words=$SCW_OUT
     IFS='
 '
     # shellcheck disable=SC2086
@@ -8201,12 +8202,15 @@ bash_strip_allowed_tokens() {
     set -f
     bash_relative_env_exception_safe=1
     bash_rebase_target=
+    # Both checks below start from these records.
+    git_command_records_to "$1"
     if bash_command_may_rebase_relative_paths "$1"; then
       bash_rebase_target=$(bash_command_rebase_target "$1") \
         || bash_relative_env_exception_safe=0
     fi
     shell_words_marker "$1"
-    words=$(shell_command_words "$1") || { printf '%s' "$1"; exit 0; }
+    shell_command_words_to "$1" || { printf '%s' "$1"; exit 0; }
+    words=$SCW_OUT
     IFS='
 '
     # shellcheck disable=SC2086
@@ -8251,7 +8255,8 @@ bash_strip_source_module_prose() (
     printf '%s' "$prose_original"
     exit
   fi
-  prose_records=$(git_command_records "$1")
+  git_command_records_to "$1"
+  prose_records=$GCR_OUT
   IFS='
 '
   # shellcheck disable=SC2086
@@ -13188,7 +13193,12 @@ bash_deny_path_scan() {
     # Kept only when field names were dropped (see the dot-command test there).
     [ "$deny_cmd" != "$deny_pre_jq" ] || deny_pre_jq=
     deny_cmd=$(bash_neutralize_runtime_globals "$deny_cmd")
+    # The next two steps and bash_strip_allowed_tokens tokenize this text in
+    # sibling subshells, so its records and words are computed here, once,
+    # under the same conditions those steps compute them.
+    [ "$DENY_READ_PATHS_CUSTOM" -eq 1 ] || git_command_records_to "$deny_cmd"
     deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
+    shell_command_words_to "$deny_cmd"
     deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
   fi
   deny_cmd=$(bash_strip_allowed_tokens "$deny_cmd")
@@ -13245,6 +13255,39 @@ shell_words_marker() {
   SHELL_WORD_NL='
 '
   case "$1" in *"$SHELL_WORD_NL"*) SHELL_WORD_NL=$(printf '\034') ;; esac
+}
+
+# git_command_records and shell_command_words read nothing but their
+# arguments, and one Bash PreToolUse asks for the same text from sibling
+# subshells. These set GCR_OUT or SCW_OUT to what the command substitution
+# holds and return its status, reusing the last answer this shell, or the
+# shell that started it, computed for the same arguments.
+git_command_records_to() {
+  if [ "${gcr_memo_set:-}" = 1 ] && [ "${2:-}" = "$gcr_memo_gate" ] \
+      && [ "$1" = "$gcr_memo_text" ]; then
+    GCR_OUT=$gcr_memo_out
+    return "$gcr_memo_status"
+  fi
+  GCR_OUT=$(git_command_records "$1" "${2:-}")
+  gcr_memo_status=$?
+  gcr_memo_text=$1
+  gcr_memo_gate=${2:-}
+  gcr_memo_out=$GCR_OUT
+  gcr_memo_set=1
+  return "$gcr_memo_status"
+}
+
+shell_command_words_to() {
+  if [ "${scw_memo_set:-}" = 1 ] && [ "$1" = "$scw_memo_text" ]; then
+    SCW_OUT=$scw_memo_out
+    return "$scw_memo_status"
+  fi
+  SCW_OUT=$(shell_command_words "$1")
+  scw_memo_status=$?
+  scw_memo_text=$1
+  scw_memo_out=$SCW_OUT
+  scw_memo_set=1
+  return "$scw_memo_status"
 }
 
 # Print the words of $1 one per line, split where the shell splits them: at
@@ -13757,7 +13800,8 @@ git_gate_code_records() (
 # starts, past assignments and the builtin/command/eval/time/! prefixes.
 bash_command_sources_script() (
   set -f
-  source_records=$(git_command_records "$1")
+  git_command_records_to "$1"
+  source_records=$GCR_OUT
   old_ifs=$IFS
   IFS='
 '
@@ -13840,7 +13884,8 @@ bash_cwd_change() {
 bash_command_may_rebase_relative_paths() (
   set -f
   bash_command_sources_script "$1" && return 0
-  cwd_records=$(git_command_records "$1")
+  git_command_records_to "$1"
+  cwd_records=$GCR_OUT
   old_ifs=$IFS
   IFS='
 '
@@ -13888,7 +13933,8 @@ bash_command_may_rebase_relative_paths() (
 bash_command_rebase_target() (
   set -f
   bash_command_sources_script "$1" && return 1
-  rebase_records=$(git_command_records "$1")
+  git_command_records_to "$1"
+  rebase_records=$GCR_OUT
   old_ifs=$IFS
   IFS='
 '
@@ -20041,16 +20087,14 @@ detect_output_secret_records() (
     <"$detector_strings" >"$detector_work_a" 2>/dev/null
   detector_status=$?
   case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
-  jq -Rc 'select(length > 0)' <"$detector_work_a" \
-    >>"$detector_records" 2>/dev/null || detector_fail
-
+  # The bearer values follow the JWT lines in work_a: one jq run encodes both.
   grep -Eio 'bearer[ \t]+[-A-Za-z0-9._~+/=]+' \
-    <"$detector_strings" >"$detector_work_a" 2>/dev/null
+    <"$detector_strings" >"$detector_work_b" 2>/dev/null
   detector_status=$?
   case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
   awk '{ tok = $2; if (length(tok) >= 8) print tok }' \
-    <"$detector_work_a" >"$detector_work_b" 2>/dev/null || detector_fail
-  jq -Rc 'select(length > 0)' <"$detector_work_b" \
+    <"$detector_work_b" >>"$detector_work_a" 2>/dev/null || detector_fail
+  jq -Rc 'select(length > 0)' <"$detector_work_a" \
     >>"$detector_records" 2>/dev/null || detector_fail
 
   if known_value_redact_enabled; then
@@ -20128,6 +20172,14 @@ classify_secret_bundle() {
   classify_bundle_value=$1
   BUNDLE_MODE=
   BUNDLE_SECRETS=
+  # A scan with no findings: exactly what the parse below sets for it.
+  case "$classify_bundle_value" in
+    '{"whole_leaf":false,"secrets":[]}')
+      BUNDLE_MODE=secrets
+      BUNDLE_SECRETS='[]'
+      return 0
+      ;;
+  esac
   mktemp_files classify_bundle_input classify_bundle_output || return 1
   if ! printf '%s' "$classify_bundle_value" >"$classify_bundle_input" \
     || ! jq -jr '
@@ -20580,6 +20632,12 @@ redact_live_probe_response_json() {
 # length-aware matching and preserves the same contract across jq versions.
 redact_nul_response_json() {
   resp=$1
+  # $1 is jq -c output, and JSON spells a NUL only as \u0000: without that
+  # text the walk below prints $1 unchanged.
+  case "$resp" in
+    *'\u0000'*) ;;
+    *) printf '%s' "$resp"; return 0 ;;
+  esac
   { printf '%s' "$resp"; } 2>/dev/null | jq -c "$JQ_WALK"'
     walk(if type == "string" and (index("\u0000") != null)
          then "[REDACTED]" else . end)
@@ -23232,12 +23290,13 @@ hook_post_tool() {
   HOOK_EVENT=PostToolUse
   HOOK_INPUT=$input
   if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
-    # The object check itself still runs here: its failure is what selects the
-    # validation-recovery path below, which must stay reachable on its own.
+    # A primed input is exactly one object; any other input still runs the
+    # object check, whose failure selects the validation-recovery path below.
     # Refuse an over-limit input before the call copies it ('' resets alike).
     # Inline, not a helper: in dash each function definition costs every hook.
     if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
-    if ! printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    if ! json_input_is_primed_object "$input" \
+      && ! printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
       if recover_post_tool_validation_failure "$input"; then
         return 0
       fi
