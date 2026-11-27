@@ -99,7 +99,7 @@ answers only for the official gitleaks 8.30.1 release binary, which
 `agent-guard doctor` say in one line when an installed helper will not answer,
 and what to do: the selected gitleaks is another build or version, the state
 directory is so deep that the helper's socket path would pass 103 bytes or is
-not a private (0700, your own) plain absolute directory, the helper was installed for another Agent Guard version, or one of those two
+not a private (0700, your own) plain absolute directory, the helper was installed for another Agent Guard version or platform, or one of those two
 variables is set. They compare the gitleaks file with the official build's
 SHA-256 that this version records, and start or install nothing. To
 use your own source build instead, set

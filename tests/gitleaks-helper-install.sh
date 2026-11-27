@@ -233,11 +233,11 @@ chmod 755 "$PRIV/gitleaks-helper/agent-guard-gitleaks-helper"
 expect "an installed helper whose server cannot run: the line says not used and how to reinstall" \
   'hl | grep -qF "gitleaks helper  not used  (its helper $PRIV/gitleaks-helper/agent-guard-gitleaks-helper is not executable; reinstall it: "'
 cp "$CASE/plugin/config/gitleaks-helper.sha256" "$CASE/helper-pins.keep"
-sed "s|  $target/|  riscv64-unknown-linux-musl/|" "$CASE/helper-pins.keep" >>"$CASE/plugin/config/gitleaks-helper.sha256"
+sed "s|  $target/|  riscv64-unknown-linux-musl/|" "$CASE/helper-pins.keep" >"$CASE/plugin/config/gitleaks-helper.sha256"
 doc
 cp "$CASE/helper-pins.keep" "$CASE/plugin/config/gitleaks-helper.sha256"
 expect "a helper installed for another platform (a shared private directory): not used, and how to reinstall" \
-  'hl | grep -qF "gitleaks helper  not used  (it was installed for another platform, riscv64-unknown-linux-musl; reinstall it: "'
+  'hl | grep -qF "gitleaks helper  not used  (installed for another Agent Guard version or platform; run: "'
 mv "$CASE/xs/agent-guard/gitleaks-helper" "$CASE/helper-sub.keep" 2>/dev/null
 (umask 177; doc)
 [ ! -e "$CASE/helper-sub.keep" ] || mv "$CASE/helper-sub.keep" "$CASE/xs/agent-guard/gitleaks-helper"
@@ -256,7 +256,7 @@ cp "$INST/SHA256SUMS" "$CASE/sums.keep"
 awk '{ printf "%064d  %s\n", 0, $2 }' "$CASE/sums.keep" >"$INST/SHA256SUMS"
 doc
 expect "recorded pins that differ: not used, and the command that fixes it" \
-  'hl | grep -qF "gitleaks helper  not used  (installed for another Agent Guard version; run: " && hl | grep -q "setup --install-gitleaks-helper)"'
+  'hl | grep -qF "gitleaks helper  not used  (installed for another Agent Guard version or platform; run: " && hl | grep -q "setup --install-gitleaks-helper)"'
 cp "$CASE/sums.keep" "$INST/SHA256SUMS"
 cp "$OFFICIAL" "$CASE/official.keep"
 if [ -n "$REAL_GITLEAKS" ]; then

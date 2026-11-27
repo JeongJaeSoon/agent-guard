@@ -3404,7 +3404,7 @@ setup_install_gitleaks() {
 # The release target of the warm gitleaks helper for this platform, in
 # helper_target. Fails where no helper is released.
 gitleaks_helper_target() {
-  case "$(uname -s):$(uname -m)" in
+  case "${AG_OS:-$(uname -s)}:$(uname -m)" in
     Linux:x86_64|Linux:amd64) helper_target=x86_64-unknown-linux-musl ;;
     Linux:aarch64|Linux:arm64) helper_target=aarch64-unknown-linux-musl ;;
     Darwin:arm64) helper_target=aarch64-apple-darwin ;;
@@ -3668,18 +3668,11 @@ setup_install_gitleaks_helper_with_gitleaks() {
 HELPER_GITLEAKS_BIN_REASON='AGENT_GUARD_GITLEAKS_BIN selects the scanner, which the helper never serves; unset it to use the helper'
 
 # Succeeds when the installed helper (gitleaks_helper_installed) cannot run,
-# with why and what to do in helper_parts_why: it is for another platform, or
-# a file is not executable (hooks run only an executable client,
-# gitleaks_helper_selected, and the client starts the helper beside it).
+# with why and what to do in helper_parts_why: a file is not executable (hooks
+# run only an executable client, gitleaks_helper_selected, and the client
+# starts the helper beside it).
 gitleaks_helper_unrunnable() {
   helper_parts_why=
-  # A private directory shared by two systems can hold the other's helper,
-  # which gitleaks_helper_installed accepts by any platform's pins.
-  if [ -n "${ag_gh_target:-}" ] && gitleaks_helper_target && [ "$ag_gh_target" != "$helper_target" ]; then
-    cli_ref_init
-    helper_parts_why="it was installed for another platform, $ag_gh_target; reinstall it: $AG_CLI_REF setup --install-gitleaks-helper"
-    return 0
-  fi
   for ag_ghu_part in "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper/agent-guard-scan" \
     "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper/agent-guard-gitleaks-helper"; do
     [ ! -f "$ag_ghu_part" ] || [ ! -x "$ag_ghu_part" ] || continue
@@ -3781,7 +3774,7 @@ setup_gitleaks_helper_status_line() {
       else
         cli_ref_init
         if [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
-          info "$PROGRAM: gitleaks helper  not used  (installed for another Agent Guard version; run: $AG_CLI_REF setup --install-gitleaks-helper)"
+          info "$PROGRAM: gitleaks helper  not used  (installed for another Agent Guard version or platform; run: $AG_CLI_REF setup --install-gitleaks-helper)"
         elif [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
           helper_status_said=$HELPER_GITLEAKS_BIN_REASON
           info "$PROGRAM: gitleaks helper  not installed  ($HELPER_GITLEAKS_BIN_REASON)"
@@ -4845,14 +4838,14 @@ gitleaks_helper_installed() {
         *) ag_gh_client= ;;
       esac
       ag_gh_target=
-      if [ "${#ag_gh_helper}" -eq 64 ] && [ "${#ag_gh_client}" -eq 64 ]; then
+      # Only this platform's pins: a private directory shared by two systems
+      # can hold the other's helper, which could not execute here. Asked
+      # only once a helper is installed, so the default path forks nothing.
+      if [ "${#ag_gh_helper}" -eq 64 ] && [ "${#ag_gh_client}" -eq 64 ] && gitleaks_helper_target; then
         while IFS= read -r ag_gh_line; do
           case "$ag_gh_line" in
-            "$ag_gh_helper  "*/agent-guard-gitleaks-helper)
-              ag_gh_target=${ag_gh_line#*  }
-              ag_gh_target=${ag_gh_target%/agent-guard-gitleaks-helper}
-              ;;
-            "$ag_gh_client  $ag_gh_target/agent-guard-scan")
+            "$ag_gh_helper  $helper_target/agent-guard-gitleaks-helper") ag_gh_target=$helper_target ;;
+            "$ag_gh_client  $helper_target/agent-guard-scan")
               [ -z "$ag_gh_target" ] || AG_GITLEAKS_HELPER_INSTALLED=$ag_gh_dir/agent-guard-scan
               ;;
           esac

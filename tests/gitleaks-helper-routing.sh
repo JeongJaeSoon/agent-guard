@@ -132,12 +132,26 @@ default_hook() { # a secret command with the variable unset, then any VAR=value 
 }
 targets=$(awk '!/^#/ && NF == 2 { sub(/\/.*/, "", $2); print $2 }' "$PINS" | sort -u)
 expect "the pin file names the three released platforms" '[ "$(printf "%s\n" "$targets" | grep -c .)" = 3 ]'
+# Only this platform's helper runs: a private directory shared by two systems
+# can hold the other's, which could not execute here.
+case "$(uname -s):$(uname -m)" in
+  Linux:x86_64|Linux:amd64) this_target=x86_64-unknown-linux-musl ;;
+  Linux:aarch64|Linux:arm64) this_target=aarch64-unknown-linux-musl ;;
+  Darwin:arm64|Darwin:aarch64) this_target=aarch64-apple-darwin ;;
+  *) this_target= ;;
+esac
 for target in $targets; do
   install_fixture "$target"
   default_hook
-  expect "default: an installed helper with this CLI's pins ($target) gets the scan, with the same deny" \
-    'grep -qF -- "--gitleaks|$GL|--gitleaks-version|8.30.1|--state-dir|$STATE|--|stdin|" "$CALLS" && same_as pre-secret'
+  if [ "$target" = "$this_target" ]; then
+    expect "default: an installed helper with this platform's pins ($target) gets the scan, with the same deny" \
+      'grep -qF -- "--gitleaks|$GL|--gitleaks-version|8.30.1|--state-dir|$STATE|--|stdin|" "$CALLS" && same_as pre-secret'
+  else
+    expect "an installed helper with another platform's pins ($target) is not run: gitleaks alone gives the same deny" \
+      '[ ! -s "$CALLS" ] && same_as pre-secret'
+  fi
 done
+[ -n "$this_target" ] && install_fixture "$this_target"
 : >"$CALLS"
 hook hook-post-tool "$(post "token $secret")" AG_X=1
 expect "default: the output detector's report scan goes through the installed helper" \
