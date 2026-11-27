@@ -216,6 +216,9 @@ if [ -n "$REAL_GITLEAKS" ]; then
   hook "ls -la src" XDG_STATE_HOME="$at_limit" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$CASE/trace"
   expect "ground truth: at the limit, the client starts a helper" 'grep -qx spawned "$CASE/trace" && ! grep -q socket-path "$CASE/trace"'
 fi
+(XDG_STATE_HOME=relative-state; doc)
+expect "a state directory that is not a plain absolute path: not used, and what to do" \
+  'hl | grep -qF "gitleaks helper  not used  (the state directory relative-state/agent-guard is not a plain absolute path (relative, or through a symbolic link); set XDG_STATE_HOME to one)"'
 (AGENT_GUARD_GITLEAKS_BIN="$CASE/bin/gitleaks"; export AGENT_GUARD_GITLEAKS_BIN; setup)
 expect "AGENT_GUARD_GITLEAKS_BIN: not used, and how to use the helper" \
   'hl | grep -qF "gitleaks helper  not used  (AGENT_GUARD_GITLEAKS_BIN selects the scanner, which the helper never serves; unset it to use the helper)"'
@@ -590,10 +593,49 @@ HTTP
   tar -C "$CASE/broken-gl" -czf "$CASE/download/$gl_archive" gitleaks
   broken_sum=$(shasum -a 256 "$CASE/download/$gl_archive" | awk '{ print $1 }')
   si "$P" -- --install --gitleaks-checksum "$broken_sum"
-  expect "a replacement that does not run is removed, the PATH build stays selected, and setup fails saying so" \
+  expect "a replacement that does not run is checked aside and never installed; the PATH build stays and setup fails saying so" \
     '[ "$(status)" != 0 ] && [ ! -e "$P/gitleaks" ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(helper_url)" = 0 ] \
-     && grep -qF "the gitleaks downloaded to $P/gitleaks does not run, so it was removed; hook scans keep using $CASE/path-gl/gitleaks" "$CASE/s.err"'
+     && grep -qF "the downloaded gitleaks does not run" "$CASE/s.err" \
+     && grep -qF "the official gitleaks was not installed; hook scans keep using $CASE/path-gl/gitleaks" "$CASE/s.err" \
+     && [ -z "$(find "$P" -name ".gitleaks.*")" ] && no_temp_left'
+  # One that runs and matches the user's checksum but not the official build
+  # is not installed either.
+  P="$CASE/p-path-unofficial"
+  cp "$CASE/path-gl/gitleaks" "$CASE/broken-gl/gitleaks"
+  tar -C "$CASE/broken-gl" -czf "$CASE/download/$gl_archive" gitleaks
+  unofficial_sum=$(shasum -a 256 "$CASE/download/$gl_archive" | awk '{ print $1 }')
+  si "$P" -- --install --gitleaks-checksum "$unofficial_sum"
+  expect "a downloaded gitleaks that is not the official build is not installed; the PATH build stays" \
+    '[ "$(status)" != 0 ] && [ ! -e "$P/gitleaks" ] && grep -qF "the downloaded gitleaks is not the official gitleaks $glv release build" "$CASE/s.err" \
+     && [ -z "$(find "$P" -name ".gitleaks.*")" ]'
   cp "$CASE/gl-archive.keep" "$CASE/download/$gl_archive"
+  # Where the helper could not run anyway, the PATH build stays.
+  P="$CASE/p-path-log-off"
+  si "$P" AGENT_GUARD_LOG_MODE=off
+  expect "with AGENT_GUARD_LOG_MODE=off setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  P="$CASE/p-path-relative-state"
+  si "$P" XDG_STATE_HOME=relative-state
+  expect "with a state directory that is not a plain absolute path setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  # A private directory named through a symbolic link is still the private
+  # directory: its gitleaks is kept, and the advice is to remove it.
+  P="$CASE/p-private-link"
+  mkdir -p "$CASE/p-private-real" && cp "$CASE/path-gl/gitleaks" "$CASE/p-private-real/gitleaks"
+  ln -s "$CASE/p-private-real" "$P"
+  si "$P"
+  expect "a private gitleaks reached through a symbolic link gets the remove advice and is kept" \
+    '[ "$(status)" = 0 ] && cmp -s "$CASE/p-private-real/gitleaks" "$CASE/path-gl/gitleaks" && [ "$(urls)" = 0 ] \
+     && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "to use the helper, remove "'
+  # No pin for this platform and version: the build cannot be checked, so
+  # nothing is replaced.
+  P="$CASE/p-path-no-pin"
+  cp "$OFFICIAL" "$CASE/official.held"
+  printf '%064d  %s/riscv64-unknown-linux-musl/gitleaks\n' 0 "$glv" >"$OFFICIAL"
+  si "$P"
+  expect "without a pin for this platform setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && ! grep -q "not the official" "$CASE/s.err"'
+  cp "$CASE/official.held" "$OFFICIAL"
   # No helper for this platform: nothing to gain, so the PATH build stays.
   P="$CASE/p-path-platform"
   mkdir -p "$CASE/path-old"
