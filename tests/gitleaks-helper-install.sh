@@ -541,6 +541,48 @@ HTTP
     '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 0 ] && [ "$(reason)" = 1 ] && [ "$(warned)" = 0 ] \
      && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "not the official gitleaks $glv release build" \
      && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "used before PATH"'
+  # Asked for with setup --install and a checksum, the official build goes to
+  # the private directory, which is selected before PATH, with one line that
+  # says so and how to go back; then the helper is installed for it.
+  P="$CASE/p-path-replace"
+  path_gl_before=$(shasum -a 256 "$CASE/path-gl/gitleaks")
+  si "$P"
+  expect "setup --install with a checksum puts the official build in the private directory beside the PATH build, says so and how to go back" \
+    '[ "$(status)" = 0 ] && cmp -s "$P/gitleaks" "$CASE/gl/gitleaks" && has_helper "$P" \
+     && [ "$(sed -n 1p "$URLS" | sed "s|.*/||")" = "$gl_archive" ] && [ "$(helper_url)" = 1 ] \
+     && grep -qF "hook scans now use the official gitleaks $glv in $P/gitleaks instead of $CASE/path-gl/gitleaks; to go back, remove $P/gitleaks or set AGENT_GUARD_GITLEAKS_BIN=$CASE/path-gl/gitleaks" "$CASE/s.err" \
+     && [ "$path_gl_before" = "$(shasum -a 256 "$CASE/path-gl/gitleaks")" ] && no_temp_left'
+  : >"$CALLS"
+  hook "echo $marker" AGENT_GUARD_GITLEAKS_BIN_DIR="$P" PATH="$CASE/path-gl:$PATH"
+  expect "and hook scans then run the official build through the helper, with the same deny" \
+    '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && grep -qF -- "--gitleaks|$P/gitleaks|" "$CALLS"'
+  # Never from doctor, which only passes install arguments on while they are
+  # deprecated: it installs nothing in place of a working gitleaks.
+  P="$CASE/p-path-doctor"
+  : >"$URLS"
+  env PATH="$TOOLS_PATH" TMPDIR="$CASE/tmp" AGENT_GUARD_GITLEAKS_BIN_DIR="$P" \
+    "$GUARD" doctor --install --gitleaks-checksum "$gl_sum" >"$CASE/s.out" 2>"$CASE/s.err"
+  expect "doctor with install arguments does not replace the PATH build" \
+    '[ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && grep -q "gitleaks already available" "$CASE/s.err"'
+  # The helper turned off: the PATH build stays.
+  P="$CASE/p-path-off"
+  si "$P" AGENT_GUARD_GITLEAKS_HELPER=off
+  expect "with AGENT_GUARD_GITLEAKS_HELPER=off setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && grep -q "gitleaks already available" "$CASE/s.err"'
+  # A non-official gitleaks already in the private directory is never
+  # overwritten; the advice is to remove it first.
+  P="$CASE/p-private-other"
+  mkdir -p "$P" && cp "$CASE/path-gl/gitleaks" "$P/gitleaks"
+  si "$P"
+  expect "a non-official private gitleaks is kept, with advice to remove it and rerun" \
+    '[ "$(status)" = 0 ] && cmp -s "$P/gitleaks" "$CASE/path-gl/gitleaks" && [ "$(urls)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] \
+     && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -qF "remove $P/gitleaks, then run"'
+  # Another version asked for: the helper would not answer it either, so the
+  # PATH build stays.
+  P="$CASE/p-path-version"
+  si "$P" -- --install --gitleaks-checksum "$gl_sum" --gitleaks-version 8.30.0
+  expect "setup --install for another gitleaks version keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
   cp "$CASE/gl/gitleaks" "$CASE/path-gl/gitleaks"
   TOOLS_PATH="$CASE/http-bin:$CASE/tools"
   P="$CASE/p-explicit"

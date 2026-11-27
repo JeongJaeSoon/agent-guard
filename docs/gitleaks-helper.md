@@ -42,7 +42,9 @@ keep running the real gitleaks.
 `agent-guard setup --install` installs the helper together with gitleaks when
 the gitleaks in use is the official release build of the version the helper
 links, in the private directory or on `PATH`; rerun it to get the helper for a
-gitleaks it installed earlier. A helper that cannot be downloaded or does not match is
+gitleaks it installed earlier. With another build on `PATH` and the checksum
+for that version, it installs the official build in the private directory
+(used before `PATH`) first, and says how to go back. A helper that cannot be downloaded or does not match is
 only a warning there, with any other gitleaks the command prints why it
 installed no helper, and `AGENT_GUARD_GITLEAKS_HELPER=off` skips it. The
 [installation guide](installation.md#optional-warm-gitleaks-helper) lists the
