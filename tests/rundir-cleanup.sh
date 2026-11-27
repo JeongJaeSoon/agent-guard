@@ -652,6 +652,24 @@ else
   grep -A1 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
 fi
 
+# A state directory that passes its checks but refuses new files (a macOS
+# ACL) cannot take the marker, so doctor must not promise a later run.
+mkdir -p "$CASE/aclstate/agent-guard"
+chmod 700 "$CASE/aclstate/agent-guard"
+if chmod +a "user:$(id -un) deny add_file" "$CASE/aclstate/agent-guard" 2>/dev/null; then
+  stale_in "$CASE/aclstate-tmp" agent-guard-run.Ac12St
+  env HOME="$CASE/home" XDG_STATE_HOME="$CASE/aclstate" TMPDIR="$CASE/aclstate-tmp" AGENT_GUARD_LOG_MODE=on AGENT_GUARD_SCAN_CACHE=off \
+    AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" AGENT_GUARD_RELEASE_CHECK=off \
+    sh "$GUARD" doctor >"$CASE/doctor-out" 2>&1 </dev/null
+  chmod -N "$CASE/aclstate/agent-guard" 2>/dev/null || :
+  if grep -q 'temp: 1 stale run directories in .*nothing removes them while the private state directory' "$CASE/doctor-out"; then
+    ok "doctor says nothing removes them while the state directory refuses new files"
+  else
+    not_ok "doctor says nothing removes them while the state directory refuses new files"
+    grep 'temp:' "$CASE/doctor-out" | sed 's/^/  /'
+  fi
+fi
+
 # A TMPDIR that cannot be listed is reported as such, not as clean.
 mkdir -p "$CASE/unlisted-tmp"
 stale_in "$CASE/unlisted-tmp" agent-guard-run.Un12Ls

@@ -24201,6 +24201,8 @@ doctor_rundir_report() {
       elif [ -e "$doctor_rundir_state" ] || [ -L "$doctor_rundir_state" ]; then
         if ! audit_directory >/dev/null 2>&1; then
           doctor_rundir_why='the private state directory fails its ownership or mode check'
+        elif [ ! -w "$doctor_rundir_state" ]; then
+          doctor_rundir_why='the private state directory refuses new files'
         elif [ -L "$doctor_rundir_state/rundir-reap" ] \
             || { [ -e "$doctor_rundir_state/rundir-reap" ] && [ ! -f "$doctor_rundir_state/rundir-reap" ]; }; then
           doctor_rundir_why='its marker in the private state directory is not a regular file'
