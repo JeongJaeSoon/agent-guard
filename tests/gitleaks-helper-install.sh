@@ -622,13 +622,14 @@ HTTP
   # the checks through the link, but the link is never published.
   P="$CASE/p-path-link-archive"
   mkdir -p "$CASE/link-gl"
-  ln -s "$CASE/gl/gitleaks" "$CASE/link-gl/gitleaks"
+  cp "$CASE/gl/gitleaks" "$CASE/link-target" && chmod 644 "$CASE/link-target"
+  ln -s "$CASE/link-target" "$CASE/link-gl/gitleaks"
   tar -C "$CASE/link-gl" -czf "$CASE/download/$gl_archive" gitleaks
   link_sum=$(shasum -a 256 "$CASE/download/$gl_archive" | awk '{ print $1 }')
   si "$P" -- --install --gitleaks-checksum "$link_sum"
   expect "a downloaded gitleaks that is a symbolic link is not installed; the PATH build stays" \
     '[ "$(status)" != 0 ] && [ ! -e "$P/gitleaks" ] && [ ! -L "$P/gitleaks" ] \
-     && grep -qF "the downloaded gitleaks is not a regular file" "$CASE/s.err" \
+     && grep -qF "the downloaded gitleaks is not a regular file" "$CASE/s.err" && [ ! -x "$CASE/link-target" ] \
      && [ -z "$(find "$P" -name ".gitleaks.*")" ]'
   cp "$CASE/gl-archive.keep" "$CASE/download/$gl_archive"
   # Another install that puts a gitleaks there meanwhile keeps it: the staged
@@ -649,6 +650,33 @@ HTTP
      && grep -qF "the official gitleaks was not installed; hook scans use $P/gitleaks" "$CASE/s.err" \
      && ! grep -qF "keep using $CASE/path-gl/gitleaks" "$CASE/s.err" \
      && [ -z "$(find "$P" -name ".gitleaks.*")" ] && no_temp_left'
+  # A directory put at that name meanwhile gets nothing linked inside it.
+  P="$CASE/p-path-race-dir"
+  printf '#!/bin/sh\n"%s" "$@" || exit\nmkdir -p "%s/gitleaks"\n' "$CASE/http-bin/curl" "$P" >"$CASE/race-bin/curl"
+  TOOLS_PATH="$CASE/race-bin:$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  expect "a directory another process puts at the private gitleaks name meanwhile gets no link inside it" \
+    '[ "$(status)" != 0 ] && [ -d "$P/gitleaks" ] && [ -z "$(ls -A "$P/gitleaks")" ] \
+     && ! grep -qF "installed gitleaks v" "$CASE/s.err" && [ -z "$(find "$P" -name ".gitleaks.*")" ]'
+  # A state home that is a file: hooks could never create the state directory.
+  P="$CASE/p-path-state-file"
+  : >"$CASE/state-file"
+  si "$P" XDG_STATE_HOME="$CASE/state-file"
+  expect "with XDG_STATE_HOME naming a file setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  # The official build on PATH with logging off or an unknown log mode: no
+  # helper download, and the line says why instead of suggesting one.
+  for log_mode in off verbose; do
+    P="$CASE/p-official-log-$log_mode"
+    TOOLS_PATH="$CASE/gl:$CASE/http-bin:$CASE/tools"
+    si "$P" AGENT_GUARD_LOG_MODE="$log_mode" -- --install
+    TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+    expect "the official build on PATH with AGENT_GUARD_LOG_MODE=$log_mode gets no helper download, and one line saying why" \
+      '[ "$(status)" = 0 ] && [ "$(helper_url)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] \
+       && [ "$(grep -c "gitleaks helper  not installed  (it would not answer: AGENT_GUARD_LOG_MODE" "$CASE/s.err")" = 1 ] \
+       && [ "$(grep -c "gitleaks helper" "$CASE/s.err")" = 1 ]'
+  done
   # Where the helper could not run anyway, the PATH build stays.
   P="$CASE/p-path-log-off"
   si "$P" AGENT_GUARD_LOG_MODE=off

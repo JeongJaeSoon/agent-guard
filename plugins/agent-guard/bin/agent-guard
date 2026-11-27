@@ -3380,6 +3380,8 @@ setup_install_gitleaks() {
   info "$PROGRAM: extracting"
   tar -xzf "$tmp/$archive" -C "$tmp" || die "setup: extraction failed"
 
+  # chmod follows a symbolic link: never give a link's target the x bit.
+  [ -f "$tmp/gitleaks" ] && [ ! -L "$tmp/gitleaks" ] || die "setup: the downloaded gitleaks is not a regular file"
   mkdir -p "$SETUP_INSTALL_DIR" || die "setup: cannot create install dir: $SETUP_INSTALL_DIR"
   mv "$tmp/gitleaks" "$SETUP_INSTALL_DIR/gitleaks" || die "setup: failed to install gitleaks binary"
   chmod +x "$SETUP_INSTALL_DIR/gitleaks"
@@ -3494,7 +3496,7 @@ setup_install_gitleaks_helper() {
 setup_replaces_path_gitleaks() {
   [ "$SETUP_VIA_DOCTOR" = 0 ] && [ -n "$2" ] && [ "$1" = "$GITLEAKS_DEFAULT_VERSION" ] \
     && [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] && [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] \
-    && [ "${AGENT_GUARD_LOG_MODE:-on}" = on ] && gitleaks_official_pin && gitleaks_helper_state_usable \
+    && ! gitleaks_helper_log_blocks && gitleaks_official_pin && gitleaks_helper_state_usable \
     && [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] \
     && gitleaks_helper_blocker "${gl:-}" && [ -n "$helper_blocker" ]
 }
@@ -3535,7 +3537,9 @@ setup_install_official_gitleaks() (
     exit 1
   fi
   # A hard link never replaces a name another install created meanwhile.
-  ln "$ag_iog_stage/gitleaks" "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" 2>/dev/null \
+  # Linked into the directory under its own name, so an entry of any kind at
+  # that name, a directory included, makes it fail.
+  ln "$ag_iog_stage/gitleaks" "$GITLEAKS_PRIVATE_BIN_DIR" 2>/dev/null \
     || die "setup: failed to install gitleaks at $GITLEAKS_PRIVATE_BIN_DIR/gitleaks (it exists, or the link failed)"
   info "$PROGRAM: installed gitleaks v$1 at $GITLEAKS_PRIVATE_BIN_DIR/gitleaks"
 )
@@ -3618,6 +3622,8 @@ setup_install_gitleaks_helper_with_gitleaks() {
   cli_ref_init
   if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
     helper_reason=$HELPER_GITLEAKS_BIN_REASON
+  elif gitleaks_helper_log_blocks; then
+    helper_reason=$helper_log_why
   elif ! gitleaks_helper_state_usable; then
     helper_reason=$helper_state_why
   elif gitleaks_helper_blocker "${gl:-}"; then
@@ -3651,6 +3657,16 @@ setup_install_gitleaks_helper_with_gitleaks() {
 
 HELPER_GITLEAKS_BIN_REASON='AGENT_GUARD_GITLEAKS_BIN selects the scanner, which the helper never serves; unset it to use the helper'
 
+# Why AGENT_GUARD_LOG_MODE keeps the helper from answering, in helper_log_why;
+# fails, leaving it empty, when the mode is on.
+gitleaks_helper_log_blocks() {
+  case "${AGENT_GUARD_LOG_MODE:-on}" in
+    on) helper_log_why= ; return 1 ;;
+    off) helper_log_why='AGENT_GUARD_LOG_MODE=off leaves it no state directory for its socket; unset it to use the helper' ;;
+    *) helper_log_why='AGENT_GUARD_LOG_MODE is neither on nor off, so hooks keep no state directory for its socket; unset it to use the helper' ;;
+  esac
+}
+
 # Whether hooks could give the client its state directory, as audit_begin
 # would choose it: a plain absolute path, private when it already exists
 # (audit_directory refuses it otherwise), as is its gitleaks-helper directory
@@ -3668,6 +3684,14 @@ gitleaks_helper_state_usable() {
   if { [ -e "$helper_state" ] || [ -L "$helper_state" ]; } && ! private_dir_ok "$helper_state"; then
     helper_state_why="the state directory $helper_state is not private to you (a 0700 directory you own); fix its owner and mode, or set XDG_STATE_HOME to another directory"
     return 1
+  fi
+  if [ ! -e "$helper_state" ] && [ ! -L "$helper_state" ]; then
+    ag_ghs_up=${helper_state%/*}
+    while [ -n "$ag_ghs_up" ] && [ ! -e "$ag_ghs_up" ]; do ag_ghs_up=${ag_ghs_up%/*}; done
+    if [ -n "$ag_ghs_up" ] && { [ ! -d "$ag_ghs_up" ] || [ ! -w "$ag_ghs_up" ]; }; then
+      helper_state_why="the state directory $helper_state cannot be created ($ag_ghs_up is not a directory you can write); set XDG_STATE_HOME to one"
+      return 1
+    fi
   fi
   if { [ -e "$helper_state/gitleaks-helper" ] || [ -L "$helper_state/gitleaks-helper" ]; } \
     && ! private_dir_ok "$helper_state/gitleaks-helper"; then
@@ -3710,7 +3734,10 @@ setup_gitleaks_helper_status_line() {
         elif [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
           helper_status_said=$HELPER_GITLEAKS_BIN_REASON
           info "$PROGRAM: gitleaks helper  not installed  ($HELPER_GITLEAKS_BIN_REASON)"
-        elif [ "${AGENT_GUARD_LOG_MODE:-on}" != off ] && ! gitleaks_helper_state_usable; then
+        elif gitleaks_helper_log_blocks; then
+          helper_status_said=$helper_log_why
+          info "$PROGRAM: gitleaks helper  not installed  (it would not answer: $helper_log_why)"
+        elif ! gitleaks_helper_state_usable; then
           helper_status_said=$helper_state_why
           info "$PROGRAM: gitleaks helper  not installed  (it would not answer: $helper_state_why)"
         elif gitleaks_helper_blocker "${gl:-}" && [ -n "$helper_blocker" ]; then
@@ -3731,12 +3758,8 @@ setup_gitleaks_helper_status_line() {
     info "$PROGRAM: gitleaks helper  not used  ($HELPER_GITLEAKS_BIN_REASON)"
     return 0
   fi
-  if [ "${AGENT_GUARD_LOG_MODE:-on}" = off ]; then
-    info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_LOG_MODE=off leaves it no state directory for its socket; unset it to use the helper)"
-    return 0
-  fi
-  if [ "${AGENT_GUARD_LOG_MODE:-on}" != on ]; then
-    info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_LOG_MODE is neither on nor off, so hooks keep no state directory for its socket; unset it to use the helper)"
+  if gitleaks_helper_log_blocks; then
+    info "$PROGRAM: gitleaks helper  not used  ($helper_log_why)"
     return 0
   fi
   if ! gitleaks_helper_state_usable; then
