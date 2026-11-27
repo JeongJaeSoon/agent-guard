@@ -90,7 +90,7 @@ expect "numbers outside what the runtime accepts are marked" 'line SCAN_INPUT_MA
 doctor $OFFLINE AGENT_GUARD_PII_SKIP=EMAIL AGENT_GUARD_PII_PROVIDER=http
 expect "a skip list that the provider does not use is marked" 'line PII_SKIP | grep -qF unrecognized'
 doctor $OFFLINE AGENT_GUARD_PII_SKIP='EMAIL PHONE'
-expect "a space-separated skip list is accepted, as at runtime" '! line PII_SKIP | grep -qF unrecognized'
+expect "a space-separated skip list is accepted, as at runtime" 'line PII_SKIP | grep -qF "EMAIL PHONE" && ! line PII_SKIP | grep -qF unrecognized'
 doctor $OFFLINE AGENT_GUARD_PII_SKIP='*'
 expect "a list value is not expanded as a pathname pattern" 'line PII_SKIP | grep -qF unrecognized'
 doctor $OFFLINE AGENT_GUARD_KEY_NAME_REDACT=false
@@ -109,11 +109,11 @@ doctor $OFFLINE AGENT_GUARD_LOG_MODE=quiet AGENT_GUARD_SCAN_CACHE=off
 expect "an unrecognized log mode turns the cache off whatever its setting, and the line says so" \
   'line SCAN_CACHE | grep -qF "no effect" && ! line SCAN_CACHE | grep -qF differs'
 doctor $OFFLINE AGENT_GUARD_PII_PROVIDER=http AGENT_GUARD_PII_SKIP=' '
-expect "a skip list with no words is accepted with any provider, as at runtime" '! line PII_SKIP | grep -qF unrecognized'
+expect "a skip list with no words is accepted with any provider, as at runtime" 'line PII_SKIP >/dev/null && ! line PII_SKIP | grep -qF unrecognized'
 doctor $OFFLINE AGENT_GUARD_PII_PROVIDER=zq9 AGENT_GUARD_PII_SKIP=EMAIL
-expect "an unknown provider is left to the provider error, not blamed on the skip list" '! line PII_SKIP | grep -qF unrecognized'
+expect "an unknown provider is left to the provider error, not blamed on the skip list" 'line PII_SKIP | grep -qF EMAIL && ! line PII_SKIP | grep -qF unrecognized'
 doctor $OFFLINE AGENT_GUARD_PII_TIMEOUT_SECONDS=1000000000000000000
-expect "the PII timeout takes any positive integer, without the scan limit's digit cap" '! line PII_TIMEOUT_SECONDS | grep -qF unrecognized'
+expect "the PII timeout takes any positive integer, without the scan limit's digit cap" 'line PII_TIMEOUT_SECONDS | grep -qF 1000000000000000000 && ! line PII_TIMEOUT_SECONDS | grep -qF unrecognized'
 env $UNSET HOME="$CASE/home" AGENT_GUARD_GITLEAKS_BIN="$CASE/gl/gitleaks" $OFFLINE AGENT_GUARD_PROMPT_GUARD_MODE=warn \
   "$GUARD" doctor --help >"$CASE/out" 2>"$CASE/err" </dev/null
 expect "doctor --help prints usage without the settings section" 'grep -qF "Usage:" "$CASE/err" && ! grep -qF "setting  " "$CASE/err"'
