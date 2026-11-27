@@ -298,6 +298,7 @@ Usage:
   agent-guard exec [--] <cmd> [args...]
   agent-guard shell-init [--bash|--zsh] [--no-command-wrapping]
   agent-guard setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]
+  agent-guard setup-shell [--bash|--zsh|--rc FILE] --print-command-wrapping
   agent-guard pii-filter [--check]
   agent-guard mask-file [--key-paths] [--] FILE
   agent-guard scan-staged
@@ -3417,6 +3418,7 @@ setup_gitleaks_helper_status_line() {
 # Warned once, as setup's parser reads the first one, so an argument it never
 # reads (after --help or an unknown one) is not; the warning names no value.
 SETUP_VIA_DOCTOR=0
+SETUP_HELP_SHOWN=0
 setup_doctor_install_arg() {
   [ "$SETUP_VIA_DOCTOR" = 1 ] || return 0
   SETUP_VIA_DOCTOR=2
@@ -3469,6 +3471,7 @@ helper for this platform from the Agent Guard release. It is installed only
 when it matches the checksums built into this CLI, and scans then use it
 without further setup. AGENT_GUARD_GITLEAKS_HELPER=off turns it off.
 EOF
+        SETUP_HELP_SHOWN=1
         return 0
         ;;
       *) die "setup: unknown argument: $1" ;;
@@ -4808,6 +4811,8 @@ lockfile_whole_kind() {
   return 1
 }
 
+# Internal: not in usage(). The CLI runs itself with this subcommand through
+# xargs while it prepares lockfiles for a scan.
 filter_lockfile_hashes() {
   path=$1
   original_source=${2:-$path}
@@ -23852,6 +23857,143 @@ doctor_shell_integration_report() {
   return 0
 }
 
+# doctor's settings section: what doctor itself reads in its own environment.
+# Fields: name, kind, default, accepted spellings (comma-separated; mirrors the
+# accepted-values table of docs/configuration.md). A value is printed only when
+# it is an accepted spelling or a plain number; a path or URL prints as "set"
+# and anything unrecognized is never echoed. Kinds: mode (always listed),
+# enum, list, number (accepted = min-max), helper, path, deprecated (accepted =
+# what is deprecated). The deprecated entries are the ones whose warning
+# period runs now; drop each one when its setting is removed.
+DOCTOR_SETTINGS='INFRA_FAILURE_MODE mode unset open,closed
+PROMPT_GUARD_MODE mode block block,warn,off,mask
+OUTPUT_REDACT mode mask mask,off
+DENY_READ_MODE mode block block,mask
+PII_HOOK_MODE mode off off,block,mask
+LOG_MODE mode on on,off
+SESSION_ROLE enum unset review
+COMMAND_WRAPPING enum on on,off,OFF,0,false,FALSE,no,NO
+KEY_NAME_REDACT enum off off,on
+TRACKED_FILE_EXCEPTION enum on on,off
+KNOWN_VALUE_REDACT enum on on,off
+SCAN_CACHE enum on on,off
+RELEASE_CHECK enum on on,off
+CODEX_TRUST_CHECK enum on on,off
+EXPERIMENTAL_REDACTOR enum rust rust,shell
+PII_PROVIDER enum regex regex,http,pleno
+PII_LANGUAGE enum en en,ja
+PII_SKIP list unset EMAIL,PHONE,IP_ADDRESS
+SCAN_INPUT_MAX_BYTES number 10485760 10485760-999999999999999999
+PII_TIMEOUT_SECONDS number 30 1-
+GITLEAKS_HELPER_IDLE_SECONDS number 600 1-86400
+GITLEAKS_HELPER_MAX_RSS_MIB number 160 96-4096
+GITLEAKS_HELPER helper unset -
+DENY_READ_PATHS path bundled -
+DENY_BASH_PATTERNS path bundled -
+GITLEAKS_CONFIG path bundled -
+MASK_DENY_VALUES path unset -
+GITLEAKS_BIN path unset -
+GITLEAKS_BIN_DIR path unset -
+RUST_CORE_BIN path unset -
+PII_REDACT_URL path unset -
+GITLEAKS_HELPER_TRACE path unset -
+BIN path unset -
+BIN_DIR deprecated - gitleaks-dir
+GITLEAKS_CHECKSUMS_URL deprecated - outside-tests
+REPO deprecated - outside-tests
+PII_HOOK_REQUEST deprecated - internal'
+
+# Informational only: never changes doctor's status.
+doctor_settings_report() {
+  info "$PROGRAM: settings: as read by this doctor run; hook environments (host or managed settings) may differ"
+  # No pathname expansion of a list value's words.
+  printf '%s\n' "$DOCTOR_SETTINGS" | { set -f; while read -r ds_name ds_kind ds_default ds_accepted; do
+    # Names come from the fixed table above, never from input.
+    eval "ds_isset=\${AGENT_GUARD_$ds_name+x} ds_value=\${AGENT_GUARD_$ds_name-}"
+    # Logging off turns the scan cache off unless it is set on explicitly.
+    [ "$ds_name:${AGENT_GUARD_LOG_MODE:-}" != SCAN_CACHE:off ] || ds_default=off
+    if [ -z "$ds_isset" ]; then
+      [ "$ds_kind" = mode ] || continue
+      ds_shown="$ds_default (default)"
+    elif [ -z "$ds_value" ]; then
+      ds_shown=empty
+    else
+      ds_ok=0
+      case $ds_kind in
+        mode|enum)
+          case $ds_value in
+            *,*) ;;
+            *) case ",$ds_accepted," in *",$ds_value,"*) ds_ok=1 ;; esac ;;
+          esac
+          ;;
+        list)
+          # The parse of pii_skip_set, without its error exit: words split on
+          # commas and spaces; an endpoint provider refuses a non-empty list.
+          ds_ok=1 ds_words=0
+          ds_oifs=$IFS
+          IFS=', '
+          for ds_word in $ds_value; do
+            ds_words=1
+            case ",$ds_accepted," in *",$ds_word,"*) ;; *) ds_ok=0 ;; esac
+          done
+          IFS=$ds_oifs
+          case $ds_value in *"$(printf '\t')"*|*"
+"*) ds_ok=0 ;; esac
+          [ "$ds_words" -eq 0 ] || case ${AGENT_GUARD_PII_PROVIDER:-regex} in http|pleno) ds_ok=0 ;; esac
+          ;;
+        number)
+          # The runtime parsers drop leading zeros; the helper's Go Atoi also
+          # reads a leading plus sign.
+          case $ds_name:$ds_value in GITLEAKS_HELPER_*:+*) ds_value=${ds_value#+} ;; esac
+          ds_value=${ds_value#"${ds_value%%[!0]*}"}
+          case $ds_value in
+            '') ds_value=0 ;;
+          esac
+          case $ds_value in
+            *[!0-9]*) ;;
+            *)
+              # No maximum (PII timeout): the runtime's own positive-integer test.
+              if [ -z "${ds_accepted#*-}" ]; then
+                [ "$ds_value" -ge "${ds_accepted%-*}" ] 2>/dev/null && ds_ok=1
+              elif [ "${#ds_value}" -le 18 ] && [ "$ds_value" -ge "${ds_accepted%-*}" ] \
+                  && [ "$ds_value" -le "${ds_accepted#*-}" ]; then
+                ds_ok=1
+              fi
+              ;;
+          esac
+          ;;
+      esac
+      case $ds_kind in
+        path) ds_shown=set ;;
+        deprecated)
+          case $ds_accepted in
+            gitleaks-dir) ds_shown="set; deprecated as the gitleaks directory, still the installer link directory" ;;
+            outside-tests) ds_shown="set; deprecated outside tests" ;;
+            *) ds_shown="set; internal and deprecated" ;;
+          esac
+          ;;
+        helper) case $ds_value in /*) ds_shown=set ;; *) ds_shown="off (not an absolute path)" ;; esac ;;
+        *)
+          if [ "$ds_ok" -eq 0 ]; then
+            ds_shown="unrecognized value; docs/configuration.md says how this setting treats one"
+          elif [ "$ds_value" = "$ds_default" ]; then
+            ds_shown=$ds_value
+          else
+            ds_shown="$ds_value (differs from the default: $ds_default)"
+          fi
+          ;;
+      esac
+    fi
+    # audit_begin keeps no state for an unrecognized log mode, so no cache.
+    case $ds_name:${AGENT_GUARD_LOG_MODE:-on} in
+      SCAN_CACHE:on|SCAN_CACHE:off) ;;
+      SCAN_CACHE:*) ds_shown="no effect: an unrecognized AGENT_GUARD_LOG_MODE turns the cache off" ;;
+    esac
+    info "$PROGRAM: setting  AGENT_GUARD_$ds_name  $ds_shown"
+  done; }
+  return 0
+}
+
 # doctor is setup plus a release-staleness line; the setup status is returned
 # unchanged so a failed lookup never turns a healthy doctor red.
 do_doctor() {
@@ -23866,6 +24008,7 @@ do_doctor() {
       ;;
   esac
   doctor_shell_integration_report
+  [ "$SETUP_HELP_SHOWN" = 1 ] || doctor_settings_report
   if command -v codex >/dev/null 2>&1; then
     doctor_here=$(pwd -P 2>/dev/null) || doctor_here=$PWD
     codex_trust_probe "$doctor_here"
@@ -23963,7 +24106,7 @@ case "$cmd" in
   scan-staged) shift; gitleaks_bin_dir_notice >&2 || :; scan_staged "$@" ;;
   scan-working-tree) shift; gitleaks_bin_dir_notice >&2 || :; scan_working_tree "$@" ;;
   scan-path) shift; gitleaks_bin_dir_notice >&2 || :; scan_path "$@" ;;
-  filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;
+  filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;  # internal
   logs) shift; audit_logs "$@" ;;
   plugin) shift; do_plugin "$@" ;;
   check) check_deps ;;
