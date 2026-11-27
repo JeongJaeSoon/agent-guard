@@ -157,4 +157,28 @@ count=$((count + 1))
 if bash_path=$(command -v bash 2>/dev/null) && [ "${bash_path##*/}" = bash ]; then
   interpreter bash "$bash_path" "$CASE/payload with spaces/bin/agent-guard"
 fi
+# The scanner report is bounded in bytes: dash counts the ulimit -f it sets in
+# 512-byte blocks, so a report past 64 KiB is cut and the output is masked as
+# an unreadable scan. A smaller one is read, and the output stays as it is.
+if [ "$want" = dash ] || sh -c 'case ${BASH:-} in */sh) exit 1 ;; esac'; then
+  {
+    printf '%s\n' '#!/bin/sh' 'case "${1:-}" in version) echo 8.30.1-cap-test; exit 0 ;; stdin) ;; *) exit 2 ;; esac'
+    printf '%s\n' 'shift; while [ "$#" -gt 0 ]; do case "$1" in --report-path) shift; report=$1 ;; esac; shift; done'
+    printf '%s\n' 'cat >/dev/null; awk -v n="$AGENT_GUARD_TEST_REPORT_BYTES" "BEGIN { printf \"[\"; for (i = 2; i < n; i++) printf \" \"; printf \"]\" }" >"$report"; exit 0'
+  } >"$CASE/tools/report-gitleaks"
+  chmod 755 "$CASE/tools/report-gitleaks"
+  mkdir -p "$CASE/home" "$CASE/state"
+  for pad in 40000 80000; do
+    printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"opaque.txt"},"tool_response":"opaque material with no heuristic token shape"}' \
+      | HOME="$CASE/home" XDG_STATE_HOME="$CASE/state" AGENT_GUARD_GITLEAKS_BIN="$CASE/tools/report-gitleaks" \
+        AGENT_GUARD_TEST_REPORT_BYTES=$pad sh "$ROOT/plugins/agent-guard/bin/agent-guard" hook-post-tool >"$CASE/out" 2>/dev/null
+    if [ "$pad" -lt 65536 ]; then
+      ! grep -q 'REDACTED' "$CASE/out"
+    else
+      grep -q '"updatedToolOutput":"\[REDACTED\]"' "$CASE/out"
+    fi
+    count=$((count + 1))
+    printf 'ok - script location contract %s (scanner report of %s bytes)\n' "$count" "$pad"
+  done
+fi
 printf 'passed: %s script location contracts\n' "$count"

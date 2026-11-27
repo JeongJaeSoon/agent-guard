@@ -2200,7 +2200,8 @@ probe_gitleaks() {
   }
   ag_gl_probe_timeout=$GITLEAKS_PROBE_FILE
   (
-    # POSIX ulimit -f uses 512-byte blocks. Bounding the regular output file
+    # POSIX ulimit -f uses 512-byte blocks (macOS bash 3.2 as sh counts 1024,
+    # so dash is the one that holds this to 8 KiB). Bounding the regular output file
     # prevents a broken version command from filling memory before parsing.
     ulimit -f 16 >/dev/null 2>&1 || exit 125
     exec_in_new_session "$ag_gl_probe_bin" version
