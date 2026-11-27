@@ -618,13 +618,27 @@ HTTP
   expect "a downloaded gitleaks that is not the official build is not installed; the PATH build stays" \
     '[ "$(status)" != 0 ] && [ ! -e "$P/gitleaks" ] && grep -qF "the downloaded gitleaks is not the official gitleaks $glv release build" "$CASE/s.err" \
      && [ -z "$(find "$P" -name ".gitleaks.*")" ] && [ ! -e "$CASE/unofficial-ran" ]'
+  # An archive whose gitleaks is a symbolic link to the official build passes
+  # the checks through the link, but the link is never published.
+  P="$CASE/p-path-link-archive"
+  mkdir -p "$CASE/link-gl"
+  ln -s "$CASE/gl/gitleaks" "$CASE/link-gl/gitleaks"
+  tar -C "$CASE/link-gl" -czf "$CASE/download/$gl_archive" gitleaks
+  link_sum=$(shasum -a 256 "$CASE/download/$gl_archive" | awk '{ print $1 }')
+  si "$P" -- --install --gitleaks-checksum "$link_sum"
+  expect "a downloaded gitleaks that is a symbolic link is not installed; the PATH build stays" \
+    '[ "$(status)" != 0 ] && [ ! -e "$P/gitleaks" ] && [ ! -L "$P/gitleaks" ] \
+     && grep -qF "the downloaded gitleaks is not a regular file" "$CASE/s.err" \
+     && [ -z "$(find "$P" -name ".gitleaks.*")" ]'
   cp "$CASE/gl-archive.keep" "$CASE/download/$gl_archive"
   # Another install that puts a gitleaks there meanwhile keeps it: the staged
   # one is linked to the name, never moved over it.
   P="$CASE/p-path-race"
   mkdir -p "$CASE/race-bin"
-  printf '#!/bin/sh\n"%s" "$@" || exit\nmkdir -p "%s" && printf "#!/bin/sh\\n# theirs\\n" >"%s/gitleaks"\n' \
-    "$CASE/http-bin/curl" "$P" "$P" >"$CASE/race-bin/curl"
+  printf '#!/bin/sh\n# theirs\nexec "%s" "$@"\n' "$CASE/gl/gitleaks" >"$CASE/theirs-gl"
+  chmod 755 "$CASE/theirs-gl"
+  printf '#!/bin/sh\n"%s" "$@" || exit\nmkdir -p "%s" && cp "%s" "%s/gitleaks"\n' \
+    "$CASE/http-bin/curl" "$P" "$CASE/theirs-gl" "$P" >"$CASE/race-bin/curl"
   chmod 755 "$CASE/race-bin/curl"
   TOOLS_PATH="$CASE/race-bin:$CASE/path-gl:$CASE/http-bin:$CASE/tools"
   si "$P"
@@ -632,12 +646,33 @@ HTTP
   expect "a gitleaks another install puts in the private directory meanwhile is kept, and setup fails saying so" \
     '[ "$(status)" != 0 ] && grep -qx "# theirs" "$P/gitleaks" && [ ! -e "$P/gitleaks-helper" ] \
      && grep -qF "failed to install gitleaks at $P/gitleaks" "$CASE/s.err" \
+     && grep -qF "the official gitleaks was not installed; hook scans use $P/gitleaks" "$CASE/s.err" \
+     && ! grep -qF "keep using $CASE/path-gl/gitleaks" "$CASE/s.err" \
      && [ -z "$(find "$P" -name ".gitleaks.*")" ] && no_temp_left'
   # Where the helper could not run anyway, the PATH build stays.
   P="$CASE/p-path-log-off"
   si "$P" AGENT_GUARD_LOG_MODE=off
   expect "with AGENT_GUARD_LOG_MODE=off setup --install keeps the PATH build" \
     '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  P="$CASE/p-path-log-bad"
+  si "$P" AGENT_GUARD_LOG_MODE=verbose
+  expect "with an AGENT_GUARD_LOG_MODE hooks do not accept setup --install keeps the PATH build" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
+  P="$CASE/p-path-open-sub"
+  mkdir -p "$CASE/sub-state/agent-guard/gitleaks-helper"
+  chmod 700 "$CASE/sub-state/agent-guard" && chmod 755 "$CASE/sub-state/agent-guard/gitleaks-helper"
+  si "$P" XDG_STATE_HOME="$CASE/sub-state"
+  expect "with a helper socket directory the client would refuse (mode 0755) setup --install keeps the PATH build and says why" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] \
+     && grep -qF "the helper directory $CASE/sub-state/agent-guard/gitleaks-helper is not private to you" "$CASE/s.err"'
+  P="$CASE/p-official-open-state"
+  mkdir -p "$CASE/open-state2/agent-guard" && chmod 755 "$CASE/open-state2/agent-guard"
+  TOOLS_PATH="$CASE/gl:$CASE/http-bin:$CASE/tools"
+  si "$P" XDG_STATE_HOME="$CASE/open-state2" -- --install
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  expect "the official build on PATH gets no helper download where hooks could not use it, and the line says why once" \
+    '[ "$(status)" = 0 ] && [ "$(helper_url)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] \
+     && [ "$(grep -c "is not private to you" "$CASE/s.err")" = 1 ]'
   P="$CASE/p-path-open-state"
   mkdir -p "$CASE/open-state/agent-guard" && chmod 755 "$CASE/open-state/agent-guard"
   si "$P" XDG_STATE_HOME="$CASE/open-state"
@@ -665,6 +700,14 @@ HTTP
   si "$P"
   expect "without a pin for this platform setup --install keeps the PATH build" \
     '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ] && ! grep -q "not the official" "$CASE/s.err"'
+  P="$CASE/p-path-no-pin-old"
+  mkdir -p "$CASE/path-old"
+  cp "$CASE/old-gitleaks" "$CASE/path-old/gitleaks"
+  TOOLS_PATH="$CASE/path-old:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  expect "without a pin for this platform setup --install keeps an older PATH build too" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks" ] && [ "$(urls)" = 0 ]'
   cp "$CASE/official.held" "$OFFICIAL"
   # No helper for this platform: nothing to gain, so the PATH build stays.
   P="$CASE/p-path-platform"

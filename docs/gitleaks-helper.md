@@ -145,7 +145,9 @@ The helper is not used when:
   `~/.local/state`, is very deep);
 - the state directory is not a plain absolute path, or not a 0700 directory
   you own: hooks then keep no state, and the helper has no place for its
-  socket;
+  socket; its `gitleaks-helper` directory, once it exists, must be one too;
+- `AGENT_GUARD_LOG_MODE` is neither `on` nor `off`: hooks then keep no
+  state directory either;
 - the gitleaks the CLI selected is not built like the official release: the
   client reads its embedded Go build information and the helper compares the
   toolchain, the `gore2regex` tag (go-re2 instead of Go's `regexp`) and every
