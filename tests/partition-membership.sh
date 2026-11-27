@@ -58,6 +58,7 @@ expect_shard() {
 expect_shard 2 tracked-file-exception path-operands-only redaction-wrapped-values
 expect_shard 6 search-operand-ground-truth gh-program-segments tool-coverage jq-program-segments env-lookup-allowlist container-session-boundary heredoc-body-text gh-jq-option plugin-management runtime-global-text long-input
 expect_shard 7 bash-path-text-data handback-values
+expect_shard 8 deny-rule-characters
 
 # A test file run.sh never starts must be started by a workflow, another suite
 # or the Makefile; otherwise nothing runs it.

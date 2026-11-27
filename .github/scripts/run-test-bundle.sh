@@ -6,7 +6,7 @@ set -uo pipefail
 case $# in 1|2|3) ;; *) echo 'expected one to three partition IDs' >&2; exit 2 ;; esac
 seen=' '
 for shard in "$@"; do
-  case "$shard" in 1|2|3|4|5|6|7) ;; *) echo "invalid partition: $shard" >&2; exit 2 ;; esac
+  case "$shard" in 1|2|3|4|5|6|7|8) ;; *) echo "invalid partition: $shard" >&2; exit 2 ;; esac
   case "$seen" in *" $shard "*) echo "duplicate partition: $shard" >&2; exit 2 ;; esac
   seen="$seen$shard "
 done

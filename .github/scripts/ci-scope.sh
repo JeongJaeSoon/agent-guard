@@ -32,14 +32,14 @@ if [ "$scope" = subset ]; then
   fi
 fi
 
-suites='{"bundle":"core","suite":"Core, host adapters and Git","shards":"1 3 6"},{"bundle":"commands","suite":"Command policies","shards":"2 7"},{"bundle":"navigation-claude","suite":"Shell navigation (Claude)","shards":"5","navigation_host":"claude"},{"bundle":"navigation-codex","suite":"Shell navigation (Codex)","shards":"5","navigation_host":"codex"},{"bundle":"scanner","suite":"CLI, scanner and output","shards":"4"}'
+suites='{"bundle":"core","suite":"Core, host adapters and Git","shards":"1 3 6"},{"bundle":"commands","suite":"Command policies","shards":"2 7 8"},{"bundle":"navigation-claude","suite":"Shell navigation (Claude)","shards":"5","navigation_host":"claude"},{"bundle":"navigation-codex","suite":"Shell navigation (Codex)","shards":"5","navigation_host":"codex"},{"bundle":"scanner","suite":"CLI, scanner and output","shards":"4"}'
 # macOS runs each partition on a runner of its own: side by side on one
 # three-core runner two came to the job limit (#579), and the single core
 # partition 1 and command partition 2 jobs then ran 21 to 25 minutes. The
 # entries that match an existing os and bundle merge into that job and keep its
 # check name; the others create a job. A created job gets nothing from the
 # entries above, so each supplies every field itself.
-macos='{"os":"macos-latest","bundle":"core","timeout_minutes":25,"suite":"Core, host adapters and Git","shards":"1"},{"os":"macos-latest","bundle":"core-partition-3","timeout_minutes":25,"suite":"Core, host adapters and Git (partition 3)","shards":"3"},{"os":"macos-latest","bundle":"core-partition-6","timeout_minutes":25,"suite":"Core, host adapters and Git (partition 6)","shards":"6"},{"os":"macos-latest","bundle":"commands","timeout_minutes":25,"suite":"Command policies","shards":"2"},{"os":"macos-latest","bundle":"commands-partition-7","timeout_minutes":25,"suite":"Command policies (partition 7)","shards":"7"}'
+macos='{"os":"macos-latest","bundle":"core","timeout_minutes":25,"suite":"Core, host adapters and Git","shards":"1"},{"os":"macos-latest","bundle":"core-partition-3","timeout_minutes":25,"suite":"Core, host adapters and Git (partition 3)","shards":"3"},{"os":"macos-latest","bundle":"core-partition-6","timeout_minutes":25,"suite":"Core, host adapters and Git (partition 6)","shards":"6"},{"os":"macos-latest","bundle":"commands","timeout_minutes":25,"suite":"Command policies","shards":"2"},{"os":"macos-latest","bundle":"commands-partition-7","timeout_minutes":25,"suite":"Command policies (partition 7)","shards":"7"},{"os":"macos-latest","bundle":"commands-partition-8","timeout_minutes":25,"suite":"Command policies (partition 8)","shards":"8"}'
 
 # Matrix coverage and aggregate identity must come from the same decision.
 case "$scope" in
