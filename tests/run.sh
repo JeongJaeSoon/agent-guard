@@ -248,6 +248,7 @@ for file in \
   "$ROOT/tests/hook-spawn-reduction.sh" \
   "$ROOT/tests/gitleaks-helper.sh" \
   "$ROOT/tests/gitleaks-helper-routing.sh" \
+  "$ROOT/tests/gitleaksignore-scope.sh" \
   "$ROOT/scripts/build-gitleaks-helper.sh" \
   "$ROOT/tests/post-tool-failure.sh" \
   "$ROOT/tests/run.sh"; do
@@ -8639,6 +8640,9 @@ run_expect 0 "gitleaks readiness cache reuses only a fresh verdict for the same 
   "$REAL_SH" "$ROOT/tests/gitleaks-probe-cache.sh"
 run_expect 0 "gitleaks clean-verdict cache skips only an identical clean scan (#407)" \
   "$REAL_SH" "$ROOT/tests/gitleaks-clean-cache.sh"
+run_expect 0 "hook input is scanned without a repository's .gitleaksignore, and scans of the repository's own files apply it" \
+  env AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
+  "$REAL_SH" "$ROOT/tests/gitleaksignore-scope.sh"
 run_expect 0 "logging off writes no state unless AGENT_GUARD_SCAN_CACHE=on, which caches without an event log (#510)" \
   "$REAL_SH" "$ROOT/tests/log-off-state-cache.sh"
 run_expect 0 "the opt-in warm-helper client gets every scan only when enabled, and a failing client is never clean (#537)" \

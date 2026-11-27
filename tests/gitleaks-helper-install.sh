@@ -368,6 +368,18 @@ else
   done
 fi
 
+# A relative AGENT_GUARD_GITLEAKS_BIN_DIR names the installed client from the
+# hook's directory. Hook input is scanned from another directory, and the
+# client must still be found: the same deny, and a clean command passes.
+: >"$CALLS"
+rm -f "$CASE/trace-relative"
+hook "echo $marker" AGENT_GUARD_GITLEAKS_BIN_DIR=../priv AGENT_GUARD_GITLEAKS_HELPER_TRACE="$CASE/trace-relative"
+relative_status=$(cat "$CASE/h.status")
+hook "ls -la src" AGENT_GUARD_GITLEAKS_BIN_DIR=../priv AGENT_GUARD_GITLEAKS_HELPER_TRACE="$CASE/trace-relative"
+expect "a relative AGENT_GUARD_GITLEAKS_BIN_DIR still reaches the installed client for hook input" \
+  '[ "$relative_status" = "$missing_status" ] && [ "$(cat "$CASE/h.status")" = 0 ] \
+   && { [ -s "$CALLS" ] || [ -s "$CASE/trace-relative" ]; }'
+
 # The private directory follows the gitleaks one: AGENT_GUARD_GITLEAKS_BIN_DIR,
 # else ~/.agent-guard/bin. AGENT_GUARD_BIN_DIR is the installer's link
 # directory; the CLI reads it as the gitleaks directory only while that is

@@ -190,8 +190,11 @@ after every scan).
 - A config with `[extend] path` (another file the hash does not cover), or one
   that makes gitleaks print warnings, is marked unsupported; the client then
   always runs the real gitleaks for it.
-- A `.gitleaksignore` in the scan directory sends the request to the real
-  gitleaks.
+- A `.gitleaksignore` in the directory a scan runs in sends the request to
+  the real gitleaks, which applies it. That happens only for scans of a
+  repository's own files (`scan-staged`, `scan-working-tree`, and the commit
+  and changed-file checks). Hook input is scanned from a private directory
+  that holds no ignore file, so the helper answers it in any repository.
 - Any log event the gitleaks library emits during a scan (the real gitleaks
   would print it), a scan error, or a scan over 2.5 s is answered "fallback".
 - Standard input from a regular file is read in fixed 100 KB chunks by the
@@ -225,7 +228,7 @@ it answers.
 | Socket served by another user | Not trusted, even if the answer looks clean: real gitleaks | same (needs root or sudo) |
 | Private directory missing, wrong mode or owner, or a symlink | Real gitleaks; nothing is repaired | same |
 | Unwritable report path | Real gitleaks, which reports its own error | same |
-| Input over the size limits, piped input that arrives in pieces, a report over 16 MiB, unknown flags, `.gitleaksignore` | Real gitleaks | same |
+| Input over the size limits, piped input that arrives in pieces, a report over 16 MiB, unknown flags, a `.gitleaksignore` beside a repository scan | Real gitleaks | same |
 | The hook's other descriptors cannot be listed or marked close-on-exec | No helper is started; the scan runs the real gitleaks | not tested (needs a system without `/dev/fd`) |
 | Real gitleaks cannot run either | Client exits 2: the CLI's existing "could not scan" path (`open` warns, `closed` blocks); never cached as clean | `tests/gitleaks-helper-routing.sh` |
 | Sandbox without Unix sockets or background processes | The helper cannot start; every call runs the real gitleaks at today's speed | not measured |
