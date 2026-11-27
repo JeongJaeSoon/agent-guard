@@ -1,6 +1,9 @@
 #!/bin/sh
 # The CLI must select its own payload through regular and linked entrypoints.
 set -eu
+# A descriptor 9 of the caller would keep the CLI in bash: each case below that
+# needs it opens it itself.
+exec 9<&-
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 CASE=$(mktemp -d)
 trap 'rm -rf "$CASE"' 0
@@ -190,8 +193,8 @@ fi
 # exec resolves the command the way the shell that started the CLI does: a
 # function bash exports reaches it only in bash.
 if [ "$want" = dash ] && command -v bash >/dev/null 2>&1; then
-  bash -c 'ag_fn() { echo function-ran; }; export -f ag_fn; sh "$1" exec -- ag_fn' _ \
-    "$ROOT/plugins/agent-guard/bin/agent-guard" >"$CASE/out"
+  AGENT_GUARD_OUTPUT_REDACT=off bash -c 'ag_fn() { echo function-ran; }; export -f ag_fn; sh "$1" exec -- ag_fn' _ \
+    "$ROOT/plugins/agent-guard/bin/agent-guard" 9<&- >"$CASE/out"
   test "$(cat "$CASE/out")" = function-ran
   count=$((count + 1))
   printf 'ok - script location contract %s (exec keeps the shell)\n' "$count"
@@ -210,7 +213,7 @@ if [ "$want" = dash ] || sh -c 'case ${BASH:-} in */sh) exit 1 ;; esac'; then
   for pad in 40000 80000; do
     printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"opaque.txt"},"tool_response":"opaque material with no heuristic token shape"}' \
       | HOME="$CASE/home" XDG_STATE_HOME="$CASE/state" AGENT_GUARD_GITLEAKS_BIN="$CASE/tools/report-gitleaks" \
-        AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_TEST_REPORT_BYTES=$pad sh "$ROOT/plugins/agent-guard/bin/agent-guard" hook-post-tool >"$CASE/out" 2>/dev/null
+        AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_TEST_REPORT_BYTES=$pad sh "$ROOT/plugins/agent-guard/bin/agent-guard" hook-post-tool 9<&- >"$CASE/out" 2>/dev/null
     if [ "$pad" -lt 65536 ]; then
       if grep -q 'REDACTED' "$CASE/out"; then exit 1; fi
     else
