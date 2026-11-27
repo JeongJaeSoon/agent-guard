@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 2ad2b5200d17cb70b50badf5c7c047d60a958e65 -->
+<!-- translated-from: docs/installation.md; source-blob: 1d2c5144777fea5b1cb167637fc27cca60f58160 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -86,7 +86,8 @@ export AGENT_GUARD_GITLEAKS_HELPER=off
 답하고, Go `regexp`로 빌드한 gitleaks(Homebrew, `go install`)는 늘 실제로
 실행합니다. `agent-guard setup`과 `agent-guard doctor`는 설치된 helper가 답하지
 않을 때 그 이유와 할 일을 한 줄로 알립니다. 선택된 gitleaks가 다른 빌드나 버전일 때,
-상태 디렉터리가 깊어 helper의 소켓 경로가 103바이트를 넘을 때, helper가 다른
+상태 디렉터리가 깊어 helper의 소켓 경로가 103바이트를 넘거나 그 디렉터리가 내 소유의
+0700 일반 절대 경로가 아닐 때, helper가 다른
 Agent Guard 버전용으로 설치되었을 때, 위의 두 변수 중 하나를 설정했을 때입니다.
 gitleaks 파일을 이 버전에 기록된 공식 빌드의 SHA-256과 비교하며, 아무것도 시작하거나
 설치하지 않습니다. 직접 소스에서
