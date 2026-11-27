@@ -4,17 +4,18 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 pass=0
 check() {
   event=$1 branch=$2 scope=$3 changed=${4-} tests=${5:-true}
-  actual=$(printf '%s' "$changed" | sh "$ROOT/.github/scripts/ci-scope.sh" "$event" "$branch")
+  actual=$(printf '%s' "$changed" | sh "$ROOT/.github/scripts/ci-scope.sh" "$event" "$branch" ${ordinary+"$ordinary"})
   case "$scope" in
     full) expected=$(printf '%s\n' 'oses=["ubuntu-latest","macos-latest"]' 'check_prefix=Test') ;;
     subset) expected=$(printf '%s\n' 'oses=["ubuntu-latest"]' 'check_prefix=PR subset test') ;;
+    main) expected=$(printf '%s\n' 'oses=["ubuntu-latest"]' 'check_prefix=Main subset test') ;;
   esac
   # The include list is checked below; here it only has to be valid JSON
   # with macOS legs exactly on full runs.
   include=$(printf '%s\n' "$actual" | sed -n 's/^include=//p')
   printf '%s\n' "$include" | jq -e '.' > /dev/null || { printf 'not ok - include is JSON for %s\n' "$event"; exit 1; }
   macos_legs=$(printf '%s\n' "$include" | jq '[.[] | select(.os == "macos-latest")] | length')
-  case "$scope:$macos_legs" in full:5|subset:0) ;; *) printf 'not ok - macOS legs for %s/%s: %s\n' "$event" "$branch" "$macos_legs"; exit 1 ;; esac
+  case "$scope:$macos_legs" in full:6|subset:0|main:0) ;; *) printf 'not ok - macOS legs for %s/%s: %s\n' "$event" "$branch" "$macos_legs"; exit 1 ;; esac
   actual=$(printf '%s\n' "$actual" | grep -v '^include=')
   expected=$(printf '%s\ntests=%s' "$expected" "$tests")
   if [ "$actual" != "$expected" ]; then
@@ -56,6 +57,21 @@ check pull_request feature/docs subset '"docs/a\tb.md"' true
 check pull_request feature/docs subset '' true
 check pull_request release/v1.2.3 full 'docs/installation.md' true
 check push main full 'docs/installation.md' true
+# A main push of an ordinary PR merge runs every suite on Linux only; the
+# macOS legs run on release PRs, release merges, manual runs and the nightly
+# run. Only an explicit ordinary=true narrows it.
+ordinary=true
+check push main main
+check push main main 'docs/installation.md' true
+check pull_request feature/ci subset
+check pull_request release/v1.2.3 full
+check schedule main full
+check workflow_dispatch main full
+for ordinary in false '' TRUE yes; do
+  check push main full
+done
+unset ordinary
+check schedule main full
 
 # Pin the wiring as well as the producer: no event-specific name fallback.
 grep -Fq 'os: ${{ fromJSON(needs.secret-guard.outputs.oses) }}' "$ROOT/.github/workflows/ci.yml"
@@ -116,11 +132,11 @@ for variant in mawk gawk busybox; do
 done
 check=$(printf 'ci.yml\tCore, host adapters and Git (partition 3) (macos-latest)')
 grep -Fxq "$check" "$ROOT/.github/release-checks.tsv" || fail 'release requires the macOS partition 3 check'
-for name in 'Core, host adapters and Git (partition 6) (macos-latest)' 'Command policies (partition 7) (macos-latest)'; do
+for name in 'Core, host adapters and Git (partition 6) (macos-latest)' 'Command policies (partition 7) (macos-latest)' 'Command policies (partition 8) (macos-latest)'; do
   check=$(printf 'ci.yml\t%s' "$name")
   grep -Fxq "$check" "$ROOT/.github/release-checks.tsv" || fail "release requires the macOS check $name"
 done
-pass=$((pass + 3))
+pass=$((pass + 4))
 grep -Fq 'env AGENT_GUARD_TEST_REQUIRE_AWKS= AGENT_GUARD_TEST_LONG_INPUT_AWKS=default sh' "$ROOT/tests/run.sh" \
   || fail 'the default-awk subset clears inherited implementation requirements'
 # Overridable so a must-fail control can point the checks at a mutated copy.
@@ -475,7 +491,7 @@ sites_case() { # $1 description, $2 expected output, $3 awk program applied to t
 }
 sites_case 'work before the helper case' scope=full '{ print } /^gitleaks_helper_selected\(\) \{/ { print "  jq -n null >/dev/null" }'
 sites_case 'plain branch through the wrapper' scope=cost '/^          "\$gl" stdin --report-format json/ && !done { sub(/"\$gl"/, "gitleaks_exec \"$gl\""); done = 1 } { print }'
-sites_case 'wrapper call dropped' scope=cost '/gitleaks_exec "\$GITLEAKS_BIN" "\$@"/ && !done { sub(/gitleaks_exec /, ""); done = 1 } { print }'
+sites_case 'wrapper call dropped' scope=cost '/gitleaks_exec "\$ag_gs_dir" "\$GITLEAKS_BIN" "\$@"/ && !done { sub(/gitleaks_exec /, ""); done = 1 } { print }'
 sites_case 'work in a function that calls the wrapper' scope=cost '{ print } /^gitleaks_scan\(\) \{/ { print "  jq -n null >/dev/null" }'
 sites_case 'output change in a function that calls the wrapper' scope=cost '{ sub(/secret-like value detected in/, "secret-like value found in") } { print }'
 sites_case 'file sourced from an unrelated function' scope=full '{ print } /^block_on_scan_status\(\) \{/ { print "  . ./extra.sh" }'
@@ -502,4 +518,192 @@ if (cd "$repo" && sh "$sites_script" no-such-revision HEAD >/dev/null 2>&1); the
 pass=$((pass + 17))
 rm -rf "$sites_tmp"
 trap - 0
+# Evidence wiring: a main push of a tested tree and an unchanged nightly run
+# reuse earlier results; a failed lookup runs everything.
+ci_yml="$ROOT/.github/workflows/ci.yml"
+awk '/^on:$/ { on = 1; next } on && /^[a-z]/ { exit } on' "$ci_yml" | grep -Fxq '  schedule:' || fail 'CI runs a nightly full matrix'
+evidence=$(awk '/^  release-evidence:$/ { on = 1; next } on && /^  [a-z-]+:$/ { exit } on' "$ci_yml")
+printf '%s\n' "$evidence" | grep -Fq 'sh .github/scripts/reuse-release-tree.sh >> "$GITHUB_OUTPUT"' || fail 'release merges keep release evidence'
+printf '%s\n' "$evidence" | grep -Fq 'sh .github/scripts/reuse-tested-tree.sh ci.yml >> "$GITHUB_OUTPUT"' || fail 'CI reads its own tested-tree evidence'
+printf '%s\n' "$evidence" | grep -Fq "reuse: \${{ steps.release.outputs.reuse == 'true' || steps.tested.outputs.reuse == 'true' }}" || fail 'either evidence reuses'
+printf '%s\n' "$evidence" | grep -Fq 'ordinary: ${{ steps.tested.outputs.ordinary }}' || fail 'evidence reports an ordinary merge'
+guard=$(awk '/^  secret-guard:$/ { on = 1; next } on && /^  [a-z-]+:$/ { exit } on' "$ci_yml")
+printf '%s\n' "$guard" | grep -Fq 'ORDINARY: ${{ needs.release-evidence.outputs.ordinary }}' || fail 'scope reads the ordinary merge'
+printf '%s\n' "$guard" | grep -Fq 'sh .github/scripts/ci-scope.sh "$EVENT_NAME" "$HEAD_REF" "$ORDINARY"' || fail 'scope receives the ordinary merge'
+# Only a PR run whose suites ran records the tree its main push may reuse.
+printf '%s\n' "$guard" | grep -Fq "if: (github.event_name == 'pull_request' && steps.scope.outputs.tests == 'true') || (github.event_name == 'schedule' && needs.release-evidence.outputs.reuse != 'true')" || fail 'only a PR run whose suites ran or a nightly that ran the matrix records its tree'
+printf '%s\n' "$guard" | grep -Fq 'name: tested-tree' || fail 'the PR run uploads the tested tree'
+# The record follows the scan and never fails the required job.
+printf '%s\n' "$guard" | awk '/name: Scan for secrets/ { scan = NR } /name: Record the tested tree/ { rec = NR } END { exit !(scan && rec > scan) }' \
+  || fail 'the secret scan runs before the tree record'
+for wf in ci native-redaction legacy-tools; do
+  [ "$(grep -c 'continue-on-error: true' "$ROOT/.github/workflows/$wf.yml")" -eq 2 ] || fail "$wf: a failed tree record never fails the job"
+  grep -Fq 'overwrite: true' "$ROOT/.github/workflows/$wf.yml" || fail "$wf: a re-run replaces the tree record"
+done
+for gated in native-redaction legacy-tools; do
+  grep -Fq 'name: tested-tree' "$ROOT/.github/workflows/$gated.yml" || fail "$gated PR runs record the tested tree"
+done
+# A failed evidence job reuses nothing.
+grep -Fq "if: \${{ !cancelled() && needs.secret-guard.result == 'success' && needs.release-evidence.outputs.reuse != 'true' }}" "$ci_yml" || fail 'shards run when evidence fails'
+grep -Fq "if: \${{ !cancelled() && needs.release-evidence.outputs.reuse != 'true' }}" "$ci_yml" || fail 'Lint runs when evidence fails'
+printf '%s\n' "$evidence" | grep -Fxq "    if: github.event_name == 'push' || github.event_name == 'schedule'" || fail 'only main pushes and nightly runs look up evidence'
+printf '%s\n' "$evidence" | grep -Fq "fetch-depth: \${{ github.event_name == 'push' && '0' || '1' }}" || fail 'a main push keeps full history'
+# release-evidence is skipped on PRs, and a skip passes down every needs
+# chain: a job with needs and no status function never reports its check.
+unguarded=$(awk '
+  /^  [a-z][a-z0-9-]*:[[:space:]]*$/ { if (job != "" && needs && !guarded) print job; job = $1; needs = 0; guarded = 0; next }
+  /^    needs:/ { needs = 1 }
+  /^    if:/ && (/!cancelled\(\)/ || /always\(\)/) { guarded = 1 }
+  END { if (job != "" && needs && !guarded) print job }' "$ci_yml" | grep -v '^push:$\|^schedule:$' || :)
+[ -z "$unguarded" ] || fail "jobs skipped on PRs with release-evidence: $unguarded"
+# Agent Guard must report even when the evidence job fails.
+printf '%s\n' "$guard" | grep -Fxq '    if: ${{ !cancelled() }}' || fail 'Agent Guard does not depend on evidence success'
+for gated in native-redaction legacy-tools; do
+  wf="$ROOT/.github/workflows/$gated.yml"
+  grep -Fq "sh .github/scripts/reuse-tested-tree.sh $gated.yml >> \"\$GITHUB_OUTPUT\"" "$wf" || fail "$gated reads its own tested-tree evidence"
+done
+[ "$(grep -c "needs.evidence.outputs.reuse != 'true'" "$ROOT/.github/workflows/native-redaction.yml")" -eq 1 ] || fail 'only the native contracts job is reused'
+[ "$(grep -c "needs.evidence.outputs.reuse != 'true'" "$ROOT/.github/workflows/legacy-tools.yml")" -eq 3 ] || fail 'every legacy job is reused'
+pass=$((pass + 3))
+mutation_listed=$(mktemp)
+jq -r '[.[].tests[]] | unique | .[]' "$ROOT/tests/mutations.json" > "$mutation_listed"
+# The rule mutation check runs on a pull request that changes the rules, the
+# list, the checker or test code, including the scanner stub the tests run. A
+# change to fixture data only skips it there, so
+# release verification dispatches every group at the release SHA.
+mutation_workflow="$ROOT/.github/workflows/mutation-check.yml"
+mutation_paths=$(awk '/^  pull_request:$/ { on = 1; next } on && /^  [a-z_]+:/ { exit } on && /^      - / { sub(/^      - /, ""); gsub(/\047/, ""); print }' "$mutation_workflow" \
+  | grep -Fxv -f "$mutation_listed" | LC_ALL=C sort)
+expected_mutation_paths=$(printf '%s\n' plugins/agent-guard/bin/agent-guard tests/mutations.json tests/mutation-check.sh \
+  .github/workflows/mutation-check.yml 'tests/*.sh' 'tests/*.py' 'tests/helpers/**' tests/fixtures/mock-gitleaks | LC_ALL=C sort)
+[ "$mutation_paths" = "$expected_mutation_paths" ] \
+  || fail "mutation check pull request paths are exactly the code paths: $mutation_paths"
+groups=$(sed -n 's/^        group: \[\(.*\)\]$/\1/p' "$mutation_workflow" | tr -d ' ' | tr ',' '\n')
+[ "$(printf '%s\n' "$groups" | grep -c .)" -ge 2 ] || fail 'mutation groups are read from the workflow'
+# Exactly the matrix groups: a missing one is never required, a stale one
+# never reports and times the release out.
+expected_mutation_checks=$(printf '%s\n' "$groups" | sed 's/.*/Rule mutations fail a test (&)/' | LC_ALL=C sort)
+listed_mutation_checks=$(awk -F '\t' '$1 == "mutation-check.yml" { print $2 }' "$ROOT/.github/release-checks.tsv" | LC_ALL=C sort)
+[ "$listed_mutation_checks" = "$expected_mutation_checks" ] \
+  || fail "release requires exactly the mutation groups: $listed_mutation_checks"
+grep -Fq "name: Rule mutations fail a test (\${{ matrix.group }})" "$mutation_workflow" || fail 'mutation check names follow the group'
+awk '/^on:$/ { on = 1; next } on && /^[a-z]/ { exit } on' "$mutation_workflow" | grep -Fxq '  workflow_dispatch:' \
+  || fail 'release verification can dispatch the mutation check'
+pass=$((pass + 4))
+rm -f "$mutation_listed"
+# The suites that check gitleaks.toml against the real scanner run as a step
+# of the Linux Codex navigation job, whose check is required. A pull request
+# that changes the scanner config, one of those suites, a fixture of theirs or
+# the driver must run that job with its suites, and the step must fail the job.
+rules_driver="$ROOT/tests/real-gitleaks-rules.sh"
+rule_suites=$(sed -n "s/^run_suite '.*' \([a-z0-9-]*[.]sh\)\$/\1/p" "$rules_driver" | LC_ALL=C sort)
+expected_rule_suites=$(printf '%s\n' auto-wake-key-allowlist.sh figma-file-key.sh force-with-lease-sha.sh \
+  prefixed-uuid-key.sh prompt-issue-reference.sh prompt-prose-reference.sh prompt-route-reference.sh \
+  reference-id-allowlist.sh)
+[ "$rule_suites" = "$expected_rule_suites" ] || fail "the rule suite driver runs exactly the real-gitleaks suites: $(printf '%s ' $rule_suites)"
+for rule_path in plugins/agent-guard/config/gitleaks.toml tests/real-gitleaks-rules.sh \
+    tests/fixtures/prompt-issue-reference.txt tests/fixtures/prompt-prose-reference.txt \
+    tests/fixtures/prompt-route-reference.txt $(printf 'tests/%s ' $rule_suites); do
+  [ -f "$ROOT/$rule_path" ] || fail "a rule suite input exists: $rule_path"
+  rule_scope=$(printf '%s' "$rule_path" | sh "$ROOT/.github/scripts/ci-scope.sh" pull_request feature/rules)
+  printf '%s\n' "$rule_scope" | grep -Fxq 'tests=true' || fail "a change to $rule_path runs the suites"
+  printf '%s\n' "$rule_scope" | sed -n 's/^include=//p' \
+    | jq -e '[.[] | select(.bundle == "navigation-codex" and .suite == "Shell navigation (Codex)" and (has("os") | not))] | length == 1' >/dev/null \
+    || fail "a change to $rule_path runs the Linux Codex navigation job"
+done
+shards_job=$(awk '/^  test-shard:$/ { on = 1; next } on && /^  [a-z-]+:$/ { exit } on' "$ci_yml")
+if printf '%s\n' "$shards_job" | grep -Fq 'continue-on-error'; then fail 'no step of a test job may fail without failing the job'; fi
+rules_step=$(printf '%s\n' "$shards_job" | awk '/^      - name: Real gitleaks rule suites \(Linux\)$/ { on = 1; next } on && /^      - name:/ { exit } on')
+printf '%s\n' "$rules_step" | grep -Fxq "        if: runner.os == 'Linux' && matrix.bundle == 'navigation-codex' && needs.secret-guard.outputs.tests == 'true'" \
+  || fail 'the rule suites run in the Linux Codex navigation job whenever the suites run'
+printf '%s\n' "$rules_step" | grep -Fxq '        run: sh tests/real-gitleaks-rules.sh' || fail 'the step runs the rule suite driver and nothing else'
+printf '%s\n' "$shards_job" | grep -Fxq "        if: runner.os == 'Linux' && (matrix.bundle == 'scanner' || matrix.bundle == 'navigation-codex') && needs.secret-guard.outputs.tests == 'true'" \
+  || fail 'the Codex navigation job installs the same pinned gitleaks as the scanner job'
+# Without that step tests/run.sh still starts the suites, through the
+# probe-cache suite: three of them check prompt blocking and output masking on
+# the mock when there is no real gitleaks, which is every macOS job. Only the
+# workflow with the step may turn that off, on Linux, and every run of it has
+# the job with the step.
+grep -Fxq 'if [ -n "${AGENT_GUARD_TEST_RULE_SUITES_STEP:-}" ]; then' "$ROOT/tests/gitleaks-probe-cache.sh" \
+  || fail 'the probe-cache suite leaves the rule suites out only when a workflow step runs them'
+grep -Fxq '    sh "$ROOT/tests/real-gitleaks-rules.sh"' "$ROOT/tests/gitleaks-probe-cache.sh" \
+  || fail 'without a workflow step the probe-cache suite starts the rule suites'
+[ "$(grep -rl AGENT_GUARD_TEST_RULE_SUITES_STEP "$ROOT/.github")" = "$ci_yml" ] || fail 'only ci.yml moves the rule suites to a step'
+printf '%s\n' "$shards_job" | grep -Fxq "          AGENT_GUARD_TEST_RULE_SUITES_STEP: \${{ runner.os == 'Linux' && '1' || '' }}" \
+  || fail 'ci.yml moves the rule suites to a step on Linux only'
+for rule_run in 'pull_request release/v1.2.3' 'push main' 'push main true' 'schedule main' 'workflow_dispatch main'; do
+  # shellcheck disable=SC2086
+  sh "$ROOT/.github/scripts/ci-scope.sh" $rule_run </dev/null | sed -n 's/^include=//p' \
+    | jq -e 'any(.[]; .bundle == "navigation-codex" and (has("os") | not))' >/dev/null \
+    || fail "every run has the Linux Codex navigation job: $rule_run"
+done
+# The driver's own contract, on a copy with stand-in suites. A failing suite
+# fails it everywhere. On Linux CI a skipped suite and a missing gitleaks fail
+# it too; elsewhere the suites still start without one.
+rules_tmp=$(mktemp -d)
+trap 'rm -rf "$rules_tmp"' 0
+mkdir -p "$rules_tmp/tree/tests" "$rules_tmp/bin" "$rules_tmp/linux"
+cp "$rules_driver" "$rules_tmp/tree/tests/"
+for rule_suite in $rule_suites; do printf 'echo "ok - stand-in"\n' >"$rules_tmp/tree/tests/$rule_suite"; done
+# One stand-in changes directory, as a suite with a fixture repository does.
+# shellcheck disable=SC2016
+printf '%s\n' 'cd / || exit 1' \
+  '[ -z "${AGENT_GUARD_TEST_REAL_GITLEAKS:-}" ] || [ -x "$AGENT_GUARD_TEST_REAL_GITLEAKS" ] || { echo "not ok - scanner path"; exit 1; }' \
+  'echo "ok - stand-in"' >"$rules_tmp/tree/tests/figma-file-key.sh"
+printf '#!/bin/sh\necho 8.30.1\n' >"$rules_tmp/bin/gitleaks"
+printf '#!/bin/sh\necho Linux\n' >"$rules_tmp/linux/uname"
+cp "$rules_tmp/bin/gitleaks" "$rules_tmp/bin/gitleaks-other"
+chmod +x "$rules_tmp/bin/gitleaks" "$rules_tmp/bin/gitleaks-other" "$rules_tmp/linux/uname"
+rules_run() { # arguments: environment assignments for the driver
+  env "$@" sh "$rules_tmp/tree/tests/real-gitleaks-rules.sh" >"$rules_tmp/out" 2>&1
+}
+rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" || fail 'the rule suite driver passes when every suite passes'
+[ "$(grep -c '^ok - ' "$rules_tmp/out")" -eq 8 ] || fail 'the rule suite driver reports each suite'
+printf 'echo "not ok - stand-in"\nexit 1\n' >"$rules_tmp/tree/tests/prefixed-uuid-key.sh"
+if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then fail 'a failing rule suite fails the driver'; fi
+grep -q '^not ok - .*(prefixed-uuid-key[.]sh, exit 1' "$rules_tmp/out" || fail 'the driver names the failing rule suite'
+grep -Fxq '  not ok - stand-in' "$rules_tmp/out" || fail "the driver shows a failing rule suite's output"
+printf 'echo "skip - real gitleaks is not installed"\n' >"$rules_tmp/tree/tests/prefixed-uuid-key.sh"
+rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS= || fail 'outside Linux CI a suite may skip without a real gitleaks'
+[ "$(grep -c '^ok - ' "$rules_tmp/out")" -eq 7 ] || fail 'without a real gitleaks the other suites still run'
+grep -q '^skip - .*(prefixed-uuid-key[.]sh)$' "$rules_tmp/out" || fail 'the driver reports the skipped rule suite'
+if rules_run CI=true PATH="$rules_tmp/linux:$PATH" AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then
+  fail 'on Linux CI a skipped rule suite fails the driver'
+fi
+printf 'echo "ok - stand-in"\n' >"$rules_tmp/tree/tests/prefixed-uuid-key.sh"
+rules_run CI=true PATH="$rules_tmp/linux:$PATH" AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" \
+  || fail 'on Linux CI the driver passes when every suite ran'
+if rules_run CI=true PATH="$rules_tmp/linux:$PATH" AGENT_GUARD_TEST_REAL_GITLEAKS=; then fail 'Linux CI without gitleaks fails the driver'; fi
+(cd "$rules_tmp/bin" && rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS=./gitleaks) \
+  || fail 'a relative scanner path still names the same file after a suite changes directory'
+if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks-other"; then
+  fail 'a scanner the suites would not run by name is refused'
+fi
+mkdir -p "$rules_tmp/dir/gitleaks"
+if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/dir/gitleaks"; then fail 'a scanner that is not a file is refused'; fi
+chmod -x "$rules_tmp/bin/gitleaks"
+if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then fail 'a scanner that is not executable is refused'; fi
+# A signal still removes the driver's workspace, also under dash.
+# shellcheck disable=SC2016
+printf '%s\n' ': >"$RULES_STARTED"' 'sleep 2' >"$rules_tmp/tree/tests/auto-wake-key-allowlist.sh"
+chmod +x "$rules_tmp/bin/gitleaks"
+mkdir "$rules_tmp/tmp"
+env CI= RULES_STARTED="$rules_tmp/started" TMPDIR="$rules_tmp/tmp" \
+  AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" \
+  sh "$rules_tmp/tree/tests/real-gitleaks-rules.sh" >"$rules_tmp/out" 2>&1 &
+rules_pid=$!
+rules_tries=0
+until [ -e "$rules_tmp/started" ] || [ "$rules_tries" -ge 100 ]; do
+  sleep 0.1
+  rules_tries=$((rules_tries + 1))
+done
+[ -n "$(ls -A "$rules_tmp/tmp")" ] || fail 'the rule suite driver keeps its workspace under TMPDIR'
+kill -TERM "$rules_pid"
+rules_status=0
+wait "$rules_pid" || rules_status=$?
+[ "$rules_status" -eq 143 ] || fail "a terminated rule suite driver stops with status 143: $rules_status"
+[ -z "$(ls -A "$rules_tmp/tmp")" ] || fail 'a terminated rule suite driver removes its workspace'
+rm -rf "$rules_tmp"
+trap - 0
+pass=$((pass + 26))
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

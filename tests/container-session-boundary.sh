@@ -369,7 +369,9 @@ else
   sed 's/^/  doctor: /' "$CASE/doctor"
 fi
 doctor_run review
-if [ "$d_status" -eq "$d_base" ] && ! grep -Fq AGENT_GUARD_SESSION_ROLE "$CASE/doctor"; then
+# doctor's settings section lists an accepted value as information; only the
+# role check's own lines would be a warning.
+if [ "$d_status" -eq "$d_base" ] && ! grep -v '^agent-guard: setting  ' "$CASE/doctor" | grep -Fq AGENT_GUARD_SESSION_ROLE; then
   ok "doctor accepts AGENT_GUARD_SESSION_ROLE=review"
 else
   bad "doctor with the review role: status $d_status, base $d_base"

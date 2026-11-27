@@ -1,7 +1,10 @@
 name: Rule mutation check
 
 # Hand-written mutants of the core detection rules (tests/mutations.json) must
-# each fail a listed test (#590). It is not a required check.
+# each fail a listed test (#590). It is not a required check on pull requests.
+# A pull request runs it when the rules, the list, the checker or test code
+# change; release verification dispatches every group at the release SHA
+# (.github/release-checks.tsv), which also covers fixtures-only changes.
 on:
   workflow_dispatch:
   pull_request:
@@ -9,13 +12,21 @@ on:
       - plugins/agent-guard/bin/agent-guard
       - tests/mutations.json
       - tests/mutation-check.sh
-      - tests/fixtures/**
       - .github/workflows/mutation-check.yml
+      - 'tests/*.sh'
+      - 'tests/*.py'
+      - 'tests/helpers/**'
+      # An executable scanner stub the listed tests run, not fixture data.
+      - tests/fixtures/mock-gitleaks
+      # tests/*.sh covers the listed tests below; --lint requires each by name.
       - tests/bash-path-text-data.sh
       - tests/colon-assignment-equivalence.sh
       - tests/container-session-boundary.sh
+      - tests/deny-rule-characters.sh
       - tests/gh-jq-option.sh
       - tests/gh-program-segments.sh
+      - tests/gitleaks-helper-install.sh
+      - tests/gitleaksignore-scope.sh
       - tests/handback-values.sh
       - tests/heredoc-body-text.sh
       - tests/jq-program-segments.sh
@@ -48,10 +59,11 @@ jobs:
       fail-fast: false
       matrix:
         # Every id falls in exactly one group (tests/mutation-check.sh --lint
-        # checks it): handback-*, bash-* spread over the bash-N shards by
-        # position, and everything else in core. Keep each shard under about
-        # 35 minutes; add a bash-N entry when one grows past that.
-        group: [core, handback, bash-1, bash-2, bash-3, bash-4, bash-5, bash-6]
+        # checks it): handback-*, bash-* spread over the bash-N shards and
+        # deny-chars-* over the deny-chars-N shards by position, and
+        # everything else in core. Keep each shard under about 35 minutes;
+        # add a bash-N or deny-chars-N entry when one grows past that.
+        group: [core, handback, bash-1, bash-2, bash-3, bash-4, bash-5, bash-6, deny-chars-1, deny-chars-2, deny-chars-3]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -51,7 +51,7 @@ else
 fi
 
 PROGRAM=agent-guard
-VERSION=3.13.9
+VERSION=3.15.1
 
 # Where releases are published and what the host plugin managers call them.
 AG_REPO=JeongJaeSoon/agent-guard
@@ -347,6 +347,7 @@ Usage:
   agent-guard exec [--] <cmd> [args...]
   agent-guard shell-init [--bash|--zsh] [--no-command-wrapping]
   agent-guard setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]
+  agent-guard setup-shell [--bash|--zsh|--rc FILE] --print-command-wrapping
   agent-guard pii-filter [--check]
   agent-guard mask-file [--key-paths] [--] FILE
   agent-guard scan-staged
@@ -1568,6 +1569,172 @@ audit_prune() (
     | xargs -0 rm -f -- 2>/dev/null
 )
 
+# Run directories no trap removed (a KILL; see AGENT_GUARD_RUNDIR) keep scan
+# text on disk, so a later run removes them: at most once an interval, timed
+# by a marker in the private state directory (one read on the hot path), and
+# only for state that audit_begin validated. A first marker only starts the
+# clock. The age is an hour past the longest hook timeout (60 s); a run that
+# lasts longer keeps its directory while its PID, in the name, is alive.
+RUNDIR_REAP_INTERVAL_SECONDS=3600
+RUNDIR_REAP_AGE_MINUTES=61
+# A name without a PID comes from a version before the PID was added, so no
+# live owner can be ruled out: it has to be a week old (the support log's
+# retention) instead.
+RUNDIR_REAP_LEGACY_AGE_MINUTES=10080
+
+# The marker holds one "<seconds> <directory>" line per temp directory, so a
+# busy TMPDIR does not use up the interval of another one. A rewrite puts its
+# own line last and keeps the 7 latest others, so the least recent goes first.
+# Reading it is a builtin loop. A first line is created with noclobber (no
+# process); a change is written to a new file and renamed over the marker, so
+# neither follows a symlink.
+rundir_reap() {
+  [ -n "$AG_STATE_DIR" ] && [ -n "$AGENT_GUARD_RUNDIR" ] || return 0
+  case "$AG_UID" in ''|*[!0123456789]*) return 0 ;; esac
+  case "$AG_AUDIT_START" in ''|0|*[!0123456789]*) return 0 ;; esac
+  ag_rr_dir=${AGENT_GUARD_RUNDIR%/*}
+  # The marker is keyed by this path: a relative one would name a different
+  # directory from each working directory.
+  [ -z "$AG_RUNDIR_RELATIVE" ] || return 0
+  case "$ag_rr_dir" in /*) ;; *) return 0 ;; esac
+  case "$ag_rr_dir" in *'
+'*) return 0 ;; esac
+  ag_rr_marker="$AG_STATE_DIR/rundir-reap"
+  ag_rr_last= ag_rr_keep= ag_rr_lines=0
+  if [ -L "$ag_rr_marker" ] || { [ -e "$ag_rr_marker" ] && [ ! -f "$ag_rr_marker" ]; }; then
+    return 0
+  fi
+  if [ -f "$ag_rr_marker" ]; then
+    while IFS= read -r ag_rr_line; do
+      ag_rr_time=${ag_rr_line%% *}
+      # A leading zero would be octal to shell arithmetic; dash aborts on 8 or 9.
+      case "$ag_rr_time" in ''|0*|*[!0123456789]*) continue ;; esac
+      [ "${#ag_rr_time}" -le 12 ] || continue
+      if [ "${ag_rr_line#* }" = "$ag_rr_dir" ]; then
+        ag_rr_last=$ag_rr_time
+      else
+        ag_rr_keep="$ag_rr_keep$ag_rr_line
+"
+        if [ "$ag_rr_lines" -lt 7 ]; then
+          ag_rr_lines=$((ag_rr_lines + 1))
+        else
+          ag_rr_keep=${ag_rr_keep#*"
+"}
+        fi
+      fi
+    done <"$ag_rr_marker" 2>/dev/null
+    # A marker from the future (a clock set back) is due.
+    if [ -n "$ag_rr_last" ] && [ "$ag_rr_last" -le "$AG_AUDIT_START" ] \
+        && [ "$((AG_AUDIT_START - ag_rr_last))" -lt "$RUNDIR_REAP_INTERVAL_SECONDS" ]; then
+      return 0
+    fi
+    # Restarted before the pass, so concurrent runs mostly skip it.
+    ag_rr_tmp=$(umask 077; mktemp "$ag_rr_marker.XXXXXX" 2>/dev/null) || return 0
+    if ! { printf '%s%s %s\n' "$ag_rr_keep" "$AG_AUDIT_START" "$ag_rr_dir" >"$ag_rr_tmp" \
+        && mv -f "$ag_rr_tmp" "$ag_rr_marker"; } 2>/dev/null; then
+      rm -f "$ag_rr_tmp" 2>/dev/null
+      return 0
+    fi
+  else
+    # Mode 0600 and never an existing name, without a process.
+    private_writes_begin || return 0
+    { printf '%s %s\n' "$AG_AUDIT_START" "$ag_rr_dir" >"$ag_rr_marker"; } 2>/dev/null || :
+    private_writes_end
+    # A new marker only starts the clock (no process on a first run). A
+    # directory missing from an existing one, as after its line was dropped,
+    # is due.
+    return 0
+  fi
+  # Where this run's directory went: TMPDIR, or /tmp when TMPDIR could not
+  # hold it, so a setting that keeps falling back is reaped where it leaves.
+  # The pass runs as a new session and nobody waits for it: a slow or large
+  # TMPDIR never takes from the hook's time limit, and a host that kills the
+  # hook's process group when it ends does not stop it. Without setsid or perl
+  # it runs in the background of this group instead.
+  if select_gitleaks_probe_launcher; then
+    (exec_in_new_session sh "$SELF_BIN" __reap-run-dirs "$ag_rr_dir") </dev/null >/dev/null 2>&1 &
+  else
+    (rundir_stale "$ag_rr_dir" remove) </dev/null >/dev/null 2>&1 &
+  fi
+}
+
+# Works inside the directory it lists (cd -P, CDPATH cleared), so a TMPDIR
+# symlink that changes between listing and removal cannot move rm elsewhere,
+# and only in one where no other user can replace an entry between the check
+# and rm: sticky, or writable by its owner alone, and owned by this user or
+# root. A glob lists names without a stat per entry (a TMPDIR can hold
+# 100,000 entries); the loops keep this CLI's mktemp names only, which hold
+# no blank or newline, and skip a live owner (kill -0 fails for another
+# user's process, which owns no directory of this user). find stats only
+# those names, in batches, does not descend, and keeps directories that are
+# no symlink, owned by this user, mode 0700 and old enough. rm -rf does not
+# follow symlinks inside. MODE remove deletes them; count prints how many
+# there are and changes nothing (doctor).
+# GNU xargs runs it once on empty input, and find with no operand lists ".".
+# The run's own directory keeps "." too new to match, but no list means none.
+# Succeeds when no other user can add, rename or remove an entry of the
+# current directory: owned by this user or root, sticky or writable by its
+# owner alone, and no ACL that lets anyone else in (mask_allow_acl).
+rundir_parent_safe() {
+  [ -n "$(find . -prune \( -user "$AG_UID" -o -user 0 \) \
+      \( -perm -1000 -o \( ! -perm -0020 ! -perm -0002 \) \) -print 2>/dev/null)" ] \
+    && mask_allow_acl .
+}
+
+# Owner-only: rwx for the owner and nothing for group or others. A setgid bit
+# that mktemp -d inherits from a setgid TMPDIR (Linux) is allowed. A failed
+# find prints "!", so count can tell an incomplete check from none found.
+RUNDIR_STALE_FIND='u=$1 a=$2; shift 2; [ "$#" -gt 0 ] || exit 0; find "$@" -prune -type d -user "$u" -perm -0700 ! -perm -0040 ! -perm -0020 ! -perm -0010 ! -perm -0004 ! -perm -0002 ! -perm -0001 -mmin "+$a" -print || echo "!"'
+
+# Keeps only the absolute PATH entries, for a caller that is about to cd into
+# the temp directory: there an empty or relative entry names that directory,
+# where another user can plant a tool. Fails when none is left, since an empty
+# PATH names the current directory too.
+rundir_absolute_path() {
+  ag_ap_path= ag_ap_rest=$PATH:
+  while [ -n "$ag_ap_rest" ]; do
+    ag_ap_dir=${ag_ap_rest%%:*}
+    ag_ap_rest=${ag_ap_rest#*:}
+    case "$ag_ap_dir" in /*) ag_ap_path=${ag_ap_path:+$ag_ap_path:}$ag_ap_dir ;; esac
+  done
+  [ -n "$ag_ap_path" ] || return 1
+  PATH=$ag_ap_path
+  export PATH
+}
+
+rundir_stale() ( # DIR MODE
+  # count prints "unreadable" when it cannot list or check the directory.
+  rundir_absolute_path || { [ "$2" = remove ] || echo unreadable; exit 0; }
+  CDPATH= cd -P -- "$1" 2>/dev/null || { [ "$2" = remove ] || echo unreadable; exit 0; }
+  [ -r . ] || { [ "$2" = remove ] || echo unreadable; exit 0; }
+  [ "$2" != remove ] || rundir_parent_safe || exit 0
+  {
+    for ag_rs_name in agent-guard-run.*.*; do
+      ag_rs_pid=${ag_rs_name#agent-guard-run.}
+      ag_rs_rest=${ag_rs_pid#*.}
+      ag_rs_pid=${ag_rs_pid%%.*}
+      case "$ag_rs_pid" in ''|0*|*[!0123456789]*) continue ;; esac
+      [ "${#ag_rs_pid}" -le 10 ] || continue
+      case "$ag_rs_rest" in
+        ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) continue ;;
+      esac
+      [ "${#ag_rs_rest}" -eq 6 ] || continue
+      ! kill -0 "$ag_rs_pid" 2>/dev/null || continue
+      printf './%s\n' "$ag_rs_name"
+    done | xargs sh -c "$RUNDIR_STALE_FIND" sh "$AG_UID" "$RUNDIR_REAP_AGE_MINUTES" 2>/dev/null || echo "!"
+    for ag_rs_name in agent-guard-run.??????; do
+      case "${ag_rs_name#agent-guard-run.}" in
+        *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) continue ;;
+      esac
+      printf './%s\n' "$ag_rs_name"
+    done | xargs sh -c "$RUNDIR_STALE_FIND" sh "$AG_UID" "$RUNDIR_REAP_LEGACY_AGE_MINUTES" 2>/dev/null || echo "!"
+  } | if [ "$2" = remove ]; then
+    grep '^\./agent-guard-run\.' | xargs rm -rf -- 2>/dev/null
+  else
+    awk '/^!/ { bad = 1; next } { n++ } END { if (bad) print "unreadable"; else print n + 0 }'
+  fi
+)
+
 audit_begin() {
   case "${AGENT_GUARD_LOG_MODE:-on}" in
     on) ag_log=on ;;
@@ -1622,7 +1789,7 @@ audit_finish() {
   ag_outcome=pass
   case "$ag_exit" in
     0) ;;
-    130|143) ag_outcome=interrupted ;;
+    129|130|143) ag_outcome=interrupted ;;
     *)
       case "$AG_AUDIT_COMMAND:$ag_exit" in
         hook-*:2|scan-*:1|pii-filter:1) ag_outcome=blocked ;;
@@ -1638,7 +1805,7 @@ audit_finish() {
     done
     IFS=$ag_finish_ifs
   fi
-  case "$ag_exit" in 130|143) ag_outcome=interrupted ;; esac
+  case "$ag_exit" in 129|130|143) ag_outcome=interrupted ;; esac
   ag_reason=null
   # Recorded only beside a nonzero exit: a closed infrastructure block keeps
   # its degraded outcome but still names why it stopped the call.
@@ -2266,11 +2433,14 @@ gitleaks_probe_cache_store() {
 # each scan starts gitleaks (#407). A clean verdict is a function of the bytes
 # fed to `gitleaks stdin`, the flags below, the config file, the gitleaks
 # executable, and what gitleaks reads beside them: GITLEAKS_CONFIG and
-# GITLEAKS_CONFIG_TOML, and ./.gitleaksignore in the scan's directory. Only a
+# GITLEAKS_CONFIG_TOML, and .gitleaksignore in the scan's directory, which for
+# this scan is the private one of gitleaks_hook_scan_dir, never the
+# repository's. Only a
 # completed clean scan is remembered, under a SHA-256 of all of that, so a
 # change to any one of them misses. Findings, scanner errors, signals, and
 # could-not-run states are never stored, and every doubt (no hash tool, no
-# native-binary identity from the probe cache, an ignore file, an extended
+# native-binary identity from the probe cache, no private scan directory or an
+# ignore file in it, an extended
 # config file, a stale, foreign or unreadable entry) runs the scan uncached.
 # Entries hold only hashes and a time, never the text. They live in a 0700
 # directory inside the private state directory audit_begin validated, so
@@ -2300,8 +2470,8 @@ gitleaks_clean_cache_key() {
     && [ -n "$GITLEAKS_READY_BIN" ] || return 1
   case "$GITLEAKS_PROBE_CACHE_KEY" in *" $GITLEAKS_READY_BIN") ;; *) return 1 ;; esac
   case "$GITLEAKS_PROBE_VERSION" in ''|*[!0-9.]*) return 1 ;; esac
-  # gitleaks stdin applies ./.gitleaksignore; its contents can hide a finding.
-  [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || return 1
+  # The scan this verdict stands for runs where no ignore file is.
+  gitleaks_hook_scan_dir || return 1
   [ -f "$GITLEAKS_CONFIG" ] || return 1
   gitleaks_clean_cache_hasher || return 1
   ag_glc_text=$1
@@ -2495,8 +2665,8 @@ gitleaks_clean_cache_hit() {
 # written by the shell under noclobber and umask 077 (an mv only to replace).
 gitleaks_clean_cache_store() {
   [ -n "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 0
-  # An ignore file that appeared during the scan may have been read by it.
-  [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || return 0
+  # An ignore file that appeared there during the scan may have been read by it.
+  gitleaks_hook_scan_dir || return 0
   [ -n "$GITLEAKS_CLEAN_CACHE_HASHER" ] || return 0
   ag_glc_dir="$AG_STATE_DIR/gitleaks-clean"
   if [ ! -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ]; then
@@ -3221,6 +3391,8 @@ setup_require_install_dir() {
   gitleaks_bin_dir_notice install >&2
 }
 
+# $3, when set, installs into a staging directory and prints nothing about
+# the install directory.
 setup_install_gitleaks() {
   setup_require_install_dir
   version=$1
@@ -3261,10 +3433,13 @@ setup_install_gitleaks() {
   info "$PROGRAM: extracting"
   tar -xzf "$tmp/$archive" -C "$tmp" || die "setup: extraction failed"
 
+  # chmod follows a symbolic link: never give a link's target the x bit.
+  [ -f "$tmp/gitleaks" ] && [ ! -L "$tmp/gitleaks" ] || die "setup: the downloaded gitleaks is not a regular file"
   mkdir -p "$SETUP_INSTALL_DIR" || die "setup: cannot create install dir: $SETUP_INSTALL_DIR"
   mv "$tmp/gitleaks" "$SETUP_INSTALL_DIR/gitleaks" || die "setup: failed to install gitleaks binary"
   chmod +x "$SETUP_INSTALL_DIR/gitleaks"
 
+  [ -z "${3:-}" ] || return 0
   info "$PROGRAM: installed gitleaks v${version} at $SETUP_INSTALL_DIR/gitleaks"
   case ":$PATH:" in
     *":$SETUP_INSTALL_DIR:"*) ;;
@@ -3278,7 +3453,7 @@ setup_install_gitleaks() {
 # The release target of the warm gitleaks helper for this platform, in
 # helper_target. Fails where no helper is released.
 gitleaks_helper_target() {
-  case "$(uname -s):$(uname -m)" in
+  case "${AG_OS:-$(uname -s)}:$(uname -m)" in
     Linux:x86_64|Linux:amd64) helper_target=x86_64-unknown-linux-musl ;;
     Linux:aarch64|Linux:arm64) helper_target=aarch64-unknown-linux-musl ;;
     Darwin:arm64) helper_target=aarch64-apple-darwin ;;
@@ -3363,13 +3538,140 @@ setup_install_gitleaks_helper() {
   info "$PROGRAM: scans use it from now on; AGENT_GUARD_GITLEAKS_HELPER=off turns it off"
 }
 
-# `setup --install` installs the helper as well, when the gitleaks it manages
-# is the one scans run: the private gitleaks, at the version the helper links.
-# The helper answers for no other scanner, so any other gets one line saying
-# why nothing was downloaded. It is skipped without a word where the status
+# Whether setup --install (version $1, checksum $2) installs the official
+# gitleaks in the private directory although a gitleaks runs: only when the
+# one selected comes from PATH and the helper would not answer it, the helper
+# is wanted and released here, and the user gave the checksum for the version
+# the helper links, and the helper could run here (logging on, a pin for this
+# platform and a hash tool to check the download against it, a usable state
+# directory, no installed helper that cannot run, and no helper path the
+# helper installer refuses). It never runs through doctor, and never replaces a gitleaks
+# already in the private directory: that is selected before PATH, so the new
+# one is used from the next scan, and removing it goes back.
+setup_replaces_path_gitleaks() {
+  [ "$SETUP_VIA_DOCTOR" = 0 ] && [ -n "$2" ] && [ "$1" = "$GITLEAKS_DEFAULT_VERSION" ] \
+    && [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] && [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] \
+    && ! gitleaks_helper_log_blocks && gitleaks_official_pin && gitleaks_clean_cache_hasher \
+    && gitleaks_helper_state_usable \
+    && if gitleaks_helper_installed; then ! gitleaks_helper_unrunnable; else [ -z "$AG_GITLEAKS_HELPER_FOREIGN" ]; fi \
+    && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] \
+    && { [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] || [ -d "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; } \
+    && [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] \
+    && gitleaks_helper_blocker "${gl:-}" && [ -n "$helper_blocker" ]
+}
+
+# Install the official gitleaks $1 (checksum $2) beside a working PATH build
+# (setup_replaces_path_gitleaks). It is downloaded into a staging directory
+# inside the private one, and moved to the private gitleaks only once it runs
+# and is the official build (its bytes are checked before it first runs), so
+# no hook ever selects one that is not. In a
+# subshell: its fatal errors and signals end only this step, and its own
+# temporary and staging directories go with it.
+setup_install_official_gitleaks() (
+  AG_EXIT_TMP_DIR=
+  ag_iog_stage=
+  trap 'clear_gitleaks_probe_processes; [ -z "$AG_EXIT_TMP_DIR" ] || rm -rf "$AG_EXIT_TMP_DIR"; [ -z "$ag_iog_stage" ] || rm -rf "$ag_iog_stage"' 0
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  setup_require_install_dir
+  mkdir -p "$GITLEAKS_PRIVATE_BIN_DIR" || die "setup: cannot create install dir: $GITLEAKS_PRIVATE_BIN_DIR"
+  ag_iog_stage=$(mktemp -d "$GITLEAKS_PRIVATE_BIN_DIR/.gitleaks.XXXXXX") \
+    || die "setup: cannot stage gitleaks in $GITLEAKS_PRIVATE_BIN_DIR"
+  SETUP_INSTALL_DIR=$ag_iog_stage
+  setup_install_gitleaks "$1" "$2" staged
+  if [ ! -f "$ag_iog_stage/gitleaks" ] || [ -L "$ag_iog_stage/gitleaks" ]; then
+    info "$PROGRAM: the downloaded gitleaks is not a regular file"
+    exit 1
+  fi
+  if ! gitleaks_official_bytes "$ag_iog_stage/gitleaks"; then
+    info "$PROGRAM: the downloaded gitleaks is not the official gitleaks $GITLEAKS_DEFAULT_VERSION release build"
+    exit 1
+  fi
+  if ! probe_gitleaks "$ag_iog_stage/gitleaks"; then
+    info "$PROGRAM: the downloaded gitleaks does not run"
+    exit 1
+  fi
+  if ! gitleaks_helper_blocker "$ag_iog_stage/gitleaks" || [ -n "$helper_blocker" ]; then
+    info "$PROGRAM: the downloaded gitleaks is not the official gitleaks $GITLEAKS_DEFAULT_VERSION release build"
+    exit 1
+  fi
+  # A hard link never replaces a name another install created meanwhile.
+  # Linked into the directory under its own name, so an entry of any kind at
+  # that name, a directory included, makes it fail.
+  ln "$ag_iog_stage/gitleaks" "$GITLEAKS_PRIVATE_BIN_DIR" 2>/dev/null \
+    || die "setup: failed to install gitleaks at $GITLEAKS_PRIVATE_BIN_DIR/gitleaks (it exists, or the link failed)"
+  info "$PROGRAM: installed gitleaks v$1 at $GITLEAKS_PRIVATE_BIN_DIR/gitleaks"
+)
+
+# Whether the file $1 holds the bytes of the official gitleaks
+# $GITLEAKS_DEFAULT_VERSION release for this platform, as
+# config/gitleaks-official.sha256 pins them: 0 when it does, 2 when it does
+# not, 1 when this cannot tell (no helper for this platform, no pin, or no
+# hash tool). It reads the file and runs nothing.
+gitleaks_official_bytes() {
+  [ -f "$1" ] && gitleaks_official_pin && gitleaks_clean_cache_hasher || return 1
+  # From stdin: a file name holding a backslash would put one before the digest.
+  ag_gob_sum=$(gitleaks_clean_cache_hash <"$1" 2>/dev/null) || return 1
+  ag_gob_sum=${ag_gob_sum%% *}
+  case "$ag_gob_sum" in *[!0-9a-f]*) return 1 ;; esac
+  [ "${#ag_gob_sum}" -eq 64 ] || return 1
+  [ "$ag_gob_sum" = "$ag_gob_pin" ] || return 2
+}
+
+# The pinned SHA-256 of the official gitleaks $GITLEAKS_DEFAULT_VERSION for
+# this platform, in ag_gob_pin; fails when this platform has no helper or no
+# well-formed pin.
+gitleaks_official_pin() {
+  ag_gob_pin=
+  gitleaks_helper_target && [ -f "$ROOT_DIR/config/gitleaks-official.sha256" ] || return 1
+  while IFS= read -r ag_gob_line; do
+    case "$ag_gob_line" in
+      *"  $GITLEAKS_DEFAULT_VERSION/$helper_target/gitleaks") ag_gob_pin=${ag_gob_line%%  *} ;;
+    esac
+  done 2>/dev/null <"$ROOT_DIR/config/gitleaks-official.sha256"
+  case "$ag_gob_pin" in *[!0-9a-f]*) return 1 ;; esac
+  [ "${#ag_gob_pin}" -eq 64 ]
+}
+
+# Why the warm helper would not answer the gitleaks at $1, which setup just
+# probed, in helper_blocker with what to do; empty when $1 is the official
+# gitleaks release build the helper links: that version, with a SHA-256 that
+# config/gitleaks-official.sha256 pins for this platform. The client compares
+# the builds itself (version, toolchain, regex engine, modules); this reads
+# only the bytes, to advise, so a build that matches the release in all of
+# those but not byte for byte is called another build here. Fails when it
+# cannot tell: no ready gitleaks, no helper for this platform, no pins, or no
+# hash tool. It reads files and starts no gitleaks.
+gitleaks_helper_blocker() {
+  helper_blocker=
+  [ "$GITLEAKS_PROBE_STATE" = ready ] && [ -n "${1:-}" ] && gitleaks_helper_target || return 1
+  if [ "$GITLEAKS_PROBE_VERSION" = "$GITLEAKS_DEFAULT_VERSION" ]; then
+    gitleaks_official_bytes "$1"
+    case $? in 0) return 0 ;; 2) ;; *) return 1 ;; esac
+    helper_blocker="the selected gitleaks $1 is not the official gitleaks $GITLEAKS_DEFAULT_VERSION release build, such as a Homebrew or go install build"
+  else
+    helper_blocker="the selected gitleaks $1 is version $GITLEAKS_PROBE_VERSION, and the helper answers only gitleaks $GITLEAKS_DEFAULT_VERSION"
+  fi
+  cli_ref_init
+  # setup --install keeps a private gitleaks that runs, and that one is
+  # selected before PATH.
+  if [ "$1" -ef "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ]; then
+    helper_blocker="$helper_blocker; to use the helper, remove $1, then run $AG_CLI_REF checksum and the setup --install command it prints"
+  else
+    helper_blocker="$helper_blocker; to use the helper, install the official build, which is used before PATH: run $AG_CLI_REF checksum and the setup --install command it prints"
+  fi
+  return 0
+}
+
+# `setup --install` installs the helper as well, when the gitleaks scans run
+# is the official build the helper answers, from the private directory or
+# PATH. The helper answers for no other scanner, so any other, or one this
+# cannot check, gets one line saying why nothing was downloaded. It is skipped without a word where the status
 # line has already said it: turned off or replaced by the user's own client
 # (AGENT_GUARD_GITLEAKS_HELPER set), no helper released for this platform, or
-# this version's helper already installed. The helper is optional: a failed
+# this version's helper already installed; a reason the status line printed
+# is not repeated. The helper is optional: a failed
 # download or checksum is a warning and never fails the gitleaks install.
 # Call it after setup_gitleaks_status_line found a ready scanner; it reads
 # that probe's version and runs no probe of its own.
@@ -3377,19 +3679,22 @@ setup_install_gitleaks_helper_with_gitleaks() {
   [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] || return 0
   gitleaks_helper_target || return 0
   ! gitleaks_helper_installed || return 0
+  [ -z "$AG_GITLEAKS_HELPER_FOREIGN" ] || return 0
   cli_ref_init
-  # The order of resolve_gitleaks: the variable, the private gitleaks, PATH.
   if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
-    helper_reason='AGENT_GUARD_GITLEAKS_BIN selects the scanner'
-  elif [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ]; then
-    helper_reason='the selected gitleaks comes from PATH, such as a Homebrew build'
-  elif [ "${GITLEAKS_PROBE_VERSION:-}" != "$GITLEAKS_DEFAULT_VERSION" ]; then
-    helper_reason="the installed gitleaks is ${GITLEAKS_PROBE_VERSION:-of an unknown version}, not $GITLEAKS_DEFAULT_VERSION"
+    helper_reason=$HELPER_GITLEAKS_BIN_REASON
+  elif gitleaks_helper_log_blocks; then
+    helper_reason=$helper_log_why
+  elif ! gitleaks_helper_state_usable; then
+    helper_reason=$helper_state_why
+  elif gitleaks_helper_blocker "${gl:-}"; then
+    helper_reason=$helper_blocker
   else
-    helper_reason=
+    helper_reason="could not tell whether the selected gitleaks ${gl:-} is the official gitleaks $GITLEAKS_DEFAULT_VERSION release build that the helper answers; to install the helper anyway: $AG_CLI_REF setup --install-gitleaks-helper"
   fi
   if [ -n "$helper_reason" ]; then
-    info "$PROGRAM: gitleaks helper  not installed  ($helper_reason; the helper only answers the gitleaks $GITLEAKS_DEFAULT_VERSION that $AG_CLI_REF setup --install puts in $GITLEAKS_PRIVATE_BIN_DIR when no other gitleaks is selected)"
+    [ "$helper_reason" = "${helper_status_said:-}" ] \
+      || info "$PROGRAM: gitleaks helper  not installed  ($helper_reason)"
     return 0
   fi
   # In a subshell, so that the installer's fatal errors end only this step.
@@ -3411,14 +3716,96 @@ setup_install_gitleaks_helper_with_gitleaks() {
   return 0
 }
 
-# One line on the warm gitleaks helper, from files and variables only. It
-# never runs the client: a status line must not start a resident process, and
-# a client that fails or hangs must not stall setup or doctor. So it says
-# which client scans are handed to, not whether a helper answers; the client
-# decides that per scan and runs the real gitleaks otherwise. The helper is
-# optional, so this never fails setup.
+HELPER_GITLEAKS_BIN_REASON='AGENT_GUARD_GITLEAKS_BIN selects the scanner, which the helper never serves; unset it to use the helper'
+
+# Succeeds when the installed helper (gitleaks_helper_installed) cannot run,
+# with why and what to do in helper_parts_why: a file is not executable (hooks
+# run only an executable client, gitleaks_helper_selected, and the client
+# starts the helper beside it).
+gitleaks_helper_unrunnable() {
+  helper_parts_why=
+  for ag_ghu_part in "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper/agent-guard-scan" \
+    "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper/agent-guard-gitleaks-helper"; do
+    [ ! -f "$ag_ghu_part" ] || [ ! -x "$ag_ghu_part" ] || continue
+    cli_ref_init
+    case "$ag_ghu_part" in
+      */agent-guard-scan) helper_parts_why="its client $ag_ghu_part" ;;
+      *) helper_parts_why="its helper $ag_ghu_part" ;;
+    esac
+    helper_parts_why="$helper_parts_why is not executable; reinstall it: $AG_CLI_REF setup --install-gitleaks-helper"
+    return 0
+  done
+  return 1
+}
+
+# Why AGENT_GUARD_LOG_MODE keeps the helper from answering, in helper_log_why;
+# fails, leaving it empty, when the mode is on.
+gitleaks_helper_log_blocks() {
+  case "${AGENT_GUARD_LOG_MODE:-on}" in
+    on) helper_log_why= ; return 1 ;;
+    off) helper_log_why='AGENT_GUARD_LOG_MODE=off leaves it no state directory for its socket; unset it to use the helper' ;;
+    *) helper_log_why='AGENT_GUARD_LOG_MODE is neither on nor off, so hooks keep no state directory for its socket; unset it to use the helper' ;;
+  esac
+}
+
+# Whether hooks could give the client its state directory, as audit_begin
+# would choose it: a plain absolute path, private when it already exists
+# (audit_directory refuses it otherwise), as is its gitleaks-helper directory
+# (the client's HelperDir), whose socket,
+# <state>/gitleaks-helper/<20 hex digits>.sock, fits the shortest sun_path
+# (104 bytes with its NUL, macOS), counted in bytes as the client does. Sets
+# helper_state, and helper_state_why with what to do when it fails.
+gitleaks_helper_state_usable() {
+  helper_state=$(audit_location)
+  helper_state_why=
+  if ! plain_absolute_path "$helper_state"; then
+    helper_state_why="the state directory $helper_state is not a plain absolute path (relative, or through a symbolic link); set XDG_STATE_HOME to one"
+    return 1
+  fi
+  if { [ -e "$helper_state" ] || [ -L "$helper_state" ]; } && ! private_dir_ok "$helper_state"; then
+    helper_state_why="the state directory $helper_state is not private to you (a 0700 directory you own); fix its owner and mode, or set XDG_STATE_HOME to another directory"
+    return 1
+  fi
+  if [ ! -e "$helper_state" ] && [ ! -L "$helper_state" ]; then
+    ag_ghs_up=${helper_state%/*}
+    while [ -n "$ag_ghs_up" ] && [ ! -e "$ag_ghs_up" ]; do ag_ghs_up=${ag_ghs_up%/*}; done
+    [ -n "$ag_ghs_up" ] || ag_ghs_up=/
+    if [ ! -d "$ag_ghs_up" ] || [ ! -w "$ag_ghs_up" ] || [ ! -x "$ag_ghs_up" ]; then
+      helper_state_why="the state directory $helper_state cannot be created ($ag_ghs_up is not a directory you can write and search); set XDG_STATE_HOME to one"
+      return 1
+    fi
+  fi
+  if [ ! -e "$helper_state/gitleaks-helper" ] && [ ! -L "$helper_state/gitleaks-helper" ]; then
+    # The client creates it with mode 0700 less the umask, and then refuses
+    # it unless it is exactly 0700.
+    ag_ghs_umask=$(umask)
+    case "$ag_ghs_umask" in
+      *[1-7]??)
+        helper_state_why="the umask $ag_ghs_umask would create the helper directory without the owner bits it needs (0700); use a umask such as 022 or 077"
+        return 1
+        ;;
+    esac
+  elif ! private_dir_ok "$helper_state/gitleaks-helper"; then
+    helper_state_why="the helper directory $helper_state/gitleaks-helper is not private to you (a 0700 directory you own); remove it, and the helper creates it again"
+    return 1
+  fi
+  helper_socket_bytes=$(printf '%s/gitleaks-helper/%020d.sock' "$helper_state" 0 | LC_ALL=C wc -c)
+  helper_socket_bytes=$((helper_socket_bytes + 0))
+  [ "$helper_socket_bytes" -gt 103 ] || return 0
+  helper_state_why="its socket path would be $helper_socket_bytes bytes, over the 103-byte limit, under the state directory $helper_state; set XDG_STATE_HOME to a shorter directory"
+  return 1
+}
+
+# One line on the warm gitleaks helper, from files, variables and the bytes of
+# the gitleaks setup selected. It never runs the client: a status line must
+# not start a resident process, and a client that fails or hangs must not
+# stall setup or doctor. It says why an installed helper will not answer, and
+# what to do, for the causes it can see (gitleaks_helper_blocker, the socket
+# path, the variables); the client still decides per scan and runs the real
+# gitleaks otherwise. The helper is optional, so this never fails setup.
 setup_gitleaks_helper_status_line() {
   helper_client=
+  helper_status_said=
   case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in
     /*)
       if [ -f "$AGENT_GUARD_GITLEAKS_HELPER" ] && [ -x "$AGENT_GUARD_GITLEAKS_HELPER" ]; then
@@ -3431,10 +3818,30 @@ setup_gitleaks_helper_status_line() {
     '')
       if gitleaks_helper_installed; then
         helper_client=$AG_GITLEAKS_HELPER_CLIENT
+        if gitleaks_helper_unrunnable; then
+          info "$PROGRAM: gitleaks helper  not used  ($helper_parts_why)"
+          return 0
+        fi
       else
         cli_ref_init
-        if [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
-          info "$PROGRAM: gitleaks helper  not used  (installed for another Agent Guard version; run: $AG_CLI_REF setup --install-gitleaks-helper)"
+        if [ -n "$AG_GITLEAKS_HELPER_FOREIGN" ]; then
+          info "$PROGRAM: gitleaks helper  not used  (installed for another platform, $AG_GITLEAKS_HELPER_FOREIGN; scans here run gitleaks directly)"
+        elif [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] && ! gitleaks_helper_target; then
+          info "$PROGRAM: gitleaks helper  not used  (no warm gitleaks helper is released for this platform, so scans run gitleaks directly)"
+        elif [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
+          info "$PROGRAM: gitleaks helper  not used  (installed for another Agent Guard version or platform; run: $AG_CLI_REF setup --install-gitleaks-helper)"
+        elif [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
+          helper_status_said=$HELPER_GITLEAKS_BIN_REASON
+          info "$PROGRAM: gitleaks helper  not installed  ($HELPER_GITLEAKS_BIN_REASON)"
+        elif gitleaks_helper_log_blocks; then
+          helper_status_said=$helper_log_why
+          info "$PROGRAM: gitleaks helper  not installed  (it would not answer: $helper_log_why)"
+        elif ! gitleaks_helper_state_usable; then
+          helper_status_said=$helper_state_why
+          info "$PROGRAM: gitleaks helper  not installed  (it would not answer: $helper_state_why)"
+        elif gitleaks_helper_blocker "${gl:-}" && [ -n "$helper_blocker" ]; then
+          helper_status_said=$helper_blocker
+          info "$PROGRAM: gitleaks helper  not installed  (it would not answer: $helper_blocker)"
         else
           info "$PROGRAM: gitleaks helper  not installed  (optional; keeps gitleaks loaded between scans: $AG_CLI_REF setup --install-gitleaks-helper)"
         fi
@@ -3447,19 +3854,39 @@ setup_gitleaks_helper_status_line() {
       ;;
   esac
   if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
-    info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_GITLEAKS_BIN selects the scanner)"
+    info "$PROGRAM: gitleaks helper  not used  ($HELPER_GITLEAKS_BIN_REASON)"
     return 0
   fi
-  if [ "${AGENT_GUARD_LOG_MODE:-on}" = off ]; then
-    info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_LOG_MODE=off)"
+  if gitleaks_helper_log_blocks; then
+    info "$PROGRAM: gitleaks helper  not used  ($helper_log_why)"
+    return 0
+  fi
+  if ! gitleaks_helper_state_usable; then
+    info "$PROGRAM: gitleaks helper  not used  ($helper_state_why)"
     return 0
   fi
   if [ -n "${AGENT_GUARD_GITLEAKS_HELPER:-}" ]; then
     info "$PROGRAM: gitleaks helper  selected  (AGENT_GUARD_GITLEAKS_HELPER: $helper_client)"
-  else
+  elif ! gitleaks_helper_blocker "${gl:-}"; then
     info "$PROGRAM: gitleaks helper  installed  ($helper_client; it answers when the selected gitleaks is the official gitleaks $GITLEAKS_DEFAULT_VERSION release build, and gitleaks runs itself otherwise)"
+  elif [ -n "$helper_blocker" ]; then
+    info "$PROGRAM: gitleaks helper  not used  ($helper_blocker)"
+  else
+    info "$PROGRAM: gitleaks helper  installed  (it can serve the selected gitleaks $gl, the official gitleaks $GITLEAKS_DEFAULT_VERSION release build; a scan it cannot serve, such as one with a .gitleaksignore, runs gitleaks itself)"
   fi
   return 0
+}
+
+# Install arguments reach setup through doctor only during their deprecation.
+# Warned once, as setup's parser reads the first one, so an argument it never
+# reads (after --help or an unknown one) is not; the warning names no value.
+SETUP_VIA_DOCTOR=0
+SETUP_HELP_SHOWN=0
+setup_doctor_install_arg() {
+  [ "$SETUP_VIA_DOCTOR" = 1 ] || return 0
+  SETUP_VIA_DOCTOR=2
+  cli_ref_init
+  info "$PROGRAM: install arguments to doctor are deprecated: doctor still passes them to setup now, but a later release refuses them in doctor. To install, run $AG_CLI_REF setup with --install or --install-gitleaks-helper."
 }
 
 do_setup() {
@@ -3469,20 +3896,22 @@ do_setup() {
   checksum=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --install) install=1 ;;
+      --install) install=1; setup_doctor_install_arg ;;
       --gitleaks-version)
+        setup_doctor_install_arg
         shift
         [ $# -gt 0 ] || die "setup: --gitleaks-version requires a value"
         version=$1
         ;;
-      --gitleaks-version=*) version=${1#--gitleaks-version=} ;;
+      --gitleaks-version=*) setup_doctor_install_arg; version=${1#--gitleaks-version=} ;;
       --gitleaks-checksum)
+        setup_doctor_install_arg
         shift
         [ $# -gt 0 ] || die "setup: --gitleaks-checksum requires a value"
         checksum=$1
         ;;
-      --gitleaks-checksum=*) checksum=${1#--gitleaks-checksum=} ;;
-      --install-gitleaks-helper) helper_install=1 ;;
+      --gitleaks-checksum=*) setup_doctor_install_arg; checksum=${1#--gitleaks-checksum=} ;;
+      --install-gitleaks-helper) helper_install=1; setup_doctor_install_arg ;;
       -h|--help)
         cat >&2 <<'EOF'
 Usage:
@@ -3505,6 +3934,7 @@ helper for this platform from the Agent Guard release. It is installed only
 when it matches the checksums built into this CLI, and scans then use it
 without further setup. AGENT_GUARD_GITLEAKS_HELPER=off turns it off.
 EOF
+        SETUP_HELP_SHOWN=1
         return 0
         ;;
       *) die "setup: unknown argument: $1" ;;
@@ -3529,7 +3959,29 @@ EOF
 
   if [ "$install" -eq 1 ]; then
     gitleaks_runtime_ok=1
-    if [ "$gitleaks_ok" -eq 1 ]; then
+    if [ "$gitleaks_ok" -eq 1 ] && setup_replaces_path_gitleaks "$version" "$checksum"; then
+      setup_path_gitleaks=$gl
+      if setup_install_official_gitleaks "$version" "$checksum"; then
+        GITLEAKS_READY_BIN=
+        if setup_gitleaks_status_line; then
+          setup_back_new=$gl setup_back_old=$setup_path_gitleaks
+          case "$setup_back_new" in *[!A-Za-z0-9_./:@%+,-]*) setup_back_new=$(sh_squote "$setup_back_new") ;; esac
+          case "$setup_back_old" in *[!A-Za-z0-9_./:@%+,-]*) setup_back_old=$(sh_squote "$setup_back_old") ;; esac
+          info "$PROGRAM: hook scans now use the official gitleaks $GITLEAKS_DEFAULT_VERSION in $gl instead of $setup_path_gitleaks; to go back, remove $setup_back_new or set AGENT_GUARD_GITLEAKS_BIN=$setup_back_old"
+        else
+          gitleaks_runtime_ok=0
+          setup_suggest_gitleaks_runtime_repair || :
+        fi
+      else
+        GITLEAKS_READY_BIN=
+        if setup_gitleaks_status_line && [ "$gl" != "$setup_path_gitleaks" ]; then
+          info "$PROGRAM: the official gitleaks was not installed; hook scans use $gl"
+        elif [ "${gl:-}" = "$setup_path_gitleaks" ]; then
+          info "$PROGRAM: the official gitleaks was not installed; hook scans keep using $setup_path_gitleaks"
+        fi
+        gitleaks_runtime_ok=0
+      fi
+    elif [ "$gitleaks_ok" -eq 1 ]; then
       info "$PROGRAM: gitleaks already available; skipping --install"
     elif setup_suggest_gitleaks_runtime_repair; then
       gitleaks_runtime_ok=0
@@ -3974,6 +4426,7 @@ pii_regex_adapter_filter() (
 
 pii_endpoint_adapter_filter() {
   provider=$1
+  pii_request_from=${2:-}
   need_cmd curl
   need_cmd jq
   url=${AGENT_GUARD_PII_REDACT_URL:-}
@@ -3985,7 +4438,10 @@ pii_endpoint_adapter_filter() {
   esac
   [ "$timeout" -gt 0 ] 2>/dev/null \
     || die "pii-filter: AGENT_GUARD_PII_TIMEOUT_SECONDS must be a positive integer"
-  if [ "${AGENT_GUARD_PII_HOOK_REQUEST:-}" = 1 ] && [ "$timeout" -gt 5 ]; then
+  # A hook caps its request at 5 seconds. The environment flag is the
+  # deprecated outside form of the same cap (pii_filter warns about it).
+  if { [ "$pii_request_from" = hook ] || [ "${AGENT_GUARD_PII_HOOK_REQUEST:-}" = 1 ]; } \
+      && [ "$timeout" -gt 5 ]; then
     timeout=5
   fi
 
@@ -4040,11 +4496,11 @@ pii_endpoint_adapter_filter() {
   rm -f "$out"
 }
 
-pii_adapter_filter() {
+pii_adapter_filter() {  # [provider] [hook]
   provider=${1:-${AGENT_GUARD_PII_PROVIDER:-regex}}
   case "$provider" in
     regex) pii_regex_adapter_filter ;;
-    http|pleno) pii_endpoint_adapter_filter "$provider" ;;
+    http|pleno) pii_endpoint_adapter_filter "$provider" "${2:-}" ;;
     *) pii_unsupported_provider "$provider" ;;
   esac
 }
@@ -4080,6 +4536,9 @@ pii_filter() {
     shift
   done
 
+  if [ "${AGENT_GUARD_PII_HOOK_REQUEST:-}" = 1 ]; then
+    info "$PROGRAM: AGENT_GUARD_PII_HOOK_REQUEST is internal and deprecated: it still caps the provider request at 5 seconds now, but a later release ignores it. Set AGENT_GUARD_PII_TIMEOUT_SECONDS instead."
+  fi
   provider=${AGENT_GUARD_PII_PROVIDER:-regex}
   # Validate here, not only inside the adapter: --check never reaches the adapter
   # and would otherwise report "ok" for a skip set every real run refuses.
@@ -4094,7 +4553,7 @@ pii_filter() {
 pii_text_has_match() {
   text=$1
   [ -n "$text" ] || return 1
-  masked=$(printf '%s' "$text" | AGENT_GUARD_PII_HOOK_REQUEST=1 pii_adapter_filter)
+  masked=$(printf '%s' "$text" | pii_adapter_filter "" hook)
   status=$?
   [ "$status" -eq 0 ] || exit "$status"
   [ "$masked" != "$text" ]
@@ -4238,10 +4697,173 @@ check_pii_hook_input() {
   esac
 }
 
+# Hook input (command text, tool output, proposed file content, a file a tool
+# wrote, a prompt) is not the repository's content, so its scan must not read
+# the repository's .gitleaksignore. An entry there names a rule and a line of
+# the scanned text (`:rule:line` for stdin) and nothing of the value, so it
+# would apply to any text scanned in that directory. `gitleaks stdin` loads
+# the file from its working directory whatever --gitleaks-ignore-path names,
+# so such a scan runs from the run directory instead: private (mktemp -d,
+# mode 700), this process's own, and checked here to hold no ignore file.
+# Scans of the repository's own content (staged and work-tree lines,
+# untracked files, scan-path) stay in their directory and keep applying it.
+# Sets GITLEAKS_HOOK_CWD, and GITLEAKS_HOOK_CONFIG to the config as it
+# resolves from the current directory. With the bundled config it is shell
+# tests only, so it costs no process (#407); a custom config is checked
+# before each scan (gitleaks_config_extends_no_relative_path).
+# Returns 1 when there is no such directory and 2 when the config may extend
+# a relative path; the caller then reports a scan that could not run, never a
+# clean one.
+gitleaks_hook_scan_dir() {
+  GITLEAKS_HOOK_CWD=${AGENT_GUARD_RUNDIR:-}
+  GITLEAKS_HOOK_CONFIG=$GITLEAKS_CONFIG
+  case "$GITLEAKS_HOOK_CWD" in /*) ;; *) return 1 ;; esac
+  [ -d "$GITLEAKS_HOOK_CWD" ] && [ ! -L "$GITLEAKS_HOOK_CWD" ] \
+    && [ ! -e "$GITLEAKS_HOOK_CWD/.gitleaksignore" ] \
+    && [ ! -L "$GITLEAKS_HOOK_CWD/.gitleaksignore" ] || return 1
+  case "$GITLEAKS_HOOK_CONFIG" in
+    /*) ;;
+    *) GITLEAKS_HOOK_CONFIG=$PWD/$GITLEAKS_HOOK_CONFIG ;;
+  esac
+  # The bundled config extends nothing by path (tests pin it).
+  [ -n "${AGENT_GUARD_GITLEAKS_CONFIG:-}" ] || return 0
+  # Before each scan: the file, or one it extends, may have changed since the
+  # last one, and a relative name is another file once a hook has changed
+  # directory.
+  gitleaks_config_extends_no_relative_path || return 2
+}
+
+# Says why hook input $2 is not scanned: $1 is the status of
+# gitleaks_hook_scan_dir.
+gitleaks_hook_scan_refusal() {
+  case "$1" in
+    2) info "$PROGRAM: cannot scan $2: hook input is scanned from a private directory, where a relative [extend] path in the gitleaks config would name another file; write it as an absolute path, to a file that can be read, in a plain [extend] table" ;;
+    *) info "$PROGRAM: no private directory to scan $2 from" ;;
+  esac
+}
+
+# A config may extend another file by path, and gitleaks resolves a relative
+# one against its working directory: from the private directory it would name
+# another file, or none. Succeeds only when GITLEAKS_CONFIG, and each file it
+# extends in turn, provably extends no relative path: it has no extend key, or
+# one plain [extend] table whose `path`, if any, is a one-line absolute
+# literal. TOML spells a key bare, quoted, dotted or as an inline table, and
+# viper ignores key case and reads a dot inside a quoted key as a separator.
+# The file is read as TOML statements: each line is read past its strings and
+# its comment, and a value left open (a multi-line array, a multiline string)
+# continues on the next lines, which are then not taken for keys or table
+# headers. The key of a statement is what stands before its first `=`; no
+# pattern decides whether that is a key, since awks differ on patterns and a
+# line not taken for a key is a line not checked. These fail: a key, or a
+# table name up to its first `]`, that holds `extend` in any spelling but the
+# plain table header;
+# one that holds a backslash, whose escape could spell it; in the table, a key
+# that holds `path` but is not the bare word, and a path that is neither empty
+# nor a one-line absolute literal. One awk run for each file whose path
+# gitleaks opens. The file is opened by redirection: awk reads an operand of the form
+# name=value as an assignment and then its standard input, which here is the
+# text the scan is about to read.
+gitleaks_config_extends_no_relative_path() {
+  ag_gc_file=$GITLEAKS_CONFIG
+  ag_gc_depth=0
+  while [ -n "$ag_gc_file" ]; do
+    ag_gc_depth=$((ag_gc_depth + 1))
+    # gitleaks opens the file a config extends and the file that one
+    # extends, and no further: a path in the third file is not opened.
+    [ "$ag_gc_depth" -le 2 ] || return 0
+    ag_gc_file=$(LC_ALL=C awk '
+      BEGIN { sq = "\047" }
+      # Reads a line past its strings and its comment. Brackets left open are
+      # counted in depth and a multiline string left open is named in instr,
+      # so the lines that continue a value are known. Fails on a one-line
+      # string that does not end and on a bracket that closes nothing.
+      function scan(line,   i, n, c, d) {
+        n = length(line)
+        i = 1
+        while (i <= n) {
+          c = substr(line, i, 1)
+          if (instr != "") {
+            if (c == "\\" && instr == "\"") i += 2
+            else if (substr(line, i, 3) == instr instr instr) {
+              # One or two more quotes belong to the end of the string.
+              i += 3
+              if (substr(line, i, 1) == instr) i++
+              if (substr(line, i, 1) == instr) i++
+              instr = ""
+            } else i++
+            continue
+          }
+          if (c == "#") return 1
+          if (c == "\"" || c == sq) {
+            if (substr(line, i, 3) == c c c) { instr = c; i += 3; continue }
+            for (i++; i <= n; i++) {
+              d = substr(line, i, 1)
+              if (d == "\\" && c == "\"") i++
+              else if (d == c) break
+            }
+            if (i > n) return 0
+          } else if (c == "[" || c == "{") depth++
+          else if ((c == "]" || c == "}") && --depth < 0) return 0
+          i++
+        }
+        return 1
+      }
+      { sub(/\r$/, "") }
+      instr != "" || depth > 0 {
+        if (!scan($0)) { bad = 1; exit }
+        next
+      }
+      { l = tolower($0) }
+      l ~ /^[ \t]*(#.*)?$/ { next }
+      l ~ /^[ \t]*\[/ {
+        ext = 0
+        name = l
+        if (index(name, "]")) name = substr(name, 1, index(name, "]"))
+        if (index(name, "\\")) { bad = 1; exit }
+        if (index(name, "extend")) {
+          if (l !~ /^[ \t]*\[[ \t]*extend[ \t]*\][ \t]*(#.*)?$/ || headers++) { bad = 1; exit }
+          ext = 1
+        }
+        next
+      }
+      {
+        eq = index(l, "=")
+        key = eq ? substr(l, 1, eq - 1) : ""
+        if (index(key, "\\")) { bad = 1; exit }
+        if (index(key, "extend")) { bad = 1; exit }
+        if (ext && index(key, "path")) {
+          value = substr($0, eq + 1)
+          sub(/^[ \t]*/, "", value)
+          if (key !~ /^[ \t]*path[ \t]*$/) { bad = 1; exit }
+          # An empty path extends nothing. Else the quoted value first: a #
+          # inside it is part of the path.
+          if (value !~ ("^(\"\"|" sq sq ")[ \t]*(#.*)?$")) {
+            if (path != "" \
+                || !(match(value, /^"\/[^"\\]*"/) || match(value, ("^" sq "/[^" sq "]*" sq))) \
+                || substr(value, RLENGTH + 1) !~ /^[ \t]*(#.*)?$/) { bad = 1; exit }
+            path = substr(value, 2, RLENGTH - 2)
+          }
+        }
+        if (!scan($0)) { bad = 1; exit }
+      }
+      END {
+        if (bad) exit 1
+        if (path != "") print path
+      }
+    ' 2>/dev/null <"$ag_gc_file") || return 1
+  done
+}
+
+# $2 = repo marks the repository's own content, scanned in the current
+# directory with its .gitleaksignore; anything else is hook input.
 run_gitleaks_stdin() {
   [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
   need_gitleaks
-  gitleaks_scan "$1" stdin
+  if [ "${2:-}" = repo ]; then
+    gitleaks_scan "$1" repo-stdin
+  else
+    gitleaks_scan "$1" stdin
+  fi
 }
 
 # The warm gitleaks helper that `setup --install-gitleaks-helper` put beside
@@ -4255,6 +4877,7 @@ run_gitleaks_stdin() {
 gitleaks_helper_installed() {
   if [ -z "${AG_GITLEAKS_HELPER_INSTALLED+set}" ]; then
     AG_GITLEAKS_HELPER_INSTALLED=
+    AG_GITLEAKS_HELPER_FOREIGN=
     ag_gh_dir=$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper
     ag_gh_helper=
     ag_gh_client=
@@ -4271,6 +4894,7 @@ gitleaks_helper_installed() {
         *) ag_gh_client= ;;
       esac
       ag_gh_target=
+      ag_gh_match=
       if [ "${#ag_gh_helper}" -eq 64 ] && [ "${#ag_gh_client}" -eq 64 ]; then
         while IFS= read -r ag_gh_line; do
           case "$ag_gh_line" in
@@ -4279,10 +4903,20 @@ gitleaks_helper_installed() {
               ag_gh_target=${ag_gh_target%/agent-guard-gitleaks-helper}
               ;;
             "$ag_gh_client  $ag_gh_target/agent-guard-scan")
-              [ -z "$ag_gh_target" ] || AG_GITLEAKS_HELPER_INSTALLED=$ag_gh_dir/agent-guard-scan
+              [ -z "$ag_gh_target" ] || ag_gh_match=$ag_gh_target
               ;;
           esac
         done 2>/dev/null <"$ROOT_DIR/config/gitleaks-helper.sha256"
+      fi
+      # A private directory shared by two systems can hold the other's
+      # helper, which could not execute here but must not be replaced.
+      # uname is asked only once a helper matched, so the default path forks nothing.
+      if [ -n "$ag_gh_match" ]; then
+        if gitleaks_helper_target && [ "$ag_gh_match" = "$helper_target" ]; then
+          AG_GITLEAKS_HELPER_INSTALLED=$ag_gh_dir/agent-guard-scan
+        else
+          AG_GITLEAKS_HELPER_FOREIGN=$ag_gh_match
+        fi
       fi
     fi
   fi
@@ -4290,7 +4924,8 @@ gitleaks_helper_installed() {
   AG_GITLEAKS_HELPER_CLIENT=$AG_GITLEAKS_HELPER_INSTALLED
 }
 
-# Run the prepared gitleaks $1 with the remaining arguments. When a scan
+# Run the prepared gitleaks $2 with the remaining arguments, from directory
+# $1 when that is not empty. When a scan
 # client is selected, it runs in gitleaks's place. The client is the installed
 # helper's (gitleaks_helper_installed) when AGENT_GUARD_GITLEAKS_HELPER is
 # unset, the file that variable names when it is an absolute path, and none
@@ -4319,27 +4954,70 @@ gitleaks_helper_selected() {
 }
 
 gitleaks_exec() {
+  ag_gx_dir=$1
+  shift
   if gitleaks_helper_selected; then
     ag_gx_bin=$1
     shift
-    "$AG_GITLEAKS_HELPER_CLIENT" --gitleaks "$ag_gx_bin" \
+    set -- "$AG_GITLEAKS_HELPER_CLIENT" --gitleaks "$ag_gx_bin" \
       --gitleaks-version "$GITLEAKS_PROBE_VERSION" --state-dir "$AG_STATE_DIR" -- "$@"
+  fi
+  if [ -z "$ag_gx_dir" ]; then
+    "$@"
     return
   fi
-  "$@"
+  # The caller's redirections are open before the directory changes, and a
+  # program named by a relative path (a client under a relative
+  # AGENT_GUARD_GITLEAKS_BIN_DIR) is named as it resolves from here. cd -P
+  # enters the directory the checks saw, not a logical reading of its path
+  # (a TMPDIR with a symlink before a .. part). exec
+  # keeps the scan at the one process it cost before (#407). A directory that
+  # cannot be entered is a scanner failure (2), never a finding (1).
+  ag_gx_program=$1
+  shift
+  case "$ag_gx_program" in
+    /*) ;;
+    */*) ag_gx_program=$PWD/$ag_gx_program ;;
+  esac
+  (
+    CDPATH= cd -P -- "$ag_gx_dir" || exit 2
+    # Checked again where the scan starts: the directory entered is the one
+    # that counts.
+    [ -O . ] && [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || exit 2
+    exec "$ag_gx_program" "$@"
+  )
 }
 
 # $1 labels the scanned input in messages; the rest is the gitleaks
-# subcommand and its operands. Returns 0 clean, 1 finding, 2 scanner error.
+# subcommand and its operands. `stdin` is hook input and runs from the private
+# directory of gitleaks_hook_scan_dir; `repo-stdin` is `stdin` over the
+# repository's own content and runs here, as `dir` does. Returns 0 clean, 1
+# finding, 2 scanner error.
 gitleaks_scan() {
   label=$1
   shift
+  ag_gs_dir=
+  ag_gs_config=$GITLEAKS_CONFIG
+  case "$1" in
+    stdin)
+      gitleaks_hook_scan_dir || {
+        gitleaks_hook_scan_refusal "$?" "$label"
+        return 2
+      }
+      ag_gs_dir=$GITLEAKS_HOOK_CWD
+      ag_gs_config=$GITLEAKS_HOOK_CONFIG
+      ;;
+    repo-stdin)
+      shift
+      set -- stdin "$@"
+      ;;
+  esac
   ag_gs_ifs=$IFS
   IFS=' '
-  set -- "$@" $GITLEAKS_SCAN_FLAGS --config "$GITLEAKS_CONFIG" --exit-code 1
+  set -- "$@" $GITLEAKS_SCAN_FLAGS --config "$ag_gs_config" --exit-code 1
   IFS=$ag_gs_ifs
   out=$(mktemp_file) || die "failed to create temp file"
-  gitleaks_exec "$GITLEAKS_BIN" "$@" >"$out" 2>&1
+  gitleaks_exec "$ag_gs_dir" "$GITLEAKS_BIN" "$@" >"$out" 2>&1
   status=$?
   if [ "$status" -eq 0 ]; then
     if [ -s "$out" ]; then
@@ -4354,13 +5032,32 @@ gitleaks_scan() {
   if [ "$status" -eq 1 ]; then
     info "$PROGRAM: secret-like value detected in $label"
     sed 's/^/  /' "$out" >&2
+    gitleaks_hook_scan_shim_hint "$ag_gs_dir" "$out" finding
     rm -f "$out"
     return 1
   fi
   info "$PROGRAM: gitleaks failed while scanning $label"
   sed 's/^/  /' "$out" >&2
+  gitleaks_hook_scan_shim_hint "$ag_gs_dir" "$out"
   rm -f "$out"
   return 2
+}
+
+# A version manager's shim takes its version from the directory it runs in,
+# and hook input is scanned from the private one ($1, empty for a scan of the
+# repository). The probe cache gives no key to the shapes of a shim it can
+# see. A shim may fail with 1, the status of a finding: the verdict stays a
+# finding, and only this line is told apart, by output ($2) that is neither
+# empty, as gitleaks leaves it, nor a finding's.
+gitleaks_hook_scan_shim_hint() {
+  [ -n "$1" ] && [ -z "$GITLEAKS_PROBE_CACHE_KEY" ] || return 0
+  if [ "${3:-}" = finding ]; then
+    [ -s "$2" ] || return 0
+    while IFS= read -r ag_gh_line; do
+      case "$ag_gh_line" in Finding:*) return 0 ;; esac
+    done <"$2"
+  fi
+  info "$PROGRAM: hook input is scanned from a private directory, where a gitleaks that takes its version from the project directory (a version manager's shim) finds none; set AGENT_GUARD_GITLEAKS_BIN to the gitleaks executable"
 }
 
 # Filter records encoded as one lockfile-kind byte, a tab, then the original
@@ -4844,6 +5541,8 @@ lockfile_whole_kind() {
   return 1
 }
 
+# Internal: not in usage(). The CLI runs itself with this subcommand through
+# xargs while it prepares lockfiles for a scan.
 filter_lockfile_hashes() {
   path=$1
   original_source=${2:-$path}
@@ -4973,17 +5672,18 @@ scan_lockfiles_under() {
     rm -f "$blob"
     return 0
   fi
-  run_gitleaks_stdin "$label lockfile content" <"$blob"
+  run_gitleaks_stdin "$label lockfile content" repo <"$blob"
   status=$?
   rm -f "$blob"
   return "$status"
 }
 
+# $3 = repo marks the repository's own content (run_gitleaks_stdin).
 scan_text_direct() {
   label=$1
   text=$2
   [ -n "$text" ] || return 0
-  printf '%s\n' "$text" | run_gitleaks_stdin "$label"
+  printf '%s\n' "$text" | run_gitleaks_stdin "$label" "${3:-}"
 }
 
 # The PreToolUse Bash command text is the one scan that repeats byte for byte
@@ -5279,7 +5979,7 @@ scan_staged() {
   status=$?
   [ "$status" -eq 0 ] || return "$status"
   [ -n "$added" ] || return 0
-  scan_text_direct "staged added lines" "$added"
+  scan_text_direct "staged added lines" "$added" repo
 }
 
 # What a `git commit` records: the index, plus tracked work-tree changes that
@@ -5323,7 +6023,7 @@ scan_commit_candidate() {
     [ "$untracked_status" -eq 1 ] && return 1
   fi
   if [ -n "$added" ]; then
-    scan_text_direct "commit candidate added lines" "$added"
+    scan_text_direct "commit candidate added lines" "$added" repo
     status=$?
     [ "$status" -eq 0 ] || return "$status"
   fi
@@ -5406,7 +6106,7 @@ scan_untracked_files() {
     return 0
   fi
 
-  run_gitleaks_stdin "untracked files" <"$blob"
+  run_gitleaks_stdin "untracked files" repo <"$blob"
   status=$?
   rm -f "$blob"
   return "$status"
@@ -5453,7 +6153,7 @@ $second"
   [ -z "$first" ] && tracked=$second
 
   if [ -n "$tracked" ]; then
-    scan_text_direct "working tree added lines" "$tracked"
+    scan_text_direct "working tree added lines" "$tracked" repo
     status=$?
     merge_scan_status "$status"
   fi
@@ -5653,6 +6353,282 @@ resolve_path() {
   fi
 }
 
+# Return 0 when $1 holds nothing but printable ASCII. The characters are
+# listed because a range follows the locale.
+text_is_printable_ascii() {
+  case "$1" in
+    *[!]\ !\"#\$%\&\'\(\)\*+,./0123456789:\;\<=\>\?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\^_\`abcdefghijklmnopqrstuvwxyz{\|}~-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# A shell reads the "?" and the bracket expression of a pattern as one
+# character of its own kind: one byte in dash and in the C locale, one whole
+# UTF-8 character in bash under a UTF-8 locale. A bracket expression also
+# follows the locale's collation there, even between ASCII letters. Return 0
+# when that choice could decide whether the deny list matches path $1: an
+# active rule holds a "[", or it holds a "?" and the path holds a byte
+# outside printable ASCII. For such a path every rule with a "?" or a "[" is
+# matched by deny_rules_by_character, for one verdict in every shell and
+# locale, and the shell's own matching reads only the other rules, which no
+# shell or locale reads differently. No bundled rule holds a "[", so a plain
+# path under the bundled list needs no look at it.
+deny_match_counts_characters() {
+  dmc_plain=1
+  text_is_printable_ascii "$1" || dmc_plain=0
+  [ "$dmc_plain:$DENY_READ_PATHS_CUSTOM" != 1:0 ] || return 1
+  while IFS= read -r dmc_rule || [ -n "$dmc_rule" ]; do
+    case "$dmc_plain:$dmc_rule" in
+      ?:|?:\#*) ;;
+      ?:*'['*|0:*'?'*) return 0 ;;
+    esac
+  done <"$DENY_READ_PATHS"
+  return 1
+}
+
+# Shell pattern matching over whole UTF-8 characters, the way bash matches in
+# a UTF-8 locale: "*", "?", a bracket expression (ranges by code point) and a
+# backslash that quotes the next character. Only the rules that hold a "?" or
+# a "[" are read.
+# $1 = path: those rules against path $2 and every directory above it, as
+#      candidate_matches_deny reads them.
+# $1 = tree: those of them that also hold a slash, against the resolved path
+#      $2 and the path as written $3, as tracked_file_exception_applies does.
+# $1 = chars: print the characters of $2, one per line, each after its
+#      length in bytes and a blank; no rule is read.
+# For path and tree it prints "match" or "clear" and exits 0. Anything else
+# means it did not run: an awk that fails can exit like one that found
+# nothing, or print before it fails. $2 is its first input, so no limit on an
+# argument or an environment string bounds it; $3 is the path of a file that
+# exists.
+deny_rules_by_character() {
+  # A relative name gets a "./": awk reads an operand such as a=b as an
+  # assignment.
+  case "$DENY_READ_PATHS" in
+    /*) drc_list=$DENY_READ_PATHS ;;
+    *) drc_list=./$DENY_READ_PATHS ;;
+  esac
+  [ "$1" != chars ] || drc_list=/dev/null
+  printf '%s\n' "$2" | DM_WRITTEN=${3-} LC_ALL=C awk -v mode="$1" '
+  # Characters of s into out[1..n]; returns n. reading 1: a byte outside a
+  # well-formed UTF-8 sequence is a character; 2: a run of such bytes is one
+  # character; 3: every byte is a character.
+  function chars(s, out, reading,    n, len, at, t, tl, i, w, run) {
+    n = 0; run = 0; len = length(s)
+    # Piece by piece: in some awks a substr of the whole text costs its
+    # length. A piece ends where fewer than four bytes are left of it, so a
+    # sequence is never cut in two.
+    for (at = 1; at <= len; at += i - 1) {
+      t = substr(s, at, 512); tl = length(t)
+      for (i = 1; i <= tl && (i + 3 <= tl || at + tl > len); i += (w ? w : 1)) {
+        w = reading == 3 ? 0 : utf8_width(substr(t, i, 4))
+        if (w) { out[++n] = substr(t, i, w); run = 0; continue }
+        if (reading != 3) ill = 1
+        if (reading == 2 && run) out[n] = out[n] substr(t, i, 1)
+        else out[++n] = substr(t, i, 1)
+        run = 1
+      }
+    }
+    out[n + 1] = ""
+    return n
+  }
+  function utf8_tail(c) { return c >= "\200" && c <= "\277" }
+  # The length of the well-formed UTF-8 sequence at the start of t, or 0. It
+  # takes four bytes, not the text: awk copies a string argument on each call.
+  function utf8_width(t,    b, c) {
+    b = substr(t, 1, 1)
+    if (b < "\200") return 1
+    c = substr(t, 2, 1)
+    if (b >= "\302" && b <= "\337") return utf8_tail(c) ? 2 : 0
+    if (b >= "\340" && b <= "\357")
+      return c >= (b == "\340" ? "\240" : "\200") && c <= (b == "\355" ? "\237" : "\277") \
+        && utf8_tail(substr(t, 3, 1)) ? 3 : 0
+    if (b >= "\360" && b <= "\364")
+      return c >= (b == "\360" ? "\220" : "\200") && c <= (b == "\364" ? "\217" : "\277") \
+        && utf8_tail(substr(t, 3, 1)) && utf8_tail(substr(t, 4, 1)) ? 4 : 0
+    return 0
+  }
+  # P[j] is "[": the index of the "]" that ends [:name:], [=c=] or [.c.], or 0.
+  function class_end(pn, j,    m) {
+    if (P[j + 1] != ":" && P[j + 1] != "=" && P[j + 1] != ".") return 0
+    for (m = j + 2; m < pn; m++) if (P[m] == P[j + 1] && P[m + 1] == "]") return m + 1
+    return 0
+  }
+  # P[i] is "[": the index of the "]" that closes the bracket expression, or 0.
+  function bracket_end(pn, i,    j, m) {
+    j = i + 1
+    if (P[j] == "!" || P[j] == "^") j++
+    if (P[j] == "]") j++
+    for (; j <= pn; j++) {
+      if (P[j] == "]") return j
+      if (P[j] == "\\") j++
+      else if (P[j] == "[" && (m = class_end(pn, j))) j = m
+    }
+    return 0
+  }
+  # Tokens K[1..kn] of pattern P[1..pn]: "*", "?", "=" (the literal L[k]) or
+  # "[" (a bracket expression whose members are P[B[k]..E[k]-1]).
+  function compile(pn,    i, j, c) {
+    kn = 0
+    for (i = 1; i <= pn; i++) {
+      c = P[i]
+      if (c == "*") { if (kn == 0 || K[kn] != "*") K[++kn] = "*" }
+      else if (c == "?") K[++kn] = "?"
+      else if (c == "[" && (j = bracket_end(pn, i))) { K[++kn] = "["; B[kn] = i + 1; E[kn] = j; i = j }
+      else {
+        # A backslash quotes the next character; one that ends the pattern
+        # matches nothing, as in the shell.
+        if (c == "\\") c = (i < pn ? P[++i] : "")
+        K[++kn] = "="; L[kn] = c
+      }
+    }
+  }
+  function span(a, b,    s) { s = ""; for (; a <= b; a++) s = s P[a]; return s }
+  function in_class(c, name) {
+    if (name == "cntrl") return c < " " || c == "\177"
+    if (name == "ascii") return 1
+    return index(CLASS[name], c) > 0
+  }
+  # 1 when character c is in the bracket expression of token k. The shell asks
+  # the locale whether a non-ASCII character is in a class or an equivalence
+  # class; here it always is, whether or not the expression is negated.
+  function in_bracket(c, k,    i, j, m, neg, hit, lo, hi) {
+    i = B[k]; j = E[k]; neg = 0; hit = 0
+    if (P[i] == "!" || P[i] == "^") { neg = 1; i++ }
+    while (i < j) {
+      lo = P[i]
+      if (lo == "[" && (m = class_end(j, i))) {
+        if (P[i + 1] != "." && (length(c) > 1 || c >= "\200")) return 1
+        # An equivalence class holds what the locale says it holds: the
+        # expression matches every character.
+        if (P[i + 1] == "=") return 1
+        # A collating symbol with a name ([.hyphen.]) is a character only a
+        # table inside the shell knows: the expression matches every character.
+        if (P[i + 1] == "." && m - i > 4) return 1
+        lo = span(i + 2, m - 2)
+        if (P[i + 1] == ":") {
+          # A class name outside the table is one only some shells know: the
+          # expression matches every character.
+          if (!(lo in CLASS)) return 1
+          if (in_class(c, lo)) hit = 1
+          i = m + 1; continue
+        }
+        i = m + 1
+      } else {
+        if (lo == "\\" && i + 1 < j) lo = P[++i]
+        i++
+      }
+      hi = lo
+      if (P[i] == "-" && i + 1 < j) {
+        hi = P[++i]
+        if (hi == "\\" && i + 1 < j) hi = P[++i]
+        else if (hi == "[" && (m = class_end(j, i))) {
+          # Only a collating symbol of one character can end a range.
+          if (P[i + 1] != "." || m - i > 4) return 1
+          hi = span(i + 2, m - 2); i = m
+        }
+        i++
+      }
+      if (c >= lo && c <= hi) hit = 1
+    }
+    return neg ? !hit : hit
+  }
+  # 1 when the compiled pattern matches the characters S[1..sn] or, with dirs,
+  # a directory above them: what stands before a "/", but for the root.
+  function glob(sn, dirs,    s, k, star_k, star_s) {
+    s = 1; k = 1; star_k = 0
+    while (s <= sn) {
+      if (k <= kn && K[k] == "*") { star_k = k++; star_s = s }
+      else if (k <= kn && (K[k] == "?" || (K[k] == "=" ? L[k] == S[s] : in_bracket(S[s], k)))) { s++; k++ }
+      else if (dirs && k > kn && S[s] == "/" && s > 1 && (s > 2 || S[1] != "/")) return 1
+      else if (star_k) { k = star_k + 1; s = ++star_s }
+      else return 0
+    }
+    while (k <= kn && K[k] == "*") k++
+    return k > kn
+  }
+  # The longest stretch of rule p, before any bracket, that a match must hold
+  # as written. A text without it cannot match and is not taken apart.
+  function fixed_part(p,    best, run, i, c) {
+    best = run = ""
+    for (i = 1; (c = substr(p, i, 1)) != "" && c != "["; i++) {
+      if (c == "*" || c == "?" || c == "\\") {
+        if (length(run) > length(best)) best = run
+        run = ""
+        if (c == "\\") i++
+      } else run = run c
+    }
+    return length(run) > length(best) ? run : best
+  }
+  # 1 when a rule, written between pre and post, matches text or, with dirs,
+  # a directory above it. Text that is not well-formed UTF-8 is read in all
+  # three ways, so it cannot pass a rule in one reading only. A rule that is
+  # not well-formed is read in all three ways too, and only that rule.
+  function rule_matches(text, pre, post, dirs,    r, n, i, odd, more, live) {
+    for (i = 1; i <= rules; i++) if ((keep[i] = (fixed[i] == "" || index(text, fixed[i]) > 0))) live = 1
+    if (!live) return 0
+    for (r = 1; r <= 3; r++) {
+      ill = 0
+      n = chars(text, S, r)
+      if (r == 1) odd = more = ill
+      for (i = 1; i <= rules; i++) {
+        if (!keep[i] || (r > 1 && !odd && !bad[i])) continue
+        ill = 0
+        compile(chars(pre rule[i] post, P, r))
+        if (r == 1 && (bad[i] = ill)) more = 1
+        if (glob(n, dirs)) return 1
+      }
+      if (!more) return 0
+    }
+    return 0
+  }
+  BEGIN {
+    CLASS["upper"] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"; CLASS["lower"] = "abcdefghijklmnopqrstuvwxyz"
+    CLASS["digit"] = "0123456789"; CLASS["xdigit"] = CLASS["digit"] "ABCDEFabcdef"
+    CLASS["alpha"] = CLASS["upper"] CLASS["lower"]; CLASS["alnum"] = CLASS["alpha"] CLASS["digit"]
+    CLASS["word"] = CLASS["alnum"] "_"; CLASS["punct"] = "!\"#$%&\047()*+,-./:;<=>?@[\\]^_`{|}~"
+    CLASS["graph"] = CLASS["alnum"] CLASS["punct"]; CLASS["print"] = CLASS["graph"] " "
+    CLASS["blank"] = " \t"; CLASS["space"] = " \t\n\v\f\r"
+    CLASS["cntrl"] = CLASS["ascii"] = ""
+  }
+  # The first input is the text, the second the list.
+  FNR == 1 { part++ }
+  part == 1 { text = (FNR == 1 ? $0 : text "\n" $0); next }
+  (index($0, "?") || index($0, "[")) && substr($0, 1, 1) != "#" && (mode != "tree" || index($0, "/")) {
+    rule[++rules] = $0
+    fixed[rules] = fixed_part($0)
+  }
+  END {
+    if (mode == "chars") {
+      n = chars(text, S, 1)
+      for (i = 1; i <= n; i++) print length(S[i]) " " S[i]
+      exit
+    }
+    written = ENVIRON["DM_WRITTEN"]
+    if (mode == "tree") {
+      hit = rule_matches(text, "", "") || rule_matches(text, "*/", "") || rule_matches(text, "*/", "/*") \
+        || rule_matches(written, "*/", "") || rule_matches(written, "*/", "/*")
+    } else {
+      # A rule that matches a directory protects everything below it.
+      hit = rule_matches(text, "", "", 1) || rule_matches(text, "*/", "", 1)
+    }
+    print hit ? "match" : "clear"
+  }
+  ' - "$drc_list"
+}
+
+# Status 0 when a rule with a "?" or a "[" matches path $1 or a directory
+# above it, 1 when none does, and 2 when the match did not run.
+deny_wildcard_rules_match() {
+  if dwm_verdict=$(deny_rules_by_character path "$1" 2>/dev/null); then
+    case "$dwm_verdict" in
+      clear) return 1 ;;
+      match) return 0 ;;
+    esac
+  fi
+  return 2
+}
+
 # Match a candidate without applying any template exception. Keep this in a
 # subshell because POSIX sh has no local variables and callers also iterate the
 # deny file.
@@ -5660,8 +6636,10 @@ candidate_matches_raw_deny() (
   raw_deny_candidate=$1
   [ -f "$DENY_READ_PATHS" ] || return 1
   while IFS= read -r raw_deny_pattern || [ -n "$raw_deny_pattern" ]; do
-    case "$raw_deny_pattern" in
-      ''|\#*) continue ;;
+    # With deny_by_character=1, deny_rules_by_character has read the rules
+    # that hold a "?" or a "[".
+    case "${deny_by_character-0}:$raw_deny_pattern" in
+      ?:|?:\#*|1:*'?'*|1:*'['*) continue ;;
     esac
     case "$raw_deny_candidate" in
       $raw_deny_pattern|*/$raw_deny_pattern) return 0 ;;
@@ -5774,8 +6752,33 @@ deny_pattern_allows_env_exception() {
   esac
 }
 
-candidate_matches_deny() (
+# Status 0 when $1 is deny-listed. A character match that did not run counts
+# as a match as well, and sets DENY_SCAN_FAILED for a caller that has to tell
+# the two apart: the verdict comes from a subshell, which hands back a status
+# and nothing else.
+DENY_SCAN_FAILED=0
+candidate_matches_deny() {
+  candidate_deny_verdict "$1"
+  case $? in
+    0) return 0 ;;
+    1) return 1 ;;
+  esac
+  DENY_SCAN_FAILED=1
+  return 0
+}
+
+# Status 0: deny-listed. 1: not. 2: a character match did not run.
+candidate_deny_verdict() (
   deny_candidate=$1
+  deny_by_character=0
+  if deny_match_counts_characters "$deny_candidate"; then
+    deny_wildcard_rules_match "$deny_candidate"
+    case $? in
+      0) return 0 ;;
+      1) deny_by_character=1 ;;
+      *) return 2 ;;
+    esac
+  fi
   case "$deny_candidate" in
     */*) candidate_parent_matches_deny "${deny_candidate%/*}" && return 0 ;;
   esac
@@ -5784,8 +6787,8 @@ candidate_matches_deny() (
   candidate_has_default_env_exception "$deny_candidate" \
     && deny_candidate_has_env_exception=1
   while IFS= read -r deny_pattern || [ -n "$deny_pattern" ]; do
-    case "$deny_pattern" in
-      ''|\#*) continue ;;
+    case "$deny_by_character:$deny_pattern" in
+      ?:|?:\#*|1:*'?'*|1:*'['*) continue ;;
     esac
     case "$deny_candidate" in
       $deny_pattern|*/$deny_pattern)
@@ -5813,6 +6816,14 @@ matches_deny_path() {
     candidate_matches_deny "$resolved" && return 0
   fi
   return 1
+}
+
+# matches_deny_path for a caller that shows more of a file on a match. A
+# character match that did not run (DENY_SCAN_FAILED) did not show the file to
+# be protected, so it is no match here.
+deny_path_match_is_confirmed() {
+  DENY_SCAN_FAILED=0
+  matches_deny_path "$1" && [ "$DENY_SCAN_FAILED" -eq 0 ]
 }
 
 # Print the directory the tracked-file exception places relative paths in,
@@ -5900,9 +6911,18 @@ check_sensitive_reads() {
   # work after the loop.
   tmp=$(mktemp_file) || die "failed to create temp file"
   printf '%s\n' "$values" >"$tmp"
+  DENY_SCAN_FAILED=0
   while IFS= read -r value; do
     [ -n "$value" ] || continue
     if matches_deny_path "$value"; then
+      # A hit from a character match that did not run (candidate_matches_deny)
+      # is a failed scan: nothing showed the file to be protected, so no
+      # exception and no masked view applies to it.
+      if [ "$DENY_SCAN_FAILED" -eq 1 ]; then
+        rm -f "$tmp"
+        info "$PROGRAM: deny-read-paths scan failed; refusing to allow the read"
+        exit 2
+      fi
       # A file tool reads the one path it is given from the event workdir, so
       # a file under the tracked-file exception is not blocked by its name.
       case "$reads_tool" in
@@ -5927,6 +6947,52 @@ check_sensitive_reads() {
     fi
   done <"$tmp"
   rm -f "$tmp"
+}
+
+# Start reading entry $1 one character at a time; deny_entry_next_char then
+# sets dec_char to each character in turn, and dec_bytes to its length in
+# bytes, and returns 1 after the last. The
+# shell takes a non-ASCII character apart byte by byte in dash and in the C
+# locale, so deny_rules_by_character splits such an entry, one character per
+# line. If that fails, dec_failed is 1 and the entry is read the shell's own
+# way: no verdict and no stored regex may rest on that reading.
+deny_entry_chars() {
+  dec_rest=$1 dec_lines=0 dec_failed=0
+  dec_nl='
+'
+  text_is_printable_ascii "$1" && return 0
+  if dec_split=$(deny_rules_by_character chars "$1" 2>/dev/null) && [ -n "$dec_split" ]; then
+    dec_rest=$dec_split dec_lines=1
+  else
+    dec_failed=1
+  fi
+}
+
+deny_entry_next_char() {
+  [ -n "$dec_rest" ] || return 1
+  if [ "$dec_lines" -eq 1 ]; then
+    dec_char=${dec_rest%%"$dec_nl"*}
+    case "$dec_rest" in
+      *"$dec_nl"*) dec_rest=${dec_rest#*"$dec_nl"} ;;
+      *) dec_rest= ;;
+    esac
+    dec_bytes=${dec_char%% *}
+    dec_char=${dec_char#* }
+  else
+    dec_char=${dec_rest%"${dec_rest#?}"}
+    dec_rest=${dec_rest#?}
+    dec_bytes=1
+  fi
+}
+
+# A letter or digit of an entry. Any non-ASCII character counts as a letter:
+# the shell's own class follows the locale. While dec_ascii_pins is 1 only an
+# ASCII one counts.
+deny_entry_char_is_alnum() {
+  case "$1" in
+    [abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789]) return 0 ;;
+  esac
+  [ "${dec_ascii_pins-0}" -eq 0 ] && ! text_is_printable_ascii "$1"
 }
 
 deny_path_regex_fragment() {
@@ -5988,18 +7054,30 @@ deny_path_regex_fragment() {
 # Mode shell-expanded-starless-positions drops that one-character star; the
 # caller blocks a word that needs it only when the word also pins a letter.
 deny_path_shell_expanded_fragment() {
-  sx_rest=$1
+  deny_entry_chars "$1"
   sx_mode=${2:-shell-expanded}
+  # An entry with a non-ASCII character is built three times, once for each
+  # way a shell can read it, and a word is held to one of them. Reading 1: a
+  # glob character stands for a whole character, and that character is a
+  # letter. Reading 2: the same, but only an ASCII letter or digit pins a
+  # word, as in a locale that does not take the character for a letter.
+  # Reading 3: the shell expands byte by byte (the C locale), so as many
+  # one-byte wildcards as the character has bytes stand for it. $3 is the
+  # reading and $4 the fragments of the readings before it.
+  sx_reading=${3:-1}
+  dec_ascii_pins=0
+  [ "$sx_reading" -eq 1 ] || dec_ascii_pins=1
   sx_any='[^[:space:]<>|;&`$()]*'
   sx_gap='\*([^[:space:]<>|;&`$()/]*\*)?'
   sx_n=0 sx_full= sx_alnum_segs=0 sx_seg_pinned=0
   # sx_c_<i>: the entry character at i; sx_t_<i>: the same, but an entry `*`
   # matches only stars; sx_p_<i>: the same as sx_c_<i>, except that each
-  # component's first letter is pinned.
-  while [ -n "$sx_rest" ]; do
-    ch=${sx_rest%"${sx_rest#?}"}
-    sx_rest=${sx_rest#?}
+  # component's first letter is pinned. sx_w_<i>: in reading 3, some but not
+  # all bytes of a multibyte character, for a star that takes the rest of it.
+  while deny_entry_next_char; do
+    ch=$dec_char
     sx_n=$((sx_n + 1))
+    sx_w=
     case "$ch" in
       '*')
         sx_c=$sx_any
@@ -6008,14 +7086,23 @@ deny_path_shell_expanded_fragment() {
       *)
         deny_path_shell_expansion_char_pattern "$ch"
         sx_c=$sx_char
+        # Reading 3: the one-byte wildcards that stand for the character. A
+        # "*" may be one of them, except where the caller asks for a match
+        # without a one-character star.
+        if [ "$dec_bytes" -gt 1 ] && [ "$sx_reading" -eq 3 ]; then
+          sx_bytes='(\?|\*|\[[^]]+\]){'$dec_bytes'}'
+          [ "$sx_mode" != shell-expanded-starless-positions ] || sx_bytes='(\?|\[[^]]+\]){'$dec_bytes'}'
+          sx_c="($sx_char_literal|$sx_bytes)"
+          sx_w='(\?|\*|\[[^]]+\]){1,'$((dec_bytes - 1))'}'
+        fi
         sx_t=$sx_c
         ;;
     esac
     sx_p=$sx_c
     case "$ch" in
       /) sx_seg_pinned=0 ;;
-      [[:alnum:]])
-        if [ "$sx_seg_pinned" -eq 0 ]; then
+      *)
+        if [ "$sx_seg_pinned" -eq 0 ] && deny_entry_char_is_alnum "$ch"; then
           sx_seg_pinned=1
           sx_alnum_segs=$((sx_alnum_segs + 1))
           deny_path_pin_char_pattern "$ch"
@@ -6023,7 +7110,7 @@ deny_path_shell_expanded_fragment() {
         fi
         ;;
     esac
-    eval "sx_r_$sx_n=\$ch sx_c_$sx_n=\$sx_c sx_t_$sx_n=\$sx_t sx_p_$sx_n=\$sx_p"
+    eval "sx_r_$sx_n=\$ch sx_c_$sx_n=\$sx_c sx_t_$sx_n=\$sx_t sx_p_$sx_n=\$sx_p sx_w_$sx_n=\$sx_w"
     case "$sx_mode:$sx_c" in
       shell-expanded-starless-positions:*'|\*|'*)
         sx_c=${sx_c%%'|\*|'*}'|'${sx_c#*'|\*|'}
@@ -6050,6 +7137,15 @@ deny_path_shell_expanded_fragment() {
   else
     dprf_out=$sx_full
   fi
+  dec_ascii_pins=0
+  [ "$dec_lines" -eq 1 ] || return 0
+  # Two readings that built the same fragment count once.
+  [ "$dprf_out" = "${4-}" ] || dprf_out=${4:+$4|}$dprf_out
+  if [ "$sx_reading" -lt 3 ]; then
+    deny_path_shell_expanded_fragment "$1" "$sx_mode" $((sx_reading + 1)) "$dprf_out"
+    return
+  fi
+  dprf_out="($dprf_out)"
 }
 
 # Append to sx_alts the alternatives whose stars fall in component $1..$2.
@@ -6059,12 +7155,10 @@ deny_path_spanning_component_alternatives() {
   sca_first= sca_last= sca_j=$sca_a
   while [ "$sca_j" -le "$sca_b" ]; do
     eval "sca_ch=\$sx_r_$sca_j"
-    case "$sca_ch" in
-      [[:alnum:]])
-        [ -n "$sca_first" ] || sca_first=$sca_j
-        sca_last=$sca_j
-        ;;
-    esac
+    if deny_entry_char_is_alnum "$sca_ch"; then
+      [ -n "$sca_first" ] || sca_first=$sca_j
+      sca_last=$sca_j
+    fi
     sca_j=$((sca_j + 1))
   done
   eval "sca_lead=\$sx_r_$sca_a"
@@ -6097,6 +7191,12 @@ deny_path_spanning_component_alternatives() {
     sca_head=$sx_out
     deny_path_sx_prefixes c $((sca_head_end + 1)) "$sca_b"
     sx_alts="$sx_alts|$sca_before$sca_head$sx_out$sx_gap$sca_suffixes$sca_after"
+    # The head may end inside its last character.
+    eval "sca_part=\${sx_w_$sca_head_end-}"
+    if [ -n "$sca_part" ]; then
+      deny_path_sx_concat p "$sca_a" $((sca_head_end - 1))
+      sx_alts="$sx_alts|$sca_before$sx_out$sca_part$sx_gap$sca_suffixes$sca_after"
+    fi
   fi
 
   [ "$sca_lead" = . ] || return 0
@@ -6130,24 +7230,27 @@ deny_path_sx_concat() {
 }
 
 # Set sx_out to an ERE for any prefix, possibly empty, of sx_<$1>_<$2..$3>.
+# The prefix may end inside a character that has an sx_w.
 deny_path_sx_prefixes() {
   sx_out=
   sx_close=
   sx_j=$2
   while [ "$sx_j" -le "$3" ]; do
-    eval "sx_out=\"\${sx_out}(\${sx_$1_$sx_j}\""
-    sx_close="${sx_close})?"
+    eval "sx_out=\"\${sx_out}(\${sx_$1_$sx_j}\" sx_part=\${sx_w_$sx_j-}"
+    sx_close="${sx_part:+|$sx_part})?$sx_close"
     sx_j=$((sx_j + 1))
   done
   sx_out=$sx_out$sx_close
 }
 
 # Set sx_out to an ERE for any suffix, possibly empty, of sx_<$1>_<$2..$3>.
+# The suffix may start inside a character that has an sx_w.
 deny_path_sx_suffixes() {
   sx_out=
   sx_j=$2
   while [ "$sx_j" -le "$3" ]; do
-    eval "sx_out=\"(\${sx_out}\${sx_$1_$sx_j})?\""
+    eval "sx_out=\"(\${sx_out}\${sx_$1_$sx_j}\" sx_part=\${sx_w_$sx_j-}"
+    sx_out="$sx_out${sx_part:+|$sx_part})?"
     sx_j=$((sx_j + 1))
   done
 }
@@ -6211,14 +7314,18 @@ deny_path_shell_expansion_char_pattern() {
 }
 
 deny_path_command_regex() {
-  deny_path_command_regex_set "$1" "$2" || return 1
+  deny_path_command_regex_set "$1" "$2" || return
   printf '%s' "$dcr_regex"
 }
 
 # Set dcr_regex to what deny_path_command_regex prints. Like
 # deny_path_regex_fragment, it must run inside a subshell of its own.
 deny_path_command_regex_set() {
+  dec_failed=0
   deny_path_regex_fragment "$1" "$2"
+  # Status 2: the entry could not be split into characters (deny_entry_chars),
+  # so there is no regex to trust for it.
+  [ "$dec_failed" -eq 0 ] || return 2
   converted=$dprf_out
   [ -n "$converted" ] || return 1
   # Catch path arguments and shell words without matching substrings like myenv.
@@ -6234,17 +7341,13 @@ deny_path_command_regex_set() {
 
 # Set sx_out to an ERE matching any pin of the entry's letters and digits.
 deny_path_entry_pin_regex() {
-  pr_rest=$1
+  deny_entry_chars "$1"
   sx_out=
-  while [ -n "$pr_rest" ]; do
-    pr_ch=${pr_rest%"${pr_rest#?}"}
-    pr_rest=${pr_rest#?}
-    case "$pr_ch" in
-      [[:alnum:]])
-        deny_path_pin_char_pattern "$pr_ch"
-        sx_out=${sx_out:+$sx_out|}$sx_pin
-        ;;
-    esac
+  while deny_entry_next_char; do
+    if deny_entry_char_is_alnum "$dec_char"; then
+      deny_path_pin_char_pattern "$dec_char"
+      sx_out=${sx_out:+$sx_out|}$sx_pin
+    fi
   done
 }
 
@@ -6254,11 +7357,16 @@ deny_path_entry_pin_regex() {
 # alone, such as `(.*?)` for `*.p8`. A word that pins a letter elsewhere only
 # over-blocks. Any other status is a failed scan.
 bash_shell_expanded_match_is_pinned() {
-  sp_regex=$(deny_path_command_regex "$2" shell-expanded-starless-positions) || return 0
+  sp_regex=$(deny_path_command_regex "$2" shell-expanded-starless-positions) || {
+    # Status 2: the entry could not be split into characters.
+    [ "$?" -eq 2 ] || return 0
+    return 2
+  }
   printf '%s\n' "$1" | grep -Eq "$sp_regex"
   sp_status=$?
   [ "$sp_status" -eq 1 ] || return "$sp_status"
   deny_path_entry_pin_regex "$2"
+  [ "$dec_failed" -eq 0 ] || return 2
   [ -n "$sx_out" ] || return 0
   sp_words=$(printf '%s\n' "$1" | tr -s '[:space:]<>|;&`$()' '[\n*]' | grep -E "$3")
   sp_status=$?
@@ -6432,7 +7540,11 @@ bash_matches_deny_path_mode() {
     case "$entry" in
       ''|\#*) continue ;;
     esac
-    regex=$(deny_path_command_regex "$entry" "$mode") || continue
+    regex=$(deny_path_command_regex "$entry" "$mode") || {
+      [ "$?" -eq 2 ] || continue
+      info "$PROGRAM: deny-read-paths Bash scan failed; refusing to allow command"
+      exit 2
+    }
     printf '%s\n' "$mode_cmd" | grep -Eq "$regex"
     grep_status=$?
     if [ "$grep_status" -eq 0 ] && [ "$mode" = shell-expanded ]; then
@@ -10714,10 +11826,19 @@ tracked_file_exception_applies() (
   esac
   tfe_rel=${tfe_real#"${tfe_top%/}"/}
   [ -f "$DENY_READ_PATHS" ] || exit 1
+  tfe_by_character=0
+  if deny_match_counts_characters "$tfe_real$tfe_path"; then
+    tfe_verdict=$(deny_rules_by_character tree "$tfe_real" "/$tfe_path" 2>/dev/null) \
+      && [ "$tfe_verdict" = clear ] || exit 1
+    tfe_by_character=1
+  fi
   while IFS= read -r tfe_entry || [ -n "$tfe_entry" ]; do
     case "$tfe_entry" in
       ''|\#*) continue ;;
       */*)
+        case "$tfe_by_character:$tfe_entry" in
+          1:*'?'*|1:*'['*) continue ;;
+        esac
         # shellcheck disable=SC2254
         case "$tfe_real" in
           $tfe_entry|*/$tfe_entry|*/$tfe_entry/*) exit 1 ;;
@@ -11309,7 +12430,7 @@ bash_file_mover_swap() {
 deny_path_report_print() {
   [ -n "$deny_path_report" ] || return 0
   if [ -n "${deny_path_regex-}" ] && deny_path_where=$(bash_match_words "$1" "$deny_path_regex"); then
-    deny_path_report="$deny_path_report at $deny_path_where of the command"
+    deny_path_report="$deny_path_report at $deny_path_where of the command (counted over the full command text; operators such as && and ; count as words)"
   fi
   printf '%s\n' "$deny_path_report"
 }
@@ -11895,6 +13016,7 @@ bash_unresolved_read_operand_scan() (
         bash_unresolved_read_operand "$uo_body" "$((uo_depth + 1))" "$uo_moved" "$uo_tab"
         uo_status=$?
         [ "$uo_status" -ne 0 ] || exit 0
+        [ "$uo_status" -ne 2 ] || exit 2
         [ "$uo_status" -ne 3 ] || uo_unknown=1
         ;;
     esac
@@ -15735,7 +16857,7 @@ $joined_cmd"
           if [ -z "$dp_where_text" ]; then
             dp_where=' in quoted text that a shell runs'
           elif dp_words=$(bash_match_words "$dp_where_text" "$dp_entry"); then
-            dp_where=" at $dp_words of the command"
+            dp_where=" at $dp_words of the command (counted over the full command text; operators such as && and ; count as words)"
           fi
           info "$PROGRAM: matched deny-bash-patterns line $dp_hit ($DENY_BASH_PATTERNS)$dp_where"
           [ "${#dp_entry}" -le 120 ] || dp_entry=$(printf '%s' "$dp_entry" | cut -c 1-117)...
@@ -15844,6 +16966,8 @@ $sw_program"
     bash_unresolved_read_operand "$raw_cmd"
     uo_status=$?
     [ "$uo_status" -ne 0 ] || exit 4
+    # 2: the deny list could not be read against an operand, a failed scan.
+    [ "$uo_status" -ne 2 ] || exit 2
     [ "$uo_status" -ne 3 ] || exit 3
     exit 1
   )
@@ -18725,21 +19849,33 @@ known_env_values() (
     fi
     [ "$kv_top" != "$kv_base" ] || kv_top=
   fi
+  kv_raw=$(
   for kv_dir in "$kv_base" ${kv_top:+"$kv_top"}; do
     for kv_file in "$kv_dir"/.[!.]* "$kv_dir"/..?* "$kv_dir"/*; do
       kv_name=${kv_file##*/}
       # A cheap superset of the dotenv names; the deny rules and mask-file
       # below make the actual decision.
+      # Each pattern opens with a parenthesis: bash 3.2 cannot read a bare
+      # closing one inside a command substitution.
       case $kv_name in
-        *env*|.dev.vars*) ;;
-        *) continue ;;
+        (*env*|.dev.vars*) ;;
+        (*) continue ;;
       esac
       [ -f "$kv_file" ] && [ ! -L "$kv_file" ] || continue
       [ "$(mask_file_format "$kv_file" 2>/dev/null)" = dotenv ] || continue
+      DENY_SCAN_FAILED=0
       candidate_matches_deny "$kv_name" || continue
+      # A character match that did not run (DENY_SCAN_FAILED) did not show
+      # whether the file is on the list. It is not opened, and the values are
+      # not known: status 2.
+      [ "$DENY_SCAN_FAILED" -eq 0 ] || exit 2
       mask_file "$kv_file" values 2>/dev/null || :
     done
-  done | LC_ALL=C awk '
+  done
+  )
+  # Any other status is a collection cut short, which leaves them unknown too.
+  [ "$?" -eq 0 ] || exit 2
+  printf '%s\n' "$kv_raw" | LC_ALL=C awk '
     length($0) < 8 { next }
     tolower($0) ~ /^(true|false|yes|no|on|off)$/ { next }
     /^[-+]?[0-9]+([.][0-9]+)?$/ { next }
@@ -18760,7 +19896,11 @@ known_env_values() (
 # known_value_redact_enabled first, so `block` mode forks nothing here.
 known_env_value_records() (
   [ -s "$1" ] || exit 0
-  kv_values=$(known_env_values) || kv_values=
+  kv_values=$(known_env_values) || {
+    # Status 2: the values are not known, which fails the detector too.
+    [ "$?" -ne 2 ] || exit 1
+    kv_values=
+  }
   [ -n "$kv_values" ] || exit 0
   kv_found=$(printf '%s\n' "$kv_values" | LC_ALL=C awk '
     NR == FNR { if (!($0 in want)) { want[$0] = 1; n++ }; next }
@@ -18834,19 +19974,27 @@ detect_output_secret_records() (
       # takes the scanner's umask, not the mode mktemp gave it. The report
       # holds the found values unredacted: keep it private even when the
       # temp file had to land outside the run directory (#559).
+      # Tool output is hook input: scanned from the private directory, so a
+      # .gitleaksignore in the session's directory cannot drop a record.
+      gitleaks_hook_scan_dir || {
+        gitleaks_hook_scan_refusal "$?" "tool output"
+        detector_fail
+      }
       if gitleaks_helper_selected; then
         (
           ulimit -f 128 >/dev/null 2>&1 || exit 2
           umask 077
-          gitleaks_exec "$gl" stdin --report-format json --report-path "$detector_report" \
-            --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
+          gitleaks_exec "$GITLEAKS_HOOK_CWD" "$gl" stdin --report-format json --report-path "$detector_report" \
+            --no-banner --config "$GITLEAKS_HOOK_CONFIG" <"$detector_strings"
         ) >/dev/null 2>&1
       else
         (
           ulimit -f 128 >/dev/null 2>&1 || exit 2
           umask 077
+          CDPATH= cd -P -- "$GITLEAKS_HOOK_CWD" || exit 2
+          [ -O . ] && [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || exit 2
           "$gl" stdin --report-format json --report-path "$detector_report" \
-            --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
+            --no-banner --config "$GITLEAKS_HOOK_CONFIG" <"$detector_strings"
         ) >/dev/null 2>&1
       fi
       detector_status=$?
@@ -19197,6 +20345,9 @@ detect_exec_secret_bundle() (
   detect_printenv_argument_secret_records "$exec_bundle_response" "$@" \
     >>"$exec_bundle_records" 2>/dev/null || exec_detector_failed=1
   if [ "$exec_detector_failed" -ne 0 ]; then
+    # The caller gets the mask and nothing else: say why when the reason is
+    # the one a user can fix.
+    [ -z "$exec_bundle_response" ] || gitleaks_hook_scan_dir || gitleaks_hook_scan_refusal "$?" "command output"
     printf '%s\n' '{"agent_guard_whole_leaf":true}' \
       >"$exec_bundle_records" || {
         rm -f "$exec_bundle_records" "$exec_bundle_json"
@@ -21506,7 +22657,7 @@ read_mask_target() (
   [ -n "$rt_path" ] || exit 1
   rt_path=$(normalize_path "$rt_path")
   case $rt_path in /*) ;; *) exit 1 ;; esac
-  matches_deny_path "$rt_path" || exit 1
+  deny_path_match_is_confirmed "$rt_path" || exit 1
   rt_other=$(printf '%s' "$1" | jq -r '.tool_input | del(.file_path) | .. | strings') || exit 1
   printf '%s\n' "$rt_other" | {
     while IFS= read -r rt_value; do
@@ -21551,7 +22702,7 @@ cat_mask_target() (
     CDPATH= cd -- "$2" 2>/dev/null || exit 1
   fi
   ct_path=$(normalize_path "$ct_path")
-  matches_deny_path "$ct_path" || exit 1
+  deny_path_match_is_confirmed "$ct_path" || exit 1
   case $ct_path in
     /*) ;;
     *) ct_path=$(pwd -P)/$ct_path || exit 1 ;;
@@ -22709,6 +23860,48 @@ shell_init_block_state() {
   esac
 }
 
+# One line, once per install, for a user who could use the warm helper but
+# has none: this platform has a helper release, the selected gitleaks is the
+# official build the helper answers (gitleaks_helper_blocker), its socket path
+# fits, and neither the helper nor the state directory is turned off. The
+# private state directory records that it was shown, so the line never comes
+# back, and also that the gitleaks file was another build, under the probe
+# cache's identity of that file, so the same file is not hashed again at each
+# session start. A line it cannot record is not shown, and without the state
+# directory (AGENT_GUARD_LOG_MODE=off) there is none. It reads files, starts no
+# gitleaks and changes no decision. Sets GITLEAKS_HELPER_HINT.
+session_start_helper_hint() {
+  GITLEAKS_HELPER_HINT=
+  [ -z "${AGENT_GUARD_GITLEAKS_HELPER:-}" ] && [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] \
+    && [ "${AGENT_GUARD_LOG_MODE:-on}" != off ] && [ -n "$AG_STATE_DIR" ] || return 1
+  ag_hh_file=$AG_STATE_DIR/gitleaks-helper-hint
+  [ ! -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] && [ ! -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ] \
+    && [ ! -L "$ag_hh_file" ] && [ ! -d "$ag_hh_file" ] || return 1
+  ag_hh_seen=
+  if [ -e "$ag_hh_file" ]; then
+    IFS= read -r ag_hh_seen <"$ag_hh_file" 2>/dev/null || :
+    [ "$ag_hh_seen" != shown ] || return 1
+  fi
+  [ "$GITLEAKS_PROBE_STATE" = ready ] && [ -n "$GITLEAKS_READY_BIN" ] || return 1
+  [ -z "$GITLEAKS_PROBE_CACHE_KEY" ] || [ "$ag_hh_seen" != "other $GITLEAKS_PROBE_CACHE_KEY" ] || return 1
+  gitleaks_helper_state_usable && gitleaks_helper_blocker "$GITLEAKS_READY_BIN" || return 1
+  if [ -n "$helper_blocker" ]; then
+    [ -z "$GITLEAKS_PROBE_CACHE_KEY" ] || session_start_helper_hint_record "other $GITLEAKS_PROBE_CACHE_KEY"
+    return 1
+  fi
+  session_start_helper_hint_record shown || return 1
+  cli_ref_init
+  GITLEAKS_HELPER_HINT="agent-guard: the optional warm gitleaks helper makes hooks faster; install it with: $AG_CLI_REF_HOOK setup --install-gitleaks-helper"
+}
+
+session_start_helper_hint_record() {
+  ag_hh_tmp=$(umask 077; mktemp "$ag_hh_file.XXXXXX" 2>/dev/null) || return 1
+  if ! { printf '%s\n' "$1" >"$ag_hh_tmp" && mv -f "$ag_hh_tmp" "$ag_hh_file"; } 2>/dev/null; then
+    rm -f "$ag_hh_tmp" 2>/dev/null || :
+    return 1
+  fi
+}
+
 hook_session_start() {
   message=
   if ! hook_dependencies_ready once || ! command -v git >/dev/null 2>&1; then
@@ -22771,12 +23964,21 @@ hook_session_start() {
     fi
   fi
 
-  [ -n "$message" ] || return 0
+  # The hint is for the user, so Codex's model context does not get it.
+  user_message=$message
+  if session_start_helper_hint; then
+    if [ -n "$user_message" ]; then user_message="$user_message $GITLEAKS_HELPER_HINT"; else user_message=$GITLEAKS_HELPER_HINT; fi
+  fi
+  [ -n "$user_message" ] || return 0
   case "$(hook_host)" in
     codex)
-      printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$message" "$message"
+      if [ -n "$message" ]; then
+        printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$user_message" "$message"
+      else
+        printf '{"systemMessage":"%s"}\n' "$user_message"
+      fi
       ;;
-    *) printf '{"systemMessage":"%s"}\n' "$message" ;;
+    *) printf '{"systemMessage":"%s"}\n' "$user_message" ;;
   esac
 }
 
@@ -23888,11 +25090,221 @@ doctor_shell_integration_report() {
   return 0
 }
 
+# doctor's settings section: what doctor itself reads in its own environment.
+# Fields: name, kind, default, accepted spellings (comma-separated; mirrors the
+# accepted-values table of docs/configuration.md). A value is printed only when
+# it is an accepted spelling or a plain number; a path or URL prints as "set"
+# and anything unrecognized is never echoed. Kinds: mode (always listed),
+# enum, list, number (accepted = min-max), helper, path, deprecated (accepted =
+# what is deprecated). The deprecated entries are the ones whose warning
+# period runs now; drop each one when its setting is removed.
+DOCTOR_SETTINGS='INFRA_FAILURE_MODE mode unset open,closed
+PROMPT_GUARD_MODE mode block block,warn,off,mask
+OUTPUT_REDACT mode mask mask,off
+DENY_READ_MODE mode block block,mask
+PII_HOOK_MODE mode off off,block,mask
+LOG_MODE mode on on,off
+SESSION_ROLE enum unset review
+COMMAND_WRAPPING enum on on,off,OFF,0,false,FALSE,no,NO
+KEY_NAME_REDACT enum off off,on
+TRACKED_FILE_EXCEPTION enum on on,off
+KNOWN_VALUE_REDACT enum on on,off
+SCAN_CACHE enum on on,off
+RELEASE_CHECK enum on on,off
+CODEX_TRUST_CHECK enum on on,off
+EXPERIMENTAL_REDACTOR enum rust rust,shell
+PII_PROVIDER enum regex regex,http,pleno
+PII_LANGUAGE enum en en,ja
+PII_SKIP list unset EMAIL,PHONE,IP_ADDRESS
+SCAN_INPUT_MAX_BYTES number 10485760 10485760-999999999999999999
+PII_TIMEOUT_SECONDS number 30 1-
+GITLEAKS_HELPER_IDLE_SECONDS number 600 1-86400
+GITLEAKS_HELPER_MAX_RSS_MIB number 160 96-4096
+GITLEAKS_HELPER helper unset -
+DENY_READ_PATHS path bundled -
+DENY_BASH_PATTERNS path bundled -
+GITLEAKS_CONFIG path bundled -
+MASK_DENY_VALUES path unset -
+GITLEAKS_BIN path unset -
+GITLEAKS_BIN_DIR path unset -
+RUST_CORE_BIN path unset -
+PII_REDACT_URL path unset -
+GITLEAKS_HELPER_TRACE path unset -
+BIN path unset -
+BIN_DIR deprecated - gitleaks-dir
+GITLEAKS_CHECKSUMS_URL deprecated - outside-tests
+REPO deprecated - outside-tests
+PII_HOOK_REQUEST deprecated - internal'
+
+# Informational only: never changes doctor's status.
+doctor_settings_report() {
+  info "$PROGRAM: settings: as read by this doctor run; hook environments (host or managed settings) may differ"
+  # No pathname expansion of a list value's words.
+  printf '%s\n' "$DOCTOR_SETTINGS" | { set -f; while read -r ds_name ds_kind ds_default ds_accepted; do
+    # Names come from the fixed table above, never from input.
+    eval "ds_isset=\${AGENT_GUARD_$ds_name+x} ds_value=\${AGENT_GUARD_$ds_name-}"
+    # Logging off turns the scan cache off unless it is set on explicitly.
+    [ "$ds_name:${AGENT_GUARD_LOG_MODE:-}" != SCAN_CACHE:off ] || ds_default=off
+    if [ -z "$ds_isset" ]; then
+      [ "$ds_kind" = mode ] || continue
+      ds_shown="$ds_default (default)"
+    elif [ -z "$ds_value" ]; then
+      ds_shown=empty
+    else
+      ds_ok=0
+      case $ds_kind in
+        mode|enum)
+          case $ds_value in
+            *,*) ;;
+            *) case ",$ds_accepted," in *",$ds_value,"*) ds_ok=1 ;; esac ;;
+          esac
+          ;;
+        list)
+          # The parse of pii_skip_set, without its error exit: words split on
+          # commas and spaces; an endpoint provider refuses a non-empty list.
+          ds_ok=1 ds_words=0
+          ds_oifs=$IFS
+          IFS=', '
+          for ds_word in $ds_value; do
+            ds_words=1
+            case ",$ds_accepted," in *",$ds_word,"*) ;; *) ds_ok=0 ;; esac
+          done
+          IFS=$ds_oifs
+          case $ds_value in *"$(printf '\t')"*|*"
+"*) ds_ok=0 ;; esac
+          [ "$ds_words" -eq 0 ] || case ${AGENT_GUARD_PII_PROVIDER:-regex} in http|pleno) ds_ok=0 ;; esac
+          ;;
+        number)
+          # The runtime parsers drop leading zeros; the helper's Go Atoi also
+          # reads a leading plus sign.
+          case $ds_name:$ds_value in GITLEAKS_HELPER_*:+*) ds_value=${ds_value#+} ;; esac
+          ds_value=${ds_value#"${ds_value%%[!0]*}"}
+          case $ds_value in
+            '') ds_value=0 ;;
+          esac
+          case $ds_value in
+            *[!0-9]*) ;;
+            *)
+              # No maximum (PII timeout): the runtime's own positive-integer test.
+              if [ -z "${ds_accepted#*-}" ]; then
+                [ "$ds_value" -ge "${ds_accepted%-*}" ] 2>/dev/null && ds_ok=1
+              elif [ "${#ds_value}" -le 18 ] && [ "$ds_value" -ge "${ds_accepted%-*}" ] \
+                  && [ "$ds_value" -le "${ds_accepted#*-}" ]; then
+                ds_ok=1
+              fi
+              ;;
+          esac
+          ;;
+      esac
+      case $ds_kind in
+        path) ds_shown=set ;;
+        deprecated)
+          case $ds_accepted in
+            gitleaks-dir) ds_shown="set; deprecated as the gitleaks directory, still the installer link directory" ;;
+            outside-tests) ds_shown="set; deprecated outside tests" ;;
+            *) ds_shown="set; internal and deprecated" ;;
+          esac
+          ;;
+        helper) case $ds_value in /*) ds_shown=set ;; *) ds_shown="off (not an absolute path)" ;; esac ;;
+        *)
+          if [ "$ds_ok" -eq 0 ]; then
+            ds_shown="unrecognized value; docs/configuration.md says how this setting treats one"
+          elif [ "$ds_value" = "$ds_default" ]; then
+            ds_shown=$ds_value
+          else
+            ds_shown="$ds_value (differs from the default: $ds_default)"
+          fi
+          ;;
+      esac
+    fi
+    # audit_begin keeps no state for an unrecognized log mode, so no cache.
+    case $ds_name:${AGENT_GUARD_LOG_MODE:-on} in
+      SCAN_CACHE:on|SCAN_CACHE:off) ;;
+      SCAN_CACHE:*) ds_shown="no effect: an unrecognized AGENT_GUARD_LOG_MODE turns the cache off" ;;
+    esac
+    info "$PROGRAM: setting  AGENT_GUARD_$ds_name  $ds_shown"
+  done; }
+  return 0
+}
+
 # doctor is setup plus a release-staleness line; the setup status is returned
 # unchanged so a failed lookup never turns a healthy doctor red.
+# Read-only: shows what rundir_reap would remove from the temp directory this
+# run uses, so a user without the private state directory (LOG_MODE=off),
+# where nothing reaps, can notice leftovers.
+doctor_rundir_report() {
+  [ -n "$AGENT_GUARD_RUNDIR" ] || return 0
+  AG_UID=${AG_UID:-$(id -u 2>/dev/null)}
+  case "$AG_UID" in ''|*[!0123456789]*) return 0 ;; esac
+  doctor_rundir_dir=${AGENT_GUARD_RUNDIR%/*}
+  doctor_rundir_count=$(rundir_stale "$doctor_rundir_dir" count 2>/dev/null </dev/null) || doctor_rundir_count=
+  case "$doctor_rundir_count" in
+    unreadable)
+      info "$PROGRAM: temp: could not check $doctor_rundir_dir for stale run directories"
+      return 0
+      ;;
+    ''|*[!0123456789]*) return 0 ;;
+  esac
+  if [ "$doctor_rundir_count" -eq 0 ]; then
+    info "$PROGRAM: temp: no stale run directories in $doctor_rundir_dir"
+    return 0
+  fi
+  # The settings under which audit_begin prepares the private state, a state
+  # directory that is missing (the next run makes it) or passes its checks,
+  # and a marker rundir_reap would use.
+  doctor_rundir_why='the private state directory is off, as with AGENT_GUARD_LOG_MODE=off'
+  case "${AGENT_GUARD_LOG_MODE:-on}:${AGENT_GUARD_SCAN_CACHE:-}" in
+    on:*|off:on)
+      doctor_rundir_why=
+      doctor_rundir_state=$(audit_location)
+      if ! plain_absolute_path "$doctor_rundir_state"; then
+        doctor_rundir_why='the private state directory path is not a plain absolute path'
+      elif [ -e "$doctor_rundir_state" ] || [ -L "$doctor_rundir_state" ]; then
+        if ! audit_directory >/dev/null 2>&1; then
+          doctor_rundir_why='the private state directory fails its ownership or mode check'
+        elif [ ! -w "$doctor_rundir_state" ]; then
+          doctor_rundir_why='the private state directory refuses new files'
+        elif [ -L "$doctor_rundir_state/rundir-reap" ] \
+            || { [ -e "$doctor_rundir_state/rundir-reap" ] && [ ! -f "$doctor_rundir_state/rundir-reap" ]; }; then
+          doctor_rundir_why='its marker in the private state directory is not a regular file'
+        fi
+      else
+        # mkdir -p makes it under the nearest entry that exists.
+        doctor_rundir_up=$doctor_rundir_state
+        while [ ! -e "$doctor_rundir_up" ] && [ ! -L "$doctor_rundir_up" ]; do
+          doctor_rundir_up=${doctor_rundir_up%/*}
+          [ -n "$doctor_rundir_up" ] || doctor_rundir_up=/
+        done
+        [ -d "$doctor_rundir_up" ] && [ -w "$doctor_rundir_up" ] \
+          || doctor_rundir_why='the private state directory cannot be created'
+      fi
+      ;;
+  esac
+  case "$doctor_rundir_dir" in
+    *'
+'*) [ -n "$doctor_rundir_why" ] || doctor_rundir_why='the temp directory path contains a newline' ;;
+    /*) ;;
+    *) [ -n "$doctor_rundir_why" ] || doctor_rundir_why='TMPDIR is a relative path' ;;
+  esac
+  [ -z "$AG_RUNDIR_RELATIVE" ] || [ -n "$doctor_rundir_why" ] || doctor_rundir_why='TMPDIR is a relative path'
+  if [ -z "$doctor_rundir_why" ] && ! (rundir_absolute_path && CDPATH= cd -P -- "$doctor_rundir_dir" && rundir_parent_safe) 2>/dev/null; then
+    doctor_rundir_why='other users can change entries in that directory'
+  fi
+  case "$doctor_rundir_why" in
+    '')
+    info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; a later hook or scan tries to remove them, at most once an hour; remove any that stay by hand)" ;;
+    *)
+    info "$PROGRAM: temp: $doctor_rundir_count stale run directories in $doctor_rundir_dir (left by a killed run; nothing removes them while $doctor_rundir_why; remove them by hand or fix that)" ;;
+  esac
+}
+
 do_doctor() {
+  SETUP_VIA_DOCTOR=1
   do_setup "$@"
   doctor_status=$?
+  if [ -e .gitleaksignore ] || [ -L .gitleaksignore ]; then
+    info "$PROGRAM: .gitleaksignore  present  (applies to repository scans only: scan-staged, scan-working-tree, scan-path, and the commit and changed-file checks; hook input is scanned without it)"
+  fi
   case ${AGENT_GUARD_SESSION_ROLE-} in
     ''|review) ;;
     *)
@@ -23901,6 +25313,8 @@ do_doctor() {
       ;;
   esac
   doctor_shell_integration_report
+  doctor_rundir_report
+  [ "$SETUP_HELP_SHOWN" = 1 ] || doctor_settings_report
   if command -v codex >/dev/null 2>&1; then
     doctor_here=$(pwd -P 2>/dev/null) || doctor_here=$PWD
     codex_trust_probe "$doctor_here"
@@ -23962,30 +25376,56 @@ do_update() {
 # Per-invocation temp workspace. Every scan temp file (gitleaks stdin captures,
 # read-loop payloads) may hold plaintext secrets, so route them all under one
 # directory (see mktemp_file) and remove it with a single trap on exit —
-# including the catchable signals the host actually sends: SIGTERM when it kills
-# the PostToolUse/Stop hook at its timeout, SIGINT on Ctrl-C. mktemp -d (not a
-# predictable $$-based name) because these files hold secrets and a guessable
-# path in a shared /tmp invites a symlink / pre-create race. Non-fatal: if the
-# dir cannot be created, mktemp_file falls back to per-file temps so no command
-# breaks. An un-trappable SIGKILL also leaves the dir to the OS temp reaper.
+# including the catchable signals a host sends to the hook's process group:
+# TERM at the hook timeout (Claude Code, which sends KILL about 1.5 s later),
+# INT on Ctrl-C, HUP when the terminal goes. dash runs no EXIT trap for a
+# signal without a trap of its own, so each of the three has one. mktemp -d
+# makes the name unguessable; the PID in it only tells rundir_reap the owner.
+# Non-fatal: if the dir cannot be created, mktemp_file falls back to per-file
+# temps so no command breaks; only a scan of hook input, which runs from this
+# directory (gitleaks_hook_scan_dir), then reports that it could not run. A
+# KILL (Codex kills a timed-out hook's group with it) runs no trap;
+# rundir_reap removes such leftovers later.
 # This is the process's only EXIT trap: a command running in this shell that
 # needs its own temp directory removed sets AG_EXIT_TMP_DIR instead of
 # replacing the trap, which would skip everything else here.
-AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.XXXXXX" 2>/dev/null \
-  || mktemp -d /tmp/agent-guard-run.XXXXXX 2>/dev/null || printf '')
+# The detached reap pass writes no temp file and adds no entry where it reaps.
+case ${1:-} in
+  __reap-run-dirs) AGENT_GUARD_RUNDIR= ;;
+  *)
+    AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.$$.XXXXXX" 2>/dev/null \
+      || mktemp -d "/tmp/agent-guard-run.$$.XXXXXX" 2>/dev/null || printf '')
+    ;;
+esac
+# A relative TMPDIR gives a relative path, which a scan started from this
+# directory could not use for its own files. AG_RUNDIR_RELATIVE keeps what
+# rundir_reap and doctor go by: such a TMPDIR is not reaped.
+AG_RUNDIR_RELATIVE=
+case "$AGENT_GUARD_RUNDIR" in ''|/*) ;; *) AG_RUNDIR_RELATIVE=1; AGENT_GUARD_RUNDIR=$PWD/$AGENT_GUARD_RUNDIR ;; esac
 AG_EXIT_TMP_DIR=
 # Saved once so rundir_temp_file can restore it without a process per file.
 AG_UMASK=$(umask 2>/dev/null) || AG_UMASK=
 # Logging is independent of stdout and never changes the guard's exit status.
 # SIGKILL cannot be trapped; a started-only record remains useful evidence.
 trap 'ag_final_status=$?; clear_gitleaks_probe_processes; clear_codex_trust_probe_processes; claude_block_capture_finish "$ag_final_status"; audit_finish "$ag_final_status"; [ -z "$AGENT_GUARD_RUNDIR" ] || rm -rf "$AGENT_GUARD_RUNDIR"; [ -z "$AG_EXIT_TMP_DIR" ] || rm -rf "$AG_EXIT_TMP_DIR"; exit "$ag_final_status"' 0
+trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 cmd=${1:-}
 audit_begin "$cmd"
+rundir_reap
 case "$cmd" in
   hook-pre-tool) claude_block_capture_begin PreToolUse; hook_pre_tool ;;
+  # Internal: the detached pass rundir_reap starts. It removes only what
+  # rundir_stale selects, from an absolute directory.
+  __reap-run-dirs)
+    case "${2:-}" in /*) ;; *) exit 2 ;; esac
+    AG_UID=$(id -u 2>/dev/null) || exit 2
+    case "$AG_UID" in ''|*[!0123456789]*) exit 2 ;; esac
+    rundir_stale "$2" remove </dev/null >/dev/null 2>&1
+    exit 0
+    ;;
   hook-post-tool) hook_post_tool ;;
   hook-post-tool-failure) hook_post_tool_failure ;;
   hook-stop) claude_block_capture_begin Stop; hook_stop ;;
@@ -23998,7 +25438,7 @@ case "$cmd" in
   scan-staged) shift; gitleaks_bin_dir_notice >&2 || :; scan_staged "$@" ;;
   scan-working-tree) shift; gitleaks_bin_dir_notice >&2 || :; scan_working_tree "$@" ;;
   scan-path) shift; gitleaks_bin_dir_notice >&2 || :; scan_path "$@" ;;
-  filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;
+  filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;  # internal
   logs) shift; audit_logs "$@" ;;
   plugin) shift; do_plugin "$@" ;;
   check) check_deps ;;

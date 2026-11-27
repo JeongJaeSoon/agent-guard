@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 4ff04373a1982fc933fa88048cea513b7d9b720a -->
+<!-- translated-from: docs/installation.md; source-blob: 5ae16ea79a3cb3eabb8244518e5395b3755ccc19 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -46,17 +46,27 @@ warm helperは、コンパイル済みのgitleaks 8.30.1 detectorをユーザー
 アーカイブ、Homebrewパッケージ、プラグインには含まれません。
 
 `agent-guard setup --install` はgitleaksと一緒にhelperもインストールします。
-使用中のgitleaksがこのコマンドがprivateディレクトリに入れるもので、バージョンが
-8.30.1であれば、helperをダウンロードします。以前その方法でgitleaksを
+使用中のgitleaksが公式のgitleaks 8.30.1リリースビルドであれば、privateディレクトリ
+にあっても `PATH` にあっても、helperをダウンロードします。以前その方法でgitleaksを
 インストールした場合は、`agent-guard setup --install` をもう一度実行してhelperを
 取得してください。このバージョンのhelperがすでにインストールされていれば、
 何もダウンロードしません。helperをダウンロードできない場合や値が一致しない場合は
 警告だけを出します。gitleaksはインストールされ、コマンドは失敗しません。
-それ以外のgitleaks（Homebrewビルドのように `PATH` にあるもの、
-`AGENT_GUARD_GITLEAKS_BIN`、別のバージョン）を使っている場合は、helperを
-インストールせず、理由を1行で表示します。helperのassetがないプラットフォームでは
+それ以外のgitleaks（Homebrewビルドなどの別のビルド、別のバージョン、
+`AGENT_GUARD_GITLEAKS_BIN` が選んだもの）を使っている場合は、helperを
+インストールせず、理由とすべきことを1行で表示します。そのgitleaksが `PATH` から来て
+いて、8.30.1のchecksumを渡した場合は、`PATH` より先に使われるprivateディレクトリに
+公式ビルドをインストールし、そうしたことと戻し方（そのファイルを削除するか、
+`AGENT_GUARD_GITLEAKS_BIN` を `PATH` のビルドに設定する）を表示します。privateディレクトリに
+すでにあるgitleaksは置き換えず、`doctor` はこれを行いません。helperのassetがないプラットフォームでは
 何も表示しません。helperを省くには、コマンドの実行時に
 `AGENT_GUARD_GITLEAKS_HELPER=off` を設定してください。
+
+helperが使用中のgitleaksに応答できるのにインストールされていない場合、セッションの
+開始時に、helperでhookが速くなることをインストールコマンドと一緒に1行で表示します。
+表示はインストールごとに1回だけです。状態ディレクトリに記録するため、
+`AGENT_GUARD_LOG_MODE=off` では表示せず、helperをインストールした後や
+`AGENT_GUARD_GITLEAKS_HELPER` を設定した後も表示しません。
 
 helperだけをインストールするコマンドもあります。プラグイン、Homebrew、
 単独インストールのいずれでも同じで、インストールできなければ失敗します。
@@ -82,8 +92,13 @@ export AGENT_GUARD_GITLEAKS_HELPER=off
 helperを使いません。helperが応答するのは `agent-guard setup --install` が
 インストールする公式のgitleaks 8.30.1リリースバイナリだけで、Goの `regexp` で
 ビルドしたgitleaks（Homebrew、`go install`）は常に実際に実行します。
-`agent-guard setup` が表示するのはhelperがインストールされているかどうかで、
-使用中のgitleaksにhelperが応答するかどうかではありません。自分でソースから
+`agent-guard setup` と `agent-guard doctor` は、インストール済みのhelperが応答しない
+場合に、その理由とすべきことを1行で表示します。選択されたgitleaksが別のビルドや
+バージョンの場合、状態ディレクトリが深くhelperのソケットパスが103バイトを超えるか、
+そのディレクトリが自分の所有する0700の通常の絶対パスでない場合、
+helperが別のAgent Guardバージョンまたはプラットフォーム用にインストールされた場合、上の2つの変数の
+どちらかを設定している場合です。gitleaksのファイルをこのバージョンに記録された公式
+ビルドのSHA-256と比較し、何も起動もインストールもしません。自分でソースから
 ビルドしたものを使うには、
 `AGENT_GUARD_GITLEAKS_HELPER` をその `agent-guard-scan` の絶対パスにしてください。
 同じ結果の保証、失敗時の処理、メモリ、プライバシーは

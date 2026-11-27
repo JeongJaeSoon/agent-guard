@@ -57,8 +57,15 @@ bash_json() {
     *) jq -nc --arg c "$2" --arg d "$REPO" '{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c},cwd:$d}' ;;
   esac
 }
-shell() { # EXPECTED LABEL COMMAND, on both hosts
-  for host in claude codex; do check "$1" "$host" "$2" "$(bash_json "$host" "$3")"; done
+# The host changes the block message and the output envelope, never the
+# decision, and the hook runs inside the repository on both. Codex's event
+# shape keeps the first passing and the first blocking command.
+codex_kept=
+shell() { # EXPECTED LABEL COMMAND
+  check "$1" claude "$2" "$(bash_json claude "$3")"
+  case "$codex_kept" in *":$1:"*) return ;; esac
+  codex_kept="$codex_kept:$1:"
+  check "$1" codex "$2" "$(bash_json codex "$3")"
 }
 
 for f in $TRACKED; do

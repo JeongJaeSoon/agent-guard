@@ -2805,5 +2805,581 @@
     "tests": [
       "tests/container-session-boundary.sh"
     ]
+  },
+  {
+    "id": "scan-hook-input-private-directory",
+    "rule": "hook input scan: gitleaks stdin runs from the private directory, not beside the repository's ignore file",
+    "old": "      ag_gs_dir=$GITLEAKS_HOOK_CWD\n",
+    "new": "      ag_gs_dir=\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-tool-output-private-directory",
+    "rule": "hook input scan: the output detector's gitleaks runs from the private directory",
+    "old": "          CDPATH= cd -P -- \"$GITLEAKS_HOOK_CWD\" || exit 2\n          [ -O . ] && [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || exit 2\n          \"$gl\" stdin --report-format json",
+    "new": "          \"$gl\" stdin --report-format json",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-directory-ignore-file",
+    "rule": "private scan directory: one that holds an ignore file is refused",
+    "old": "    && [ ! -e \"$GITLEAKS_HOOK_CWD/.gitleaksignore\" ] \\\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-directory-ignore-link",
+    "rule": "private scan directory: one that holds an ignore file link, even a dangling one, is refused",
+    "old": "    && [ ! -L \"$GITLEAKS_HOOK_CWD/.gitleaksignore\" ] || return 1\n",
+    "new": "    || return 1\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-directory-absolute",
+    "rule": "private scan directory: a relative path is refused",
+    "old": "  case \"$GITLEAKS_HOOK_CWD\" in /*) ;; *) return 1 ;; esac\n",
+    "new": "  case \"$GITLEAKS_HOOK_CWD\" in '') return 1 ;; esac\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-directory-symlink",
+    "rule": "private scan directory: a symlink is refused",
+    "old": "  [ -d \"$GITLEAKS_HOOK_CWD\" ] && [ ! -L \"$GITLEAKS_HOOK_CWD\" ] \\\n",
+    "new": "  [ -d \"$GITLEAKS_HOOK_CWD\" ] \\\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-staged-repository-ignore",
+    "rule": "repository scan: scan-staged applies the repository's ignore file",
+    "old": "  scan_text_direct \"staged added lines\" \"$added\" repo\n",
+    "new": "  scan_text_direct \"staged added lines\" \"$added\"\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-working-tree-repository-ignore",
+    "rule": "repository scan: scan-working-tree applies the repository's ignore file to tracked changes",
+    "old": "    scan_text_direct \"working tree added lines\" \"$tracked\" repo\n",
+    "new": "    scan_text_direct \"working tree added lines\" \"$tracked\"\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-untracked-repository-ignore",
+    "rule": "repository scan: the untracked-files pass applies the repository's ignore file",
+    "old": "  run_gitleaks_stdin \"untracked files\" repo <\"$blob\"\n",
+    "new": "  run_gitleaks_stdin \"untracked files\" <\"$blob\"\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-commit-candidate-repository-ignore",
+    "rule": "repository scan: the commit check applies the repository's ignore file",
+    "old": "    scan_text_direct \"commit candidate added lines\" \"$added\" repo\n",
+    "new": "    scan_text_direct \"commit candidate added lines\" \"$added\"\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-client-relative-path",
+    "rule": "hook input scan: a scan client named by a relative path is named as it resolves from the hook directory before the scan changes directory",
+    "old": "    */*) ag_gx_program=$PWD/$ag_gx_program ;;\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaks-helper-install.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-extend-check",
+    "rule": "hook input scan: a custom config that may extend a relative path is not used from the private directory",
+    "old": "  gitleaks_config_extends_no_relative_path || return 2\n",
+    "new": "  return 0\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-relative-path-value",
+    "rule": "config extend check: a relative path value is refused",
+    "old": "!(match(value, /^\"\\/[^\"\\\\]*\"/) || match(value, (\"^\" sq \"/[^\" sq \"]*\" sq)))",
+    "new": "!(match(value, /^\"[^\"\\\\]*\"/) || match(value, (\"^\" sq \"[^\" sq \"]*\" sq)))",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-dotted-extend-key",
+    "rule": "config extend check: a key that holds extend in any spelling (dotted, inline table, a dot inside a quoted key) is refused",
+    "old": "        if (index(key, \"extend\")) { bad = 1; exit }\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-quoted-table-name",
+    "rule": "config extend check: a table name that holds extend but is not the plain [extend] header is refused",
+    "old": "          if (l !~ /^[ \\t]*\\[[ \\t]*extend[ \\t]*\\][ \\t]*(#.*)?$/ || headers++) { bad = 1; exit }\n",
+    "new": "          if (headers++) { bad = 1; exit }\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-multiline-string",
+    "rule": "config extend check: a multiline string is followed to its closing delimiter, so its lines are not read as keys or table headers",
+    "old": "            if (substr(line, i, 3) == c c c) { instr = c; i += 3; continue }\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-escaped-key",
+    "rule": "config extend check: a key with a backslash, whose escape may spell extend, is refused",
+    "old": "        if (index(key, \"\\\\\")) { bad = 1; exit }\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-extend-chain",
+    "rule": "config extend check: each file a config extends is checked in turn",
+    "old": "        if (path != \"\") print path\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-physical-directory",
+    "rule": "hook input scan: the scan enters the run directory physically, as the checks saw it",
+    "old": "    CDPATH= cd -P -- \"$ag_gx_dir\" || exit 2\n",
+    "new": "    CDPATH= cd -- \"$ag_gx_dir\" || exit 2\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-tool-output-physical-directory",
+    "rule": "hook input scan: the output detector enters the run directory physically",
+    "old": "          CDPATH= cd -P -- \"$GITLEAKS_HOOK_CWD\" || exit 2\n          [ -O . ]",
+    "new": "          CDPATH= cd -- \"$GITLEAKS_HOOK_CWD\" || exit 2\n          [ -O . ]",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-read-by-redirection",
+    "rule": "config extend check: the config is opened by redirection, so a name of the form name=value is not read as an awk assignment",
+    "old": "    ' 2>/dev/null <\"$ag_gc_file\") || return 1\n",
+    "new": "    ' \"$ag_gc_file\" 2>/dev/null) || return 1\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-array-continuation",
+    "rule": "config extend check: a line that continues a value (a multi-line array, a multiline string) is not read as a key or a table header",
+    "old": "      instr != \"\" || depth > 0 {\n",
+    "new": "      0 {\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-comment",
+    "rule": "config extend check: a comment ends the line, so a quote in it opens no string",
+    "old": "          if (c == \"#\") return 1\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-entered-directory",
+    "rule": "hook input scan: no scan starts in a directory that holds an ignore file, checked in the directory entered",
+    "old": "    # that counts.\n    [ -O . ] && [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || exit 2\n",
+    "new": "    # that counts.\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-entered-directory-owner",
+    "rule": "hook input scan: no scan starts in a directory that another user owns",
+    "old": "    # that counts.\n    [ -O . ] && ",
+    "new": "    # that counts.\n    ",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-closing-quotes",
+    "rule": "config extend check: a multiline string that ends in a quote closes with four or five quotes",
+    "old": "              if (substr(line, i, 1) == instr) i++\n              if (substr(line, i, 1) == instr) i++\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-config-extend-depth",
+    "rule": "config extend check: the path in the file a config extends is checked too, since gitleaks opens it",
+    "old": "    [ \"$ag_gc_depth\" -le 2 ] || return 0\n",
+    "new": "    [ \"$ag_gc_depth\" -le 1 ] || return 0\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-exec-output-refusal-reason",
+    "rule": "exec: output masked because the gitleaks config cannot be used for hook input comes with the reason on stderr",
+    "old": "    [ -z \"$exec_bundle_response\" ] || gitleaks_hook_scan_dir || gitleaks_hook_scan_refusal \"$?\" \"command output\"\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-shim-hint",
+    "rule": "hook input scan: when a gitleaks that may be a version manager's shim fails, the message names AGENT_GUARD_GITLEAKS_BIN",
+    "old": "  gitleaks_hook_scan_shim_hint \"$ag_gs_dir\" \"$out\"\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-shim-hint-finding-status",
+    "rule": "hook input scan: a shim that fails with the status of a finding still gets the line that names AGENT_GUARD_GITLEAKS_BIN",
+    "old": "    gitleaks_hook_scan_shim_hint \"$ag_gs_dir\" \"$out\" finding\n",
+    "new": "",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-shim-hint-finding-output",
+    "rule": "hook input scan: a finding's own output does not get the line about a shim",
+    "old": "      case \"$ag_gh_line\" in Finding:*) return 0 ;; esac\n",
+    "new": "      :\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "scan-hook-input-shim-hint-empty-output",
+    "rule": "hook input scan: a finding reported with no output does not get the line about a shim",
+    "old": "    [ -s \"$2\" ] || return 0\n    while IFS= read -r ag_gh_line; do\n",
+    "new": "    while IFS= read -r ag_gh_line; do\n",
+    "tests": [
+      "tests/gitleaksignore-scope.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-gate-never",
+    "rule": "deny_match_counts_characters: a rule with [, or one with ? over a non-ASCII path, takes the character match",
+    "old": "      ?:*'['*|0:*'?'*) return 0 ;;\n",
+    "new": "      ?:*'['*|0:*'?'*) return 1 ;;\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-tracked-shell-match",
+    "rule": "tracked_file_exception_applies: a rule with a slash is matched by character for a non-ASCII path",
+    "old": "    tfe_verdict=$(deny_rules_by_character tree \"$tfe_real\" \"/$tfe_path\" 2>/dev/null) \\\n      && [ \"$tfe_verdict\" = clear ] || exit 1\n",
+    "new": "",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-entry-bytes",
+    "rule": "deny_entry_chars: a non-ASCII entry is read one whole character at a time",
+    "old": "    dec_rest=$dec_split dec_lines=1\n",
+    "new": "    :\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-entry-letter",
+    "rule": "deny_entry_char_is_alnum: a non-ASCII character of an entry is a letter",
+    "old": "  [ \"${dec_ascii_pins-0}\" -eq 0 ] && ! text_is_printable_ascii \"$1\"\n}",
+    "new": "  return 1\n}",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-one-reading",
+    "rule": "deny_rules_by_character: text that is not UTF-8 is read in every way",
+    "old": "    for (r = 1; r <= 3; r++) {",
+    "new": "    for (r = 1; r <= 1; r++) {",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-class-locale",
+    "rule": "deny_rules_by_character: a non-ASCII character is in every class",
+    "old": "      if (P[i + 1] != \".\" && (length(c) > 1 || c >= \"\\200\")) return 1\n",
+    "new": "",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-failed-run-allows",
+    "rule": "deny_wildcard_rules_match: a match that did not run is not a clear verdict",
+    "old": "    esac\n  fi\n  return 2\n}",
+    "new": "    esac\n  fi\n  return 1\n}",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-no-parent",
+    "rule": "deny_rules_by_character: a rule that matches a directory protects what is below it",
+    "old": "      else if (dirs && k > kn && S[s] == \"/\" && s > 1 && (s > 2 || S[1] != \"/\")) return 1\n",
+    "new": "      else if (0 && k > kn && S[s] == \"/\" && s > 1 && (s > 2 || S[1] != \"/\")) return 1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-range-ends-only",
+    "rule": "deny_rules_by_character: a range holds every character between its ends",
+    "old": "      if (c >= lo && c <= hi) hit = 1\n",
+    "new": "      if (c == lo || c == hi) hit = 1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-two-byte-width",
+    "rule": "deny_rules_by_character: a two-byte sequence is one character",
+    "old": "    if (b >= \"\\302\" && b <= \"\\337\") return utf8_tail(c) ? 2 : 0\n",
+    "new": "    if (b >= \"\\302\" && b <= \"\\337\") return 0\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-gate-plain-rule",
+    "rule": "deny_match_counts_characters: a plain path takes the character match under a rule with [",
+    "old": "      ?:*'['*|0:*'?'*) return 0 ;;\n",
+    "new": "      0:*'['*|0:*'?'*) return 0 ;;\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-status-ignored",
+    "rule": "deny_wildcard_rules_match: a clear verdict counts only from a matcher that exited 0",
+    "old": "  if dwm_verdict=$(deny_rules_by_character path \"$1\" 2>/dev/null); then",
+    "new": "  dwm_verdict=$(deny_rules_by_character path \"$1\" 2>/dev/null)\n  if :; then",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-split-failure-used",
+    "rule": "deny_path_command_regex_set: an entry that could not be split into characters yields no regex",
+    "old": "  [ \"$dec_failed\" -eq 0 ] || return 2\n  converted=$dprf_out\n",
+    "new": "  converted=$dprf_out\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-bytewise-glob",
+    "rule": "deny_path_shell_expanded_fragment: one-byte wildcards for every byte of a character stand for it",
+    "old": "          sx_c=\"($sx_char_literal|$sx_bytes)\"\n",
+    "new": "          :\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-bytewise-star",
+    "rule": "deny_path_shell_expanded_fragment: a star may be one of the one-byte wildcards that stand for a character",
+    "old": "          sx_bytes='(\\?|\\*|\\[[^]]+\\]){'$dec_bytes'}'\n",
+    "new": "          sx_bytes='(\\?|\\[[^]]+\\]){'$dec_bytes'}'\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-failed-scan-excepted",
+    "rule": "check_sensitive_reads: a hit from a match that did not run is refused before the tracked-file exception",
+    "old": "      if [ \"$DENY_SCAN_FAILED\" -eq 1 ]; then\n",
+    "new": "      if false; then\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-ascii-pin-dropped",
+    "rule": "deny_path_shell_expanded_fragment: an entry with a non-ASCII character is also read with only its ASCII letters and digits as pins",
+    "old": "  [ \"$sx_reading\" -eq 1 ] || dec_ascii_pins=1\n",
+    "new": "  [ \"$sx_reading\" -ge 1 ] || dec_ascii_pins=1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-named-symbol",
+    "rule": "deny_rules_by_character: a bracket expression with a named collating symbol matches every character",
+    "old": "        if (P[i + 1] == \".\" && m - i > 4) return 1\n",
+    "new": "        if (P[i + 1] == \".\" && m - i > 99) return 1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-unconfirmed-mask",
+    "rule": "deny_path_match_is_confirmed: a match that did not run earns no masked view",
+    "old": "  matches_deny_path \"$1\" && [ \"$DENY_SCAN_FAILED\" -eq 0 ]\n",
+    "new": "  matches_deny_path \"$1\"\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-failed-verdict-dropped",
+    "rule": "candidate_matches_deny: a verdict that is neither a match nor a clear one counts as a match",
+    "old": "  DENY_SCAN_FAILED=1\n  return 0\n}",
+    "new": "  DENY_SCAN_FAILED=1\n  return 1\n}",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-unknown-class",
+    "rule": "deny_rules_by_character: a bracket expression with a class name outside the table matches every character",
+    "old": "          if (!(lo in CLASS)) return 1\n",
+    "new": "          if (!(lo in CLASS)) return 0\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-mixed-readings",
+    "rule": "deny_path_shell_expanded_fragment: a word is held to one reading, whole characters or bytes",
+    "old": "        if [ \"$dec_bytes\" -gt 1 ] && [ \"$sx_reading\" -eq 3 ]; then\n          sx_bytes=",
+    "new": "        if [ \"$dec_bytes\" -gt 1 ] && [ \"$sx_reading\" -eq 3 ]; then\n          sx_char_literal=${sx_c#?}; sx_char_literal=${sx_char_literal%?}\n          sx_bytes=",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-partial-prefix",
+    "rule": "deny_path_sx_prefixes: read byte by byte, a prefix may end inside a multibyte character",
+    "old": "    sx_close=\"${sx_part:+|$sx_part})?$sx_close\"\n",
+    "new": "    sx_close=\")?$sx_close\"\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-partial-suffix",
+    "rule": "deny_path_sx_suffixes: read byte by byte, a suffix may start inside a multibyte character",
+    "old": "    sx_out=\"$sx_out${sx_part:+|$sx_part})?\"\n",
+    "new": "    sx_out=\"$sx_out)?\"\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-partial-head",
+    "rule": "deny_path_spanning_component_alternatives: read byte by byte, the head may end inside its last character",
+    "old": "    if [ -n \"$sca_part\" ]; then\n",
+    "new": "    if false; then\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-pin-check-unsplit",
+    "rule": "bash_shell_expanded_match_is_pinned: a pin check that could not split the entry is a failed scan, not a pinned match",
+    "old": "  [ \"$dec_failed\" -eq 0 ] || return 2\n  [ -n \"$sx_out\" ] || return 0\n",
+    "new": "  [ \"$dec_failed\" -eq 0 ] || return 0\n  [ -n \"$sx_out\" ] || return 0\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-recheck-status-dropped",
+    "rule": "hook-pre-tool: a failed deny-read scan of a resolved operand refuses the command",
+    "old": "    [ \"$uo_status\" -ne 2 ] || exit 2\n    [ \"$uo_status\" -ne 3 ] || exit 3\n",
+    "new": "    [ \"$uo_status\" -ne 3 ] || exit 3\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-nested-recheck-status-dropped",
+    "rule": "bash_unresolved_read_operand_scan: a failed deny-read scan inside nested code is handed up",
+    "old": "        [ \"$uo_status\" -ne 2 ] || exit 2\n        [ \"$uo_status\" -ne 3 ] || uo_unknown=1\n",
+    "new": "        [ \"$uo_status\" -ne 3 ] || uo_unknown=1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-unconfirmed-values",
+    "rule": "known_env_values: a match that did not run opens no file and leaves the values unknown",
+    "old": "      [ \"$DENY_SCAN_FAILED\" -eq 0 ] || exit 2\n",
+    "new": "",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-equivalence-literal",
+    "rule": "deny_rules_by_character: a bracket expression with an equivalence class matches every character",
+    "old": "        if (P[i + 1] == \"=\") return 1\n",
+    "new": "        if (P[i + 1] == \"=\") return 0\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-values-failure-dropped",
+    "rule": "known_env_value_records: values that are not known fail the detector",
+    "old": "    [ \"$?\" -ne 2 ] || exit 1\n    kv_values=\n",
+    "new": "    kv_values=\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
+  },
+  {
+    "id": "deny-chars-range-end-token",
+    "rule": "deny_rules_by_character: a range that ends in a class or an equivalence class matches every character",
+    "old": "          if (P[i + 1] != \".\" || m - i > 4) return 1\n",
+    "new": "          if (P[i + 1] == \".\" && m - i > 4) return 1\n",
+    "tests": [
+      "tests/deny-rule-characters.sh"
+    ]
   }
 ]

@@ -11,7 +11,8 @@
 # Usage: sh tests/mutation-check.sh [--lint] [ID...]
 #   --lint  only validate the list and the workflow that runs it, run no test.
 #   --group NAME  check the mutations of one workflow group (core, handback,
-#           bash-N); --lint proves the workflow's groups cover each id once.
+#           bash-N, deny-chars-N); --lint proves the workflow's groups cover
+#           each id once.
 #   ID      check only these mutations.
 # AGENT_GUARD_MUTATION_JOBS (default 2) sets how many tree copies run side by
 # side. A test stops at its first "not ok" line once it has caught a mutation.
@@ -47,23 +48,35 @@ elif [ "${1-}" = --group ]; then
   shift 2
 fi
 
-# group_ids GROUP N: the ids of one group, N being the number of bash-* shards.
-# Every id falls in exactly one group: handback-*, bash-* spread over N by
-# position, and everything else in core.
-group_ids() {
-  jq -r --arg g "$1" --argjson n "$2" '
-    map(.id) as $all
-    | if $g == "core" then $all[] | select((startswith("handback-") or startswith("bash-")) | not)
-      elif $g == "handback" then $all[] | select(startswith("handback-"))
-      else [$all[] | select(startswith("bash-"))] | to_entries[]
-        | select(.key % $n == ($g | ltrimstr("bash-") | tonumber) - 1) | .value
-      end
-  ' "$LIST"
-}
-
 # The groups the workflow matrix runs, one per line.
 workflow_groups() {
   sed -n 's/^ *group: \[\(.*\)\] *$/\1/p' "$WORKFLOW" | tr -d ' ' | tr ',' '\n'
+}
+
+# shard_count FAMILY: how many FAMILY-N shards the workflow runs.
+shard_count() {
+  workflow_groups | grep -c "^$1-[0-9][0-9]*$"
+}
+
+# group_ids GROUP: the ids of one group. Every id falls in exactly one group:
+# handback-*, bash-* and deny-chars-* each spread over their own shards by
+# position, and everything else in core.
+group_ids() {
+  case $1 in
+    bash-*|deny-chars-*) gi_n=$(shard_count "${1%-*}") ;;
+    *) gi_n=0 ;;
+  esac
+  jq -r --arg g "$1" --argjson n "$gi_n" '
+    map(.id) as $all
+    | ([$g | capture("^(?<f>bash|deny-chars)-(?<k>[0-9]+)$")?] | first) as $s
+    | if $g == "core" then $all[]
+        | select((startswith("handback-") or startswith("bash-") or startswith("deny-chars-")) | not)
+      elif $g == "handback" then $all[] | select(startswith("handback-"))
+      elif $s != null then [$all[] | select(startswith($s.f + "-"))] | to_entries[]
+        | select(.key % $n == ($s.k | tonumber) - 1) | .value
+      else empty
+      end
+  ' "$LIST"
 }
 
 jq -e '
@@ -90,15 +103,16 @@ if [ "$lint" -eq 1 ]; then
   for id in "$@"; do die "--lint takes no mutation id: $id"; done
   groups=$(workflow_groups)
   [ -n "$groups" ] || die "no matrix group list found in $WORKFLOW"
-  shards=$(printf '%s\n' "$groups" | grep -c '^bash-[0-9][0-9]*$')
   for g in $groups; do
     case $g in
       core|handback) ;;
-      bash-[1-9]|bash-[1-9][0-9]) [ "${g#bash-}" -le "$shards" ] || die "shard $g is beyond the $shards bash shards" ;;
+      bash-[1-9]|bash-[1-9][0-9]|deny-chars-[1-9]|deny-chars-[1-9][0-9])
+        shards=$(shard_count "${g%-*}")
+        [ "${g##*-}" -le "$shards" ] || die "shard $g is beyond the $shards ${g%-*} shards" ;;
       *) die "unknown matrix group in $WORKFLOW: $g" ;;
     esac
   done
-  covered=$(for g in $groups; do group_ids "$g" "$shards" || exit 1; done | sort) || die "cannot compute the groups"
+  covered=$(for g in $groups; do group_ids "$g" || exit 1; done | sort) || die "cannot compute the groups"
   [ "$covered" = "$(jq -r '.[].id' "$LIST" | sort)" ] || die "the workflow groups do not cover every mutation exactly once"
   printf 'mutation-check: list and workflow paths are valid (%s mutations)\n' "$(jq length "$LIST")"
   exit 0
@@ -109,8 +123,7 @@ ORIG=$ROOT/$BIN_REL
 jq -j -Rs . "$ORIG" | cmp -s - "$ORIG" || die "jq does not reproduce $BIN_REL byte for byte"
 
 if [ -n "$group" ]; then
-  shards=$(workflow_groups | grep -c '^bash-[0-9][0-9]*$')
-  set -- $(group_ids "$group" "$shards")
+  set -- $(group_ids "$group")
   [ "$#" -gt 0 ] || die "no mutation in group $group"
 fi
 

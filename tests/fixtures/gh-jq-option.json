@@ -1,6 +1,7 @@
 [
   {
     "id": "case12-content-pipe",
+    "both_hosts": true,
     "expected_status": 0,
     "classification": "must-pass",
     "description": "case 12: a gh --jq filter before a jq pipeline that reads .key",
@@ -43,6 +44,7 @@
   },
   {
     "id": "command-gh",
+    "both_hosts": true,
     "expected_status": 2,
     "classification": "residual",
     "description": "command gh still runs gh (the second reading knows only a bare gh command word, so this filter is still scanned)",

@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 4ff04373a1982fc933fa88048cea513b7d9b720a -->
+<!-- translated-from: docs/installation.md; source-blob: 5ae16ea79a3cb3eabb8244518e5395b3755ccc19 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -46,15 +46,26 @@ Linux x64/arm64와 macOS arm64용 별도 릴리스 asset이고, 릴리스 아카
 패키지·플러그인에는 들어 있지 않습니다.
 
 `agent-guard setup --install`은 gitleaks와 함께 helper도 설치합니다. 사용 중인
-gitleaks가 이 명령이 private 디렉터리에 설치하는 것이고 버전이 8.30.1이면
-helper를 내려받습니다. 예전에 그렇게 gitleaks를 설치했다면
+gitleaks가 공식 gitleaks 8.30.1 릴리스 빌드이면, private 디렉터리에 있든 `PATH`에
+있든 helper를 내려받습니다. 예전에 그렇게 gitleaks를 설치했다면
 `agent-guard setup --install`을 다시 실행해 helper를 받으세요. 이 버전의 helper가
 이미 설치되어 있으면 아무것도 내려받지 않습니다. helper를 내려받지 못하거나
 값이 맞지 않으면 경고만 냅니다. gitleaks는 설치되고 명령은 실패하지 않습니다.
-그 밖의 gitleaks(Homebrew 빌드처럼 `PATH`에 있는 것, `AGENT_GUARD_GITLEAKS_BIN`,
-다른 버전)를 쓰고 있으면 helper를 설치하지 않고 이유를 한 줄로 알립니다.
+그 밖의 gitleaks(Homebrew 빌드 같은 다른 빌드, 다른 버전,
+`AGENT_GUARD_GITLEAKS_BIN`이 고른 것)를 쓰고 있으면 helper를 설치하지 않고 이유와
+할 일을 한 줄로 알립니다. 그 gitleaks가 `PATH`에서 왔고 8.30.1의 checksum을 주면,
+`PATH`보다 먼저 쓰이는 private 디렉터리에 공식 빌드를 설치하고, 그렇게 했다는 것과
+되돌리는 방법(그 파일을 지우거나 `AGENT_GUARD_GITLEAKS_BIN`을 `PATH`의 빌드로
+설정)을 알립니다. private 디렉터리에 이미 있는 gitleaks는 바꾸지 않고, `doctor`는 이
+일을 하지 않습니다.
 helper asset이 없는 플랫폼에서는 아무 말도 하지 않습니다. helper를 건너뛰려면
 명령을 실행할 때 `AGENT_GUARD_GITLEAKS_HELPER=off`를 두세요.
+
+helper가 지금 쓰는 gitleaks에 답할 수 있는데 설치되어 있지 않으면, 세션을 시작할 때
+helper가 hook을 빠르게 한다는 한 줄을 설치 명령과 함께 보여 줍니다. 설치마다 한 번만
+보여 줍니다. 상태 디렉터리에 기록하므로 `AGENT_GUARD_LOG_MODE=off`이면 보여 주지
+않고, helper를 설치했거나 `AGENT_GUARD_GITLEAKS_HELPER`를 설정한 뒤에도 보여 주지
+않습니다.
 
 helper만 설치하는 명령도 있습니다. 플러그인·Homebrew·단독 설치 모두 같고,
 설치하지 못하면 실패합니다.
@@ -79,8 +90,13 @@ export AGENT_GUARD_GITLEAKS_HELPER=off
 `AGENT_GUARD_LOG_MODE=off`이면 helper를 쓰지 않습니다. helper는
 `agent-guard setup --install`이 설치하는 공식 gitleaks 8.30.1 릴리스 바이너리에만
 답하고, Go `regexp`로 빌드한 gitleaks(Homebrew, `go install`)는 늘 실제로
-실행합니다. `agent-guard setup`은 helper가 설치되어 있는지를 알려 줄 뿐, 지금
-쓰는 gitleaks에 helper가 답하는지는 알려 주지 않습니다. 직접 소스에서
+실행합니다. `agent-guard setup`과 `agent-guard doctor`는 설치된 helper가 답하지
+않을 때 그 이유와 할 일을 한 줄로 알립니다. 선택된 gitleaks가 다른 빌드나 버전일 때,
+상태 디렉터리가 깊어 helper의 소켓 경로가 103바이트를 넘거나 그 디렉터리가 내 소유의
+0700 일반 절대 경로가 아닐 때, helper가 다른
+Agent Guard 버전이나 플랫폼용으로 설치되었을 때, 위의 두 변수 중 하나를 설정했을 때입니다.
+gitleaks 파일을 이 버전에 기록된 공식 빌드의 SHA-256과 비교하며, 아무것도 시작하거나
+설치하지 않습니다. 직접 소스에서
 빌드한 것을 쓰려면 `AGENT_GUARD_GITLEAKS_HELPER`를 그 `agent-guard-scan`의 절대
 경로로 두세요. 같은 결과 보장, 실패 처리, 메모리, 개인정보는
 [warm gitleaks helper 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md)에

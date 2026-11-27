@@ -683,15 +683,15 @@ Hook modes:
 | `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
 | `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
 | `AGENT_GUARD_PII_HOOK_MODE` | `off` (default), `block`, or `mask`. |
-| `AGENT_GUARD_LOG_MODE` | The metadata log is on by default; set `off` to opt out. `off` also turns off the local caches in the private state directory (the gitleaks readiness cache, the clean-scan cache below, and the shared protected-path regex cache, which is then rebuilt in every invocation) unless `AGENT_GUARD_SCAN_CACHE=on` is set explicitly. Without them every hook runs the gitleaks readiness check and scans a repeated Bash command again, usually one or two more gitleaks runs per hook. With `AGENT_GUARD_LOG_MODE=off` and `AGENT_GUARD_SCAN_CACHE=on`, the caches are written and no event record is. See [PRIVACY.md](../PRIVACY.md) for what each cache file holds. |
+| `AGENT_GUARD_LOG_MODE` | The metadata log is on by default; set `off` to opt out. `off` also turns off the local caches in the private state directory (the gitleaks readiness cache, the clean-scan cache below, and the shared protected-path regex cache, which is then rebuilt in every invocation) unless `AGENT_GUARD_SCAN_CACHE=on` is set explicitly. Without them every hook runs the gitleaks readiness check and scans a repeated Bash command again, usually one or two more gitleaks runs per hook. With `AGENT_GUARD_LOG_MODE=off` and `AGENT_GUARD_SCAN_CACHE=on`, the caches are written and no event record is. `off` without `AGENT_GUARD_SCAN_CACHE=on` also stops the hourly removal of stale run directories (`agent-guard-run.*` in the temporary directory, left when a host kills a hook with SIGKILL), because its marker lives in the private state directory; `agent-guard doctor` counts such directories without removing them. See [PRIVACY.md](../PRIVACY.md) for what each cache file holds. |
 
 Replacement policy files ([Policy files](#policy-files-and-shell-integration)):
 
 | Variable | Default / use |
 | --- | --- |
-| `AGENT_GUARD_DENY_READ_PATHS` | Override the deny-read policy file. |
+| `AGENT_GUARD_DENY_READ_PATHS` | Override the deny-read policy file. Each rule is a shell pattern. Against the path a file tool is given, `?` and a bracket expression stand for one whole character, and a range such as `[a-z]` follows code point order, in every shell and locale. A named class such as `[[:digit:]]` is exact for ASCII characters and matches every other character. A bracket expression that holds an equivalence class such as `[=a=]`, a named collating symbol such as `[.hyphen.]`, or a class name that is not one of the POSIX classes, `ascii` or `word`, matches every character. |
 | `AGENT_GUARD_DENY_BASH_PATTERNS` | Override the risky-shell-command policy file. |
-| `AGENT_GUARD_GITLEAKS_CONFIG` | Override the gitleaks configuration file. |
+| `AGENT_GUARD_GITLEAKS_CONFIG` | Override the gitleaks configuration file. Write an `[extend] path` in it as an absolute path in a plain `[extend]` table: hook input is scanned from a private directory (see [`.gitleaksignore`](#gitleaksignore)), where a relative one would name another file, so such a configuration is not used for hook input. |
 
 Other settings:
 
@@ -722,7 +722,7 @@ off one cache, check or masking rule.
 | `AGENT_GUARD_KEY_NAME_REDACT` | `off` (default) or `on`. `on` also masks, and blocks in a prompt, an identifier that repeats a credential-like field name (`credential: CredentialSchema,`); see [Output and prompt handling](#output-and-prompt-handling). Any value other than unset, empty or `off` counts as `on`. |
 | `AGENT_GUARD_TRACKED_FILE_EXCEPTION` | `on` (default) or `off`. `on` lets a file committed to the current repository be read even when its name is on the deny-read list ([Committed files](#committed-files)). Any other value, an empty one included, counts as `off`. |
 | `AGENT_GUARD_KNOWN_VALUE_REDACT` | `on` (default) or `off`. Only with `AGENT_GUARD_DENY_READ_MODE=mask`: output masking also masks the values of the project's root dotenv files ([Known dotenv values in output](#known-dotenv-values-in-output)). `off` skips it. |
-| `AGENT_GUARD_SCAN_CACHE` | `on` (default) or `off`; with `AGENT_GUARD_LOG_MODE=off` the default is off and only an explicit `on` enables it. When on, the PreToolUse Bash command-text scan (the one that repeats, such as `ls -la` or `git status`) skips gitleaks only for a command that was already scanned clean within the last 10 minutes under the same gitleaks executable (a native binary, not a script shim), configuration file contents, `GITLEAKS_CONFIG`/`GITLEAKS_CONFIG_TOML`, scan flags, and agent-guard version. Prompts, file edits, patches, MCP and network input, and `scan-staged`/`scan-working-tree` are always scanned directly. Entries are SHA-256 hashes in the private state directory, at most 256 of them; the scanned text is never stored. Findings, scanner errors, and scans that could not run are never cached. A `.gitleaksignore` in the scan directory, a configuration that names `extend` anywhere except a plain `[extend]` table holding only `useDefault` and a one-line `disabledRules` with no multiline string before or inside it, a configuration with a double-quoted key or table name, `AGENT_GUARD_LOG_MODE=off` without an explicit `AGENT_GUARD_SCAN_CACHE=on`, no root-owned, non-writable `/usr/bin/sha256sum`, `/bin/sha256sum`, or `/usr/bin/shasum` (the hash tool is never taken from `PATH`) or one that fails a known-answer check, and any value other than `on` disable it. With logging on, `off` disables only this cache. With `AGENT_GUARD_LOG_MODE=off`, only an explicit `on` prepares the private state directory, under the same ownership, mode, and symlink checks, and enables this cache together with the readiness and protected-path regex caches; no event record is written. An `AGENT_GUARD_LOG_MODE` value other than `on` or `off` leaves all three caches off whatever this variable says. |
+| `AGENT_GUARD_SCAN_CACHE` | `on` (default) or `off`; with `AGENT_GUARD_LOG_MODE=off` the default is off and only an explicit `on` enables it. When on, the PreToolUse Bash command-text scan (the one that repeats, such as `ls -la` or `git status`) skips gitleaks only for a command that was already scanned clean within the last 10 minutes under the same gitleaks executable (a native binary, not a script shim), configuration file contents, `GITLEAKS_CONFIG`/`GITLEAKS_CONFIG_TOML`, scan flags, and agent-guard version. Prompts, file edits, patches, MCP and network input, and `scan-staged`/`scan-working-tree` are always scanned directly. Entries are SHA-256 hashes in the private state directory, at most 256 of them; the scanned text is never stored. Findings, scanner errors, and scans that could not run are never cached. The command-text scan runs from a private directory, so a repository [`.gitleaksignore`](#gitleaksignore) neither applies to it nor turns the cache off. A configuration that names `extend` anywhere except a plain `[extend]` table holding only `useDefault` and a one-line `disabledRules` with no multiline string before or inside it, a configuration with a double-quoted key or table name, `AGENT_GUARD_LOG_MODE=off` without an explicit `AGENT_GUARD_SCAN_CACHE=on`, no root-owned, non-writable `/usr/bin/sha256sum`, `/bin/sha256sum`, or `/usr/bin/shasum` (the hash tool is never taken from `PATH`) or one that fails a known-answer check, and any value other than `on` disable it. With logging on, `off` disables only this cache. With `AGENT_GUARD_LOG_MODE=off`, only an explicit `on` prepares the private state directory, under the same ownership, mode, and symlink checks, and enables this cache together with the readiness and protected-path regex caches; no event record is written. An `AGENT_GUARD_LOG_MODE` value other than `on` or `off` leaves all three caches off whatever this variable says. |
 | `AGENT_GUARD_CODEX_TRUST_CHECK` | `on` (default) or `off`; when off, `doctor` and the Codex `plugin status`/`install`/`update` output skip the `codex app-server` hook-trust query and report it as unverified. |
 
 ### Scanner and native parts
@@ -812,6 +812,44 @@ replacement files does not test that.
 The user files `mask-deny-values.txt`, `mask-allow-keys.txt` and
 `protected-containers.txt` are read from `$HOME/.config/agent-guard/`.
 `XDG_CONFIG_HOME` does not move that directory.
+
+### `.gitleaksignore`
+
+A `.gitleaksignore` belongs to the repository that holds it. It applies to
+scans of that repository's own files and not to hook input.
+
+| Scan | `.gitleaksignore` |
+| --- | --- |
+| `scan-staged`, `scan-working-tree`, `scan-path` (the GitHub Action), and the commit and changed-file checks a hook runs on the repository | Applied as gitleaks reads it: the file in the directory the scan runs in and, for `scan-path`, the one in the scanned directory |
+| Hook input: shell command text, tool output, the content a tool is about to write, a file a tool wrote outside those checks, MCP and network input, prompts | Not applied |
+
+Hook input is scanned from a private directory that holds no ignore file.
+To allow a value in hook input, add a gitleaks allowlist to the configuration
+that `AGENT_GUARD_GITLEAKS_CONFIG` names. `agent-guard doctor` prints one line
+when the current directory has a `.gitleaksignore`.
+
+gitleaks resolves a relative `[extend] path` against its working directory,
+so from the private directory it would name another file. A custom
+configuration is therefore checked before hook input is scanned: it, and the
+file it extends (gitleaks opens no extend path past that one), may extend
+another file only by a one-line absolute `path` in a plain `[extend]` table (`useDefault` and `disabledRules` are not
+affected). With a relative path, or an extend key in another TOML spelling (a
+dotted key, an inline table, a quoted name) that cannot be checked, hook input
+is not scanned: the hook names the reason and the
+[infrastructure policy](#infrastructure-policy) applies (blocked by default).
+Repository scans read the configuration as before. A relative
+`AGENT_GUARD_GITLEAKS_CONFIG` itself still resolves from the hook's working
+directory. Without a private run directory (`mktemp -d` failed) hook input is
+not scanned and the [infrastructure policy](#infrastructure-policy) applies.
+
+gitleaks itself starts in that private directory. A version-manager shim that
+picks the gitleaks version from the project directory (a `.tool-versions`
+file, for example) finds no version there, so hook input is not scanned. The
+call is refused when the shim fails with status 1, which is also how gitleaks
+reports a finding; with another status the
+[infrastructure policy](#infrastructure-policy) applies. Either way the
+message names the fix: set the version globally, or name the executable in
+`AGENT_GUARD_GITLEAKS_BIN`.
 
 ### Committed files
 

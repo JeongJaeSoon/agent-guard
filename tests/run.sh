@@ -143,9 +143,9 @@ chmod +x "$MOCK_BIN/gitleaks"
 # unset runs every shard in order. A shard skips the other shards' blocks, so it
 # must build its own fixtures rather than reuse one an earlier shard created.
 case ${AGENT_GUARD_TEST_SHARD:-} in
-  ''|1|2|3|4|5|6|7) ;;
+  ''|1|2|3|4|5|6|7|8) ;;
   *)
-    say "AGENT_GUARD_TEST_SHARD must be unset or 1-7, got: $AGENT_GUARD_TEST_SHARD" >&2
+    say "AGENT_GUARD_TEST_SHARD must be unset or 1-8, got: $AGENT_GUARD_TEST_SHARD" >&2
     exit 2
     ;;
 esac
@@ -190,18 +190,12 @@ suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.s
 ci_include=$(sh "$ROOT/.github/scripts/ci-scope.sh" push main < /dev/null | sed -n 's/^include=//p')
 ci_shards=$(printf '%s\n' "$ci_include" | jq -r '.[].shards' | tr ' ' '\n' | sort | tr '\n' ' ')
 ci_navigation_hosts=$(printf '%s\n' "$ci_include" | jq -r '.[].navigation_host // empty' | sort | tr '\n' ' ')
-if [ -n "$suite_shards" ] && [ "$suite_shards" = '1 2 3 4 5 6 7 ' ] \
-  && [ "$ci_shards" = '1 1 2 2 3 3 4 5 5 6 6 7 7 ' ] \
+if [ -n "$suite_shards" ] && [ "$suite_shards" = '1 2 3 4 5 6 7 8 ' ] \
+  && [ "$ci_shards" = '1 1 2 2 3 3 4 5 5 6 6 7 7 8 8 ' ] \
   && [ "$ci_navigation_hosts" = 'claude codex ' ]; then
   ok "every test shard and navigation host runs in the CI matrix"
 else
   not_ok "every test shard and navigation host runs in the CI matrix (suite: $suite_shards; ci.yml: $ci_shards; navigation hosts: $ci_navigation_hosts)"
-fi
-
-if [ ! -e "$PLUGIN_ROOT/commands/setup-shell.md" ]; then
-  ok "setup-shell has a single skill implementation"
-else
-  not_ok "setup-shell has a single skill implementation"
 fi
 
 setup_shell_skill="$PLUGIN_ROOT/skills/setup-shell/SKILL.md"
@@ -248,6 +242,7 @@ for file in \
   "$ROOT/tests/hook-spawn-reduction.sh" \
   "$ROOT/tests/gitleaks-helper.sh" \
   "$ROOT/tests/gitleaks-helper-routing.sh" \
+  "$ROOT/tests/gitleaksignore-scope.sh" \
   "$ROOT/scripts/build-gitleaks-helper.sh" \
   "$ROOT/tests/post-tool-failure.sh" \
   "$ROOT/tests/run.sh"; do
@@ -286,6 +281,10 @@ run_expect 0 "known dotenv values are masked only in deny-read mask mode" sh "$R
 # suite with one set, as an agent worker does, so it cannot depend on it (#619).
 run_expect 0 "CLI guidance names a command that runs for plugin-only installs" \
   env AGENT_GUARD_SHELL_INIT_VERSION=0.0.1 sh "$ROOT/tests/cli-guidance.sh"
+run_expect 0 "doctor install arguments are deprecated: still passed to setup, with a warning" \
+  sh "$ROOT/tests/doctor-install-args.sh"
+run_expect 0 "doctor reports the settings it reads, values only when safe" \
+  sh "$ROOT/tests/doctor-settings.sh"
 
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
@@ -5812,6 +5811,14 @@ run_expect 0 "hand-back reports that name credential settings without values pas
   sh "$ROOT/tests/handback-values.sh"
 fi # end of shard 7
 
+if in_shard 8; then
+# Partition 3 took 17 to 19 minutes on macOS before this suite joined it, and
+# the suite alone took 433 seconds there: the job hit its 25-minute limit at
+# the v3.15.1 release. tests/partition-membership.sh keeps it here.
+run_expect 0 "a deny-read rule matches whole characters in every shell and locale" \
+  sh "$ROOT/tests/deny-rule-characters.sh"
+fi # end of shard 8
+
 if in_shard 5; then
 # A shell cd moves the commit to another repository: the scan must follow a
 # literal cd and fail per the infrastructure policy (closed here) on one it
@@ -8635,6 +8642,9 @@ run_expect 0 "gitleaks readiness cache reuses only a fresh verdict for the same 
   "$REAL_SH" "$ROOT/tests/gitleaks-probe-cache.sh"
 run_expect 0 "gitleaks clean-verdict cache skips only an identical clean scan (#407)" \
   "$REAL_SH" "$ROOT/tests/gitleaks-clean-cache.sh"
+run_expect 0 "hook input is scanned without a repository's .gitleaksignore, and scans of the repository's own files apply it" \
+  env AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
+  "$REAL_SH" "$ROOT/tests/gitleaksignore-scope.sh"
 run_expect 0 "logging off writes no state unless AGENT_GUARD_SCAN_CACHE=on, which caches without an event log (#510)" \
   "$REAL_SH" "$ROOT/tests/log-off-state-cache.sh"
 run_expect 0 "the opt-in warm-helper client gets every scan only when enabled, and a failing client is never clean (#537)" \
@@ -15834,6 +15844,8 @@ fi
 
 run_expect 0 "PII settings the guard cannot honor stop every entry point" \
   sh "$ROOT/tests/pii-config.sh"
+run_expect 0 "the hook PII request cap is an internal argument; the environment flag is deprecated" \
+  sh "$ROOT/tests/pii-hook-request.sh"
 
 # An empty skip set must leave endpoint providers exactly as they were:
 # reaching the request (and failing on the unreachable URL) proves the new
@@ -17534,6 +17546,7 @@ else
 fi
 rm -rf "$NORM_PARENT"
 run_expect 0 "smoke-test keeps the process EXIT trap and leaves no temp directory" sh "$ROOT/tests/exit-trap-cleanup.sh"
+run_expect 0 "HUP, INT and TERM remove the run directory on every shell, and stale leftovers are reaped" sh "$ROOT/tests/rundir-cleanup.sh"
 
 # --- pilot security: bounded tree scans and Codex write targets ------------
 # Assemble the test-only sentinel so source scans never see the matched value.

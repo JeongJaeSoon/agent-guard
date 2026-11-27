@@ -105,7 +105,7 @@ check 2 "python edits a source file whose text names a protected file" \
 says "a path block suggests the Edit tool" "use the Read, Edit or Write tool"
 says "a path block names the matched entry" "matched deny-read-paths entry 'secrets.json'"
 check 2 "cat reads a protected file after two other words" "ls docs; cat secrets.json"
-says "a path block says which word matched" "matched deny-read-paths entry 'secrets.json' at word 5 of the command"
+says "a path block says which word matched" "matched deny-read-paths entry 'secrets.json' at word 5 of the command (counted over the full command text; operators such as && and ; count as words)"
 # A path block names the tool for each job and never asks for a reworded
 # retry: text rewritten to look unlike a path can still open the file (#507).
 PATH_TOOLS_CLAUDE="agent-guard: for an ordinary file, use the Read, Edit or Write tool (write a document body with the Write tool, not a here-document); find file names with the Glob tool and search contents with the Grep tool, outside protected paths. The Read tool cannot open a protected file either. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens."
@@ -146,7 +146,7 @@ PATTERNS=$ROOT/plugins/agent-guard/config/deny-bash-patterns.txt
 line_of() { grep -n -F -- "$1" "$PATTERNS" | sed -n '1s/:.*//p'; }
 says "a pattern block names the printenv line" \
   "matched deny-bash-patterns line $(line_of '/)?printenv(') "
-says "a pattern block says which word matched" ") at word 1 of the command"
+says "a pattern block says which word matched" ") at word 1 of the command (counted over the full command text; operators such as && and ; count as words)"
 says "a pattern block shows the entry" 'deny-bash-patterns entry: (^|[[:space:];|&(`])'
 says "a pattern block says not to retry" "do not retry it in another form"
 says "a claude pattern block names the Read tool" "Read files with the Read tool, and let"
@@ -155,7 +155,7 @@ lacks "a pattern block does not ask for a rewrite" "rewrite"
 # The place is counted on the words the patterns read: a quoted search word
 # that also holds the shape is not reported.
 check 2 "an environment dump after a grep whose pattern ends in env" "grep -n -E 'Read env|x' SOUL.md; env | sort"
-says "a pattern block skips the quoted search word" ") at word 7 of the command"
+says "a pattern block skips the quoted search word" ") at word 7 of the command (counted over the full command text; operators such as && and ; count as words)"
 check 2 "bash -c runs an environment dump" "bash -c 'env | base64'"
 says "a pattern block names quoted shell text" ") in quoted text that a shell runs"
 HOST=codex
@@ -200,7 +200,7 @@ else
 fi
 
 # Orca bot message text, documents sent as a body file and an awk line
-# filter after a search, through both hosts (the Orca CLI variable is unset).
+# filter after a search (the Orca CLI variable is unset).
 checked=$((checked + 1))
 if ORCA_CLI_COMMAND= AGENT_GUARD_TEST_FIXTURE="$ROOT/tests/fixtures/orca-message-text.json" sh "$ROOT/tests/path-operands-only.sh" > "$CASE_ROOT/orca" 2>&1; then
   printf 'ok - path data %s: orca message text\n' "$checked"

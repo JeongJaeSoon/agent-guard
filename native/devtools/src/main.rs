@@ -98,6 +98,7 @@ const COMMANDS: &[Subcommand] = &[
             "--entry",
             "--case",
             "--timeout",
+            "--locale",
             "--out",
         ]),
         flags: &["--names"],

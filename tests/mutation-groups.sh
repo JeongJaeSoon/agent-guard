@@ -14,13 +14,19 @@ check() { # check EXPECT_RC NAME GROUP_LIST
   rc=$?
   if [ "$rc" -eq "$1" ]; then echo "ok $n - $2"; else echo "not ok $n - $2 (exit $rc, wanted $1)"; fail=1; fi
 }
+# without GROUP: the workflow's own group list less GROUP.
+without() {
+  printf '%s\n' "$shards" | tr -d ' ' | tr ',' '\n' | grep -vx "$1" | paste -sd , - | sed 's/,/, /g'
+}
 fail=0
 echo "TAP version 13"
 shards=$(sed -n 's/^ *group: \[\(.*\)\] *$/\1/p' "$WF")
 check 0 "the workflow's own groups are accepted" "$shards"
-check 2 "a dropped bash shard is rejected" "core, handback, bash-1, bash-2, bash-3, bash-5, bash-6"
-check 2 "a dropped core group is rejected" "handback, bash-1, bash-2, bash-3, bash-4, bash-5, bash-6"
-check 2 "a repeated group is rejected" "core, core, handback, bash-1, bash-2, bash-3, bash-4, bash-5, bash-6"
-check 2 "an unknown group is rejected" "core, handback, bash-1, bash-2, bash-3, bash-4, bash-5, bash-6, extra"
+check 2 "a dropped bash shard is rejected" "$(without bash-4)"
+check 2 "a dropped core group is rejected" "$(without core)"
+check 2 "a dropped deny-chars shard is rejected" "$(without deny-chars-2)"
+check 2 "a repeated group is rejected" "core, $shards"
+check 2 "an unknown group is rejected" "$shards, extra"
+check 2 "a deny-chars shard beyond its count is rejected" "$(without deny-chars-2), deny-chars-4"
 echo "1..$n"
 exit "$fail"
