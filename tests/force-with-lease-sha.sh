@@ -102,12 +102,13 @@ prompt_case() {
 
 # Same text through the Bash command check and the prompt guard. The prompt
 # prefix holds no `:` or `=`, which would keep the lease line from passing.
-# The Bash command check gets the same event for both hosts here, and the host
-# changes its block message and output envelope, never its decision. So it
-# runs for Claude; the rows after the loop keep one passing and one blocking
-# command for Codex.
+# Both checks get the same event for both hosts here, and the host changes the
+# block message and output envelope, never the decision. So they run for
+# Claude; the rows after the loop keep one passing and one blocking command and
+# prompt for Codex.
 both() {
-  [ "$1" = codex ] || pre_case "$1" "$2" "$3" "$4"
+  [ "$1" != codex ] || return 0
+  pre_case "$1" "$2" "$3" "$4"
   prompt_case "$1" "$2" "$3" "the subagent ran $4"
 }
 
@@ -154,6 +155,8 @@ for host in claude codex; do
 done
 pre_case codex 0 'lease on a keyword branch with a 40-hex id' "$LEASE=$ACC:$SHA1 origin HEAD"
 pre_case codex 2 'keyword assignment with a hex value' "api_$P=$OTHER"
+prompt_case codex 0 'lease on a keyword branch with a 40-hex id' "the subagent ran $LEASE=$ACC:$SHA1 origin HEAD"
+prompt_case codex 2 'keyword assignment with a hex value' "the subagent ran api_$P=$OTHER"
 
 # Shape boundaries go through scan-path with the real scanner: the hooks let
 # some of these shapes pass with or without this allowlist, so they cannot show
