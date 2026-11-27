@@ -63,7 +63,12 @@ that cannot be downloaded or does not match is a warning: gitleaks is
 installed and the command does not fail. With any other gitleaks (another
 build such as Homebrew's, another version, or one that
 `AGENT_GUARD_GITLEAKS_BIN` selects) the command installs no helper and prints
-one line saying why and what to do. On a
+one line saying why and what to do. When that gitleaks comes from `PATH` and
+you pass the checksum for 8.30.1, the command installs the official build in
+the private directory, which is used before `PATH`, says so, and names how to
+go back (remove that file, or set `AGENT_GUARD_GITLEAKS_BIN` to the `PATH`
+build); it never replaces a gitleaks already in the private directory, and
+`doctor` never does this. On a
 platform without a helper asset it says nothing. To skip the helper, set
 `AGENT_GUARD_GITLEAKS_HELPER=off` when you run the command.
 

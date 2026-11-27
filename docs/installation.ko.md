@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 86398a7565dc9eb2ff0a4038a44b08e45158b452 -->
+<!-- translated-from: docs/installation.md; source-blob: 7f616d6f275ba0a05b16a1f9ee00716a83be97c6 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -53,7 +53,11 @@ gitleaks가 공식 gitleaks 8.30.1 릴리스 빌드이면, private 디렉터리�
 값이 맞지 않으면 경고만 냅니다. gitleaks는 설치되고 명령은 실패하지 않습니다.
 그 밖의 gitleaks(Homebrew 빌드 같은 다른 빌드, 다른 버전,
 `AGENT_GUARD_GITLEAKS_BIN`이 고른 것)를 쓰고 있으면 helper를 설치하지 않고 이유와
-할 일을 한 줄로 알립니다.
+할 일을 한 줄로 알립니다. 그 gitleaks가 `PATH`에서 왔고 8.30.1의 checksum을 주면,
+`PATH`보다 먼저 쓰이는 private 디렉터리에 공식 빌드를 설치하고, 그렇게 했다는 것과
+되돌리는 방법(그 파일을 지우거나 `AGENT_GUARD_GITLEAKS_BIN`을 `PATH`의 빌드로
+설정)을 알립니다. private 디렉터리에 이미 있는 gitleaks는 바꾸지 않고, `doctor`는 이
+일을 하지 않습니다.
 helper asset이 없는 플랫폼에서는 아무 말도 하지 않습니다. helper를 건너뛰려면
 명령을 실행할 때 `AGENT_GUARD_GITLEAKS_HELPER=off`를 두세요.
 

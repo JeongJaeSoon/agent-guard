@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 86398a7565dc9eb2ff0a4038a44b08e45158b452 -->
+<!-- translated-from: docs/installation.md; source-blob: 7f616d6f275ba0a05b16a1f9ee00716a83be97c6 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -54,7 +54,11 @@ warm helperは、コンパイル済みのgitleaks 8.30.1 detectorをユーザー
 警告だけを出します。gitleaksはインストールされ、コマンドは失敗しません。
 それ以外のgitleaks（Homebrewビルドなどの別のビルド、別のバージョン、
 `AGENT_GUARD_GITLEAKS_BIN` が選んだもの）を使っている場合は、helperを
-インストールせず、理由とすべきことを1行で表示します。helperのassetがないプラットフォームでは
+インストールせず、理由とすべきことを1行で表示します。そのgitleaksが `PATH` から来て
+いて、8.30.1のchecksumを渡した場合は、`PATH` より先に使われるprivateディレクトリに
+公式ビルドをインストールし、そうしたことと戻し方（そのファイルを削除するか、
+`AGENT_GUARD_GITLEAKS_BIN` を `PATH` のビルドに設定する）を表示します。privateディレクトリに
+すでにあるgitleaksは置き換えず、`doctor` はこれを行いません。helperのassetがないプラットフォームでは
 何も表示しません。helperを省くには、コマンドの実行時に
 `AGENT_GUARD_GITLEAKS_HELPER=off` を設定してください。
 
