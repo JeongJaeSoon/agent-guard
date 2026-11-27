@@ -40,9 +40,11 @@ keep running the real gitleaks.
 ## Install it
 
 `agent-guard setup --install` installs the helper together with gitleaks when
-the gitleaks in use is the one that command puts in the private directory, at
-the version the helper links; rerun it to get the helper for a gitleaks it
-installed earlier. A helper that cannot be downloaded or does not match is
+the gitleaks in use is the official release build of the version the helper
+links, in the private directory or on `PATH`; rerun it to get the helper for a
+gitleaks it installed earlier. With another build on `PATH` and the checksum
+for that version, it installs the official build in the private directory
+(used before `PATH`) first, and says how to go back. A helper that cannot be downloaded or does not match is
 only a warning there, with any other gitleaks the command prints why it
 installed no helper, and `AGENT_GUARD_GITLEAKS_HELPER=off` skips it. The
 [installation guide](installation.md#optional-warm-gitleaks-helper) lists the
@@ -73,11 +75,20 @@ they have the trust of the gitleaks binary in the same directory.
 
 `agent-guard setup` (and `doctor`) prints one line on the helper:
 `not installed`, `installed`, `selected` (your own client), `off`, or
-`not used` with the reason (installed for another version,
-`AGENT_GUARD_GITLEAKS_BIN`, logging off). The line is read from files and
-variables. It does not run the client or start a helper, so it does not tell
-whether the helper answers for your gitleaks: with a build other than the
-official release, `installed` still means every scan runs the real gitleaks.
+`not used` with the reason and what to do: installed for another version,
+`AGENT_GUARD_GITLEAKS_BIN`, logging off, a socket path over 103 bytes, a
+state directory hooks refuse (not a plain absolute path, or not a 0700
+directory you own), or a
+selected gitleaks that is another version or not the official release build.
+`not installed` names that last reason too, instead of suggesting a helper
+that would not answer. The line is read from files and variables, and the
+gitleaks file is compared with the official build's SHA-256 for this platform
+in `config/gitleaks-official.sha256`. It does not run the client or start a
+helper. A build that matches the release in everything the client compares
+but not byte for byte is reported as another build, although the helper
+would answer it; other causes (a sandbox without Unix sockets, the state
+directory's owner or mode) are not seen, and the client then runs the real
+gitleaks.
 
 The helper links the gitleaks 8.30.1 library; with any other selected
 gitleaks version every request runs the real gitleaks.
@@ -132,6 +143,11 @@ The helper is not used when:
   now);
 - the socket path would exceed 103 bytes (`$XDG_STATE_HOME`, or
   `~/.local/state`, is very deep);
+- the state directory is not a plain absolute path, or not a 0700 directory
+  you own: hooks then keep no state, and the helper has no place for its
+  socket; its `gitleaks-helper` directory, once it exists, must be one too;
+- `AGENT_GUARD_LOG_MODE` is neither `on` nor `off`: hooks then keep no
+  state directory either;
 - the gitleaks the CLI selected is not built like the official release: the
   client reads its embedded Go build information and the helper compares the
   toolchain, the `gore2regex` tag (go-re2 instead of Go's `regexp`) and every
@@ -163,8 +179,11 @@ after every scan).
 - A config with `[extend] path` (another file the hash does not cover), or one
   that makes gitleaks print warnings, is marked unsupported; the client then
   always runs the real gitleaks for it.
-- A `.gitleaksignore` in the scan directory sends the request to the real
-  gitleaks.
+- A `.gitleaksignore` in the directory a scan runs in sends the request to
+  the real gitleaks, which applies it. That happens only for scans of a
+  repository's own files (`scan-staged`, `scan-working-tree`, and the commit
+  and changed-file checks). Hook input is scanned from a private directory
+  that holds no ignore file, so the helper answers it in any repository.
 - Any log event the gitleaks library emits during a scan (the real gitleaks
   would print it), a scan error, or a scan over 2.5 s is answered "fallback".
 - Standard input from a regular file is read in fixed 100 KB chunks by the
@@ -198,7 +217,7 @@ it answers.
 | Socket served by another user | Not trusted, even if the answer looks clean: real gitleaks | same (needs root or sudo) |
 | Private directory missing, wrong mode or owner, or a symlink | Real gitleaks; nothing is repaired | same |
 | Unwritable report path | Real gitleaks, which reports its own error | same |
-| Input over the size limits, piped input that arrives in pieces, a report over 16 MiB, unknown flags, `.gitleaksignore` | Real gitleaks | same |
+| Input over the size limits, piped input that arrives in pieces, a report over 16 MiB, unknown flags, a `.gitleaksignore` beside a repository scan | Real gitleaks | same |
 | The hook's other descriptors cannot be listed or marked close-on-exec | No helper is started; the scan runs the real gitleaks | not tested (needs a system without `/dev/fd`) |
 | Real gitleaks cannot run either | Client exits 2: the CLI's existing "could not scan" path (`open` warns, `closed` blocks); never cached as clean | `tests/gitleaks-helper-routing.sh` |
 | Sandbox without Unix sockets or background processes | The helper cannot start; every call runs the real gitleaks at today's speed | not measured |

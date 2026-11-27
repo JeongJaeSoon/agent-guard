@@ -55,14 +55,20 @@ minutes. It is a separate release asset for Linux x64/arm64 and macOS arm64,
 not part of the release archive, Homebrew package or plugin.
 
 `agent-guard setup --install` installs it together with gitleaks. It
-downloads the helper when the gitleaks in use is the one that command puts in
-the private directory, at version 8.30.1. If you installed gitleaks that way
+downloads the helper when the gitleaks in use is the official gitleaks 8.30.1
+release build, in the private directory or on `PATH`. If you installed gitleaks that way
 before, run `agent-guard setup --install` again to get the helper; it
 downloads nothing when this version's helper is already installed. A helper
 that cannot be downloaded or does not match is a warning: gitleaks is
-installed and the command does not fail. With any other gitleaks (one from
-`PATH` such as a Homebrew build, `AGENT_GUARD_GITLEAKS_BIN`, or another
-version) the command installs no helper and prints one line saying why. On a
+installed and the command does not fail. With any other gitleaks (another
+build such as Homebrew's, another version, or one that
+`AGENT_GUARD_GITLEAKS_BIN` selects) the command installs no helper and prints
+one line saying why and what to do. When that gitleaks comes from `PATH` and
+you pass the checksum for 8.30.1, the command installs the official build in
+the private directory, which is used before `PATH`, says so, and names how to
+go back (remove that file, or set `AGENT_GUARD_GITLEAKS_BIN` to the `PATH`
+build); it never replaces a gitleaks already in the private directory, and
+`doctor` never does this. On a
 platform without a helper asset it says nothing. To skip the helper, set
 `AGENT_GUARD_GITLEAKS_HELPER=off` when you run the command.
 
@@ -89,8 +95,13 @@ so it is never treated as a clean scan. The helper is skipped when
 `AGENT_GUARD_GITLEAKS_BIN` is set or `AGENT_GUARD_LOG_MODE=off`, and it
 answers only for the official gitleaks 8.30.1 release binary, which
 `agent-guard setup --install` installs; a gitleaks built with Go's `regexp`
-(Homebrew, `go install`) is always run for real. `agent-guard setup` reports
-whether a helper is installed, not whether it answers for your gitleaks. To
+(Homebrew, `go install`) is always run for real. `agent-guard setup` and
+`agent-guard doctor` say in one line when an installed helper will not answer,
+and what to do: the selected gitleaks is another build or version, the state
+directory is so deep that the helper's socket path would pass 103 bytes or is
+not a private (0700, your own) plain absolute directory, the helper was installed for another Agent Guard version, or one of those two
+variables is set. They compare the gitleaks file with the official build's
+SHA-256 that this version records, and start or install nothing. To
 use your own source build instead, set
 `AGENT_GUARD_GITLEAKS_HELPER` to the absolute path of its `agent-guard-scan`.
 The [warm gitleaks helper guide (English)](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) covers

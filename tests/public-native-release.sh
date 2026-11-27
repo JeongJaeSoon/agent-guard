@@ -61,7 +61,7 @@ AGENT_GUARD_VERSION="$version" sh "$case_dir/download/bootstrap.sh" > "$out/fres
 # the link directory exported above, later ones do not.
 AGENT_GUARD_LOG_MODE=on XDG_STATE_HOME="$case_dir/home/state" AGENT_GUARD_GITLEAKS_BIN_DIR="$case_dir/fresh-gitleaks" \
   "$AGENT_GUARD_BIN_DIR/agent-guard" setup --install-gitleaks-helper > "$out/gitleaks-helper.log" 2>&1
-grep -F 'gitleaks helper  installed' "$out/gitleaks-helper.log"
+grep -F 'installed the warm gitleaks helper at' "$out/gitleaks-helper.log"
 (cd "$case_dir/fresh-gitleaks/gitleaks-helper" && shasum -a 256 -c SHA256SUMS) >> "$out/gitleaks-helper.log"
 curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$previous/bootstrap.sh" -o "$case_dir/old-bootstrap.sh"
 printf '%s  %s\n' "$previous_bootstrap_sha" "$case_dir/old-bootstrap.sh" | shasum -a 256 -c -
