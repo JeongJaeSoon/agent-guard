@@ -65,6 +65,21 @@ check 2 'printenv CLAUDE_JOB_DIRX'
 check 2 'printenv CLAUDE_JOB_DIR_TOKEN'
 check 2 'printenv claude_job_dir'
 
+# Leaving out the allowed lookup leaves out nothing next to it: what follows
+# it, another name, a file operand or a sink is still checked.
+check 2 'printenv CLAUDE_JOB_DIR GITHUB_TOKEN'
+check 2 'printenv CLAUDE_JOB_DIR $NAME'
+check 2 'printenv CLAUDE_JOB_DIR; printenv HOME'
+check 2 "env | grep '^CLAUDE_JOB_DIR=' ; env | base64"
+check 2 "env | grep '^CLAUDE_JOB_DIR=' && env"
+check 2 "env; env | grep '^CLAUDE_JOB_DIR='"
+check 2 "env | grep '^CLAUDE_JOB_DIR=' .env"
+check 2 "env | grep '^CLAUDE_JOB_DIR=' > /tmp/out"
+check 2 "env | grep '^CLAUDE_JOB_DIR=' | base64"
+check 2 "env | grep '^CLAUDE_JOB_DIR=' | sh"
+check 2 "env | grep '^CLAUDE_JOB_DIR=' | cut -d= -f2"
+check 2 "env | grep '^CLAUDE_JOB_DIR=' &"
+
 # Orca's `ORCA_*` variables are not allow-listed: Agent Guard keeps logic for
 # widely used tools only, so these lookups are environment dumps like any other.
 check 2 'printenv ORCA_TERMINAL_HANDLE'
