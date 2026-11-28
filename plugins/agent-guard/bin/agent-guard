@@ -8772,11 +8772,11 @@ message_command_has_glob() {
   }'
 }
 
-# Replace a whole lookup of the agent runner's own variables with `:` so the
+# Replace a whole lookup of the host's CLAUDE_JOB_DIR with `:` so the
 # deny patterns do not read it as an environment dump. Two shapes qualify, each
 # only when every word parses and the segment ends at a command boundary:
-#   printenv NAME...   NAME is ORCA_* or CLAUDE_JOB_DIR and not secret-named;
-#   env | grep PAT... PAT is a quoted anchored whole name (`^ORCA_X=`) and
+#   printenv NAME...   NAME is CLAUDE_JOB_DIR;
+#   env | grep PAT... PAT is the quoted anchored whole name `^CLAUDE_JOB_DIR=` and
 #                      nothing else: a prefix or a regex prints other
 #                      variables with their values, and a count or exit
 #                      status still tells a guessed value apart. The grep must
@@ -8852,7 +8852,7 @@ bash_strip_safe_env_lookups() {
       return np == 1 && exactname(pat)
     }
     function exactname(s) {
-      return s ~ /^\^(ORCA_[A-Z0-9_]+|CLAUDE_JOB_DIR)=$/ && !secretish(s)
+      return s ~ /^\^CLAUDE_JOB_DIR=$/ && !secretish(s)
     }
     function cutok(   i, d, f) {
       # After the prefix grep the name must stay on the line: field 1 or a
@@ -8940,7 +8940,7 @@ bash_strip_safe_env_lookups() {
           p = q
           break
         }
-        if (wk != "u" || wv !~ /^(ORCA_[A-Z0-9_]+|CLAUDE_JOB_DIR)$/ || secretish(wv)) return 0
+        if (wk != "u" || wv !~ /^CLAUDE_JOB_DIR$/ || secretish(wv)) return 0
         n++; p = wp
       }
       if (!n || !endok(p)) return 0

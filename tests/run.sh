@@ -3782,7 +3782,7 @@ run_expect 0 "grep/rg search patterns and new openssl outputs leave out no prote
   sh "$ROOT/tests/search-operand-ground-truth.sh"
 run_expect 0 "runtime environment objects and jq interpolation leave out no protected read" \
   sh "$ROOT/tests/runtime-global-text.sh"
-run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay blocked" \
+run_expect 0 "CLAUDE_JOB_DIR lookups pass while ORCA_ lookups and secret dumps stay blocked" \
   sh "$ROOT/tests/env-lookup-allowlist.sh"
 run_expect 0 "a Codex or review session stays out of listed container stacks and database clients while a plain session keeps them" \
   sh "$ROOT/tests/container-session-boundary.sh"
