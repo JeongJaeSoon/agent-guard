@@ -192,7 +192,7 @@ check 2 "writer whose output is duplicated to another descriptor" \
 check 2 "sent file handed on as the last argument of the message command" \
   "${RUN}gh pr comment 5 --body-file $D/r.md; make -f \$_"
 check 2 "sent file handed on as the last argument, braced" \
-  "${RUN}orca orchestration reply --id m1 --body-file $D/r.md; busybox sh \"\${_}\""
+  "${RUN}gh pr comment 5 --body-file $D/r.md; busybox sh \"\${_}\""
 check 2 "sent file run under a quoted spelling" "${RUN}gh pr comment 5 --body-file $D/r.md; sh $D/r''.md"
 check 2 "sent file run through a glob" "${RUN}gh pr comment 5 --body-file $D/r.md; bash $D/r.m?"
 check 2 "sent file sourced through a glob" "${RUN}gh pr comment 5 --body-file $D/r.md${NL}. $D/r*"
@@ -313,17 +313,18 @@ truth 0 "document behind an fd-numbered target" \
 truth 0 "document, then a loop over a glob that prints names" \
   "cat > notes/b.md <<'EOF'${NL}see ./key.p8${NL}EOF${NL}for f in notes/*.md; do echo \"\$f\"; done"
 
-# A file the same command may run is no document. A here-document file named
-# as a body file is read as data only when it is not there yet, or is a
+# A file the same command may run is no document. A here-document body is
+# read as data only when the file it is written to is not there yet, or is a
 # regular file with one name and no execute bit, at a path the hook can
-# place: an absolute one, or a relative one in a command with no cd, of an
-# event that names its workdir. Written to a link, to a second name of a file
-# or to an executable file, the body stays in the scan, since a later command
-# name may run it; so does one written after a command that is not inert,
-# which may have changed what the path names. A ran row is judged by the hook
-# and then run in a fresh sandbox, as above; the gh, tool and helper on the
-# run's PATH are stand-ins made here. A judged row has a verdict the run
-# cannot show.
+# place: an absolute one, one under a plain home directory, or a relative one
+# in a command with no cd, of an event that names its workdir. Written to a
+# link, to a second name of a file or to an executable file, or to a word only
+# run time knows, the body stays in the scan, since a later command name may
+# run it. A file named again as a gh body file must also be written behind
+# inert commands only: any other may change what the path names. A ran row is
+# judged by the hook and then run in a fresh sandbox, as above; the gh, tool
+# and helper on the run's PATH are stand-ins made here, and the run's home
+# directory is the sandbox. A judged row has a verdict the run cannot show.
 RUNBOX=$CASE_ROOT/runbox
 runbox() {
   rm -rf "$RUNBOX"
@@ -345,7 +346,10 @@ runbox() {
 judged() { # $1 expected status, $2 label, $3 command
   runbox
   WORKDIR=$RUNBOX
+  judged_home=$HOME
+  HOME=$RUNBOX
   check "$1" "$2" "$3"
+  HOME=$judged_home
   unset WORKDIR
 }
 ran() { # $1 infrastructure-failure mode (default or closed), $2 expected status, $3 label, $4 command
@@ -353,7 +357,7 @@ ran() { # $1 infrastructure-failure mode (default or closed), $2 expected status
   judged "$2" "$3" "$4"
   unset AGENT_GUARD_INFRA_FAILURE_MODE
   checked=$((checked + 1))
-  (cd "$RUNBOX" && PATH="$RUNBOX/pbin:/usr/bin:/bin" /bin/sh -c "$4") < /dev/null > "$CASE_ROOT/run" 2>&1
+  (cd "$RUNBOX" && HOME="$RUNBOX" PATH="$RUNBOX/pbin:/usr/bin:/bin" /bin/sh -c "$4") < /dev/null > "$CASE_ROOT/run" 2>&1
   if grep -Fq "$canary" "$CASE_ROOT/run"; then leaked=2; else leaked=0; fi
   if [ "$leaked" -eq "$2" ]; then
     printf 'ok - heredoc body %s: run matches the verdict: %s\n' "$checked" "$3"
@@ -384,7 +388,8 @@ ran default 2 "the command file itself" "cat > pbin/gh ${READS}$SENDS pbin/gh"
 judged 2 "link to a file that is not there" "cat > dangle ${NAMES}$SENDS dangle"
 judged 2 "executable file that nothing in the command names again" "cat > pbin/helper ${NAMES}$SENDS pbin/helper"
 judged 2 "relative document after a cd, which the hook does not follow" "cd ./notes && cat > n.md ${NAMES}$SENDS n.md"
-judged 2 "document under a home-relative name, which the hook does not expand" "cat > ~/n.md ${NAMES}$SENDS ~/n.md"
+judged 2 "document under a quoted tilde, which no shell expands" "cat > '~/n.md' ${NAMES}$SENDS '~/n.md'"
+ran default 2 "link under the home directory" "cat > ~/lnk ${READS}$SENDS ~/lnk"
 judged 2 "relative document in a command that changes directory later" "cat > notes/n.md ${NAMES}cd notes && $SENDS n.md"
 judged 2 "document written after the command that sends it" "$SENDS $RUNBOX/notes/n.md${NL}cat > $RUNBOX/notes/n.md ${NAMES}true"
 ran default 0 "new document sent as a body file" "cat > notes/n.md ${NAMES}$SENDS notes/n.md"
@@ -394,9 +399,25 @@ ran default 0 "tee writes a new document that is sent" "tee notes/n.md ${NAMES}$
 ran default 0 "new document glued to the operator, sent with -F" "cat >notes/n.md<<'EOF'${NL}see ./key.p8${NL}EOF${NL}gh issue comment 5 -F notes/n.md"
 ran default 0 "new document under an absolute path" "cat > $RUNBOX/notes/n.md ${NAMES}$SENDS $RUNBOX/notes/n.md"
 ran default 0 "new document under an absolute path after a cd" "cd ./notes && cat > $RUNBOX/notes/n.md ${NAMES}$SENDS $RUNBOX/notes/n.md"
+ran default 0 "new document under the home directory" "cat > ~/notes/n.md ${NAMES}$SENDS ~/notes/n.md"
 ran default 0 "new document under a quoted name" "cat > \"notes/n.md\" ${NAMES}$SENDS 'notes/n.md'"
 ran default 0 "new document after inert commands" "echo start${NL}true; cat > notes/n.md ${NAMES}$SENDS notes/n.md"
 ran default 0 "two new documents, one sent" "cat > notes/a.md ${NAMES}cat > notes/b.md ${NAMES}$SENDS notes/a.md"
+# The same holds for a file the command does not name again.
+ran default 2 "link to the command, not named again" "cat > lnk ${READS}gh pr view 5"
+ran closed 2 "link to the command, not named again, closed" "cat > lnk ${READS}gh pr view 5"
+ran default 2 "link appended to, not named again" "cat >> lnk ${READS}gh pr view 5"
+ran default 2 "tee appends to the link, not named again" "tee -a lnk ${READS}gh pr view 5"
+ran default 2 "link under a quoted name, not named again" "cat > 'lnk' ${READS}gh pr view 5"
+ran default 2 "link behind an fd number, not named again" "cat 1>lnk ${READS}gh pr view 5"
+ran default 2 "second name of the command file, not named again" "cat > hrd ${READS}gh pr view 5"
+ran default 2 "executable file a later command starts itself, not named again" "cat > pbin/helper ${READS}tool"
+ran default 2 "target only known at run time" "L=lnk; cat > \$L ${READS}gh pr view 5"
+judged 2 "relative document after a cd, not named again" "cd ./notes && cat > n.md ${NAMES}tool"
+ran default 0 "new document, then a command that does not name it" "cat > notes/n.md ${NAMES}tool"
+ran default 0 "new document in a directory made first" "mkdir -p notes/d && cat > notes/d/x.md ${NAMES}tool"
+ran default 0 "plain document written again, then a command that does not name it" "cat > notes/old.md ${NAMES}tool"
+ran default 0 "new document under an absolute path after a cd" "cd ./notes && cat > $RUNBOX/notes/n.md ${NAMES}tool"
 # An event that names no workdir places no relative name; an absolute one
 # needs none.
 workdirless() { # $1 expected status, $2 label, $3 command

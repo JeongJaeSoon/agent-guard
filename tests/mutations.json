@@ -545,9 +545,9 @@
   },
   {
     "id": "bash-heredoc-body-file-runnable",
-    "rule": "heredoc_reused_as_body_file: a written file the same command may run is no document",
-    "old": "    heredoc_file_is_document \"$hr_file\" \"$hr_placed\" || return 1\n",
-    "new": "    :\n",
+    "rule": "bash_strip_heredoc_bodies: a here-document written to a file the same command may run keeps its body",
+    "old": "  if [ \"$hd_new\" = \"$hd_cmd\" ] || ! heredoc_files_are_documents \"$hd_cmd\"; then\n",
+    "new": "  if [ \"$hd_new\" = \"$hd_cmd\" ]; then\n",
     "tests": [
       "tests/heredoc-body-text.sh"
     ]
