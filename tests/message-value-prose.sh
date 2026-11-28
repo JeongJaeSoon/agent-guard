@@ -14,8 +14,9 @@ CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-message-value.XXXXXX") || exit 1
 trap 'rm -rf "$CASE"' 0 HUP INT TERM
 export AGENT_GUARD_LOG_MODE=off AGENT_GUARD_RELEASE_CHECK=off
 export AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks"
-# The hook reads this variable for the Orca CLI word; rows that need it set it.
-unset ORCA_CLI_COMMAND
+# The hook reads these variables for a default-value command word; rows that
+# need one set it.
+unset ORCA_CLI_COMMAND TOOL GIT AGX
 W="$CASE/w"
 mkdir -p "$W"
 canary=agcanary$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')
@@ -563,16 +564,20 @@ orca_env ./orca 2 "$OW bot item comment 1 --text '.env'"
 orca_env bin/orca 2 "$OW bot item comment 1 --text '.env'"
 orca_env 'orca --text-file' 2 "$OU bot item comment 1 --text '.env'"
 orca_env /tmp/orca/cat 2 "$OW bot item comment 1 --text '.env'"
-# The commit/push gate reads the Orca CLI word as orca while the hook's
-# environment leaves the variable unset or empty, or holds `orca` or an
-# absolute path to a file named orca, and the command names the variable
-# nowhere else, so a command called through it is not a command name only run
-# time knows. The closed policy blocks such a name, so each row runs under
-# it, on both hosts.
-gate_closed() { # $1 ORCA_CLI_COMMAND in the hook's environment (- for unset), $2 expected status, $3 command
+# The commit/push gate reads a command word "${VAR:-name}" as name while the
+# hook's environment leaves VAR unset or empty, or holds name or an absolute
+# path whose last component is name, and the command names VAR nowhere else,
+# so a command called through such a word is not a command name only run time
+# knows: it is judged as the literal name is. The closed policy blocks a name
+# only run time knows, so each row runs under it, on both hosts. Orca tells
+# its bots to call its CLI through such a word; the rule names no tool.
+TW='"${TOOL:-tool}"'
+TU='${TOOL:-tool}'
+GW='"${GIT:-git}"'
+gate_closed() { # $1 NAME=value for the hook's environment (- for none), $2 expected status, $3 command
   for gate_host in claude codex; do
     (
-      if [ "$1" = - ]; then unset ORCA_CLI_COMMAND; else ORCA_CLI_COMMAND=$1; export ORCA_CLI_COMMAND; fi
+      [ "$1" = - ] || export "$1"
       AGENT_GUARD_INFRA_FAILURE_MODE=closed AGENT_GUARD_HOOK_HOST=$gate_host
       export AGENT_GUARD_INFRA_FAILURE_MODE AGENT_GUARD_HOOK_HOST
       gate "$3"
@@ -580,34 +585,41 @@ gate_closed() { # $1 ORCA_CLI_COMMAND in the hook's environment (- for unset), $
     status=$?
     n=$((n + 1))
     if [ "$status" -eq "$2" ]; then
-      ok "[$gate_host] closed gate, ORCA_CLI_COMMAND=$1: expected $2: $3"
+      ok "[$gate_host] closed gate, $1: expected $2: $3"
     else
-      bad "[$gate_host] closed gate, ORCA_CLI_COMMAND=$1: expected $2 got $status: $3"
+      bad "[$gate_host] closed gate, $1: expected $2 got $status: $3"
       sed 's/^/  stderr: /' "$CASE/err"
     fi
   done
 }
+gate_says() { # $1 policy, $2 NAME=value or -, $3 expected status, $4 text stderr holds, $5 text it lacks, $6 command
+  (
+    [ "$2" = - ] || export "$2"
+    AGENT_GUARD_INFRA_FAILURE_MODE=$1 AGENT_GUARD_HOOK_HOST=claude
+    export AGENT_GUARD_INFRA_FAILURE_MODE AGENT_GUARD_HOOK_HOST
+    gate "$6"
+  )
+  status=$?
+  n=$((n + 1))
+  if [ "$status" -eq "$3" ] && { [ -z "$4" ] || grep -Fq -- "$4" "$CASE/err"; } \
+    && { [ -z "$5" ] || ! grep -Fq -- "$5" "$CASE/err"; }; then
+    ok "$1 gate, $2: status $3, says '$4', not '$5': $6"
+  else
+    bad "$1 gate, $2: status $3, says '$4', not '$5', got $status: $6"
+    sed 's/^/  stderr: /' "$CASE/err"
+  fi
+}
+MAY_RUN='a git commit or push may run'
 gate_closed - 0 "orca orchestration send --to lead --body 'done'"
 gate_closed - 0 "$OW orchestration send --to lead --body 'done'"
 gate_closed - 0 "$OU orchestration send --to lead --body 'done'"
 gate_closed - 0 "$OW orchestration ask --question 'what should pass?'"
 gate_closed - 0 "$OW orchestration reply --run r1 --id m1 --body 'ok' && $OW orchestration send --to lead --body 'done'"
 gate_closed - 0 "$OW bot item comment 1 --text 'note'"
-gate_closed orca 0 "$OW orchestration send --to lead --body 'done'"
-gate_closed /Applications/Orca.app/Contents/Resources/bin/orca 0 "$OW orchestration send --to lead --body 'done'"
-gate_closed git 2 "$OW orchestration send --to lead --body 'done'"
-gate_closed ./orca 2 "$OW orchestration send --to lead --body 'done'"
-# The word runs orca whatever follows it, so this is no git command; with
-# another program in the variable it is one.
-gate_closed - 0 "$OW commit --no-verify -m x"
-gate_closed git 2 "$OW commit --no-verify -m x"
-gate_closed - 2 "$OW orchestration send --to lead --body 'done'; git commit --no-verify -m x"
-gate_closed - 2 "$OW orchestration send --to lead --body \"\$(git commit --no-verify -m x)\""
-gate_closed - 2 "O=$OW; \$O orchestration send --to lead --body 'done'"
-gate_closed - 2 "env $OW orchestration send --to lead --body 'done'"
-gate_closed - 2 "ORCA_CLI_COMMAND=git; $OW orchestration send --to lead --body 'done'"
-# The gate asks only what the word runs, so any orca subcommand passes under
-# the same conditions.
+gate_closed ORCA_CLI_COMMAND=orca 0 "$OW orchestration send --to lead --body 'done'"
+gate_closed ORCA_CLI_COMMAND=/Applications/Orca.app/Contents/Resources/bin/orca 0 "$OW orchestration send --to lead --body 'done'"
+gate_closed ORCA_CLI_COMMAND=git 2 "$OW orchestration send --to lead --body 'done'"
+gate_closed ORCA_CLI_COMMAND=./orca 2 "$OW orchestration send --to lead --body 'done'"
 gate_closed - 0 "$OW orchestration check --terminal t1"
 gate_closed - 0 "$OW worktree list --json | jq -r '.[].name'"
 gate_closed - 0 "$OW terminal read --terminal t1 --limit 50"
@@ -615,46 +627,165 @@ gate_closed - 0 "$OW status --json"
 gate_closed - 0 "$OW --help"
 gate_closed - 0 "$OW orchestration worker-list && $OW bot item list"
 gate_closed - 0 "echo start; $OW orchestration task-list --json"
-gate_closed /Applications/Orca.app/Contents/Resources/bin/orca 0 "$OU orchestration check --terminal t1"
-# A subcommand that relays a shell command, code or keystrokes, or runs
-# something by name, keeps the name unknown: what it runs is not read here.
-# The list comes from `orca agent-context --json` (every command with its
-# flags) and the help of each candidate.
+gate_closed ORCA_CLI_COMMAND=/Applications/Orca.app/Contents/Resources/bin/orca 0 "$OU orchestration check --terminal t1"
+# Any tool called through a word of that shape is read the same way.
+gate_closed - 0 "$TW status"
+gate_closed - 0 "$TU status --json"
+gate_closed - 0 "$TW sync --all && $TW report --to lead"
+gate_closed - 0 "echo start; $TW list --json | jq -r '.[].name'"
+gate_closed TOOL= 0 "$TW status"
+gate_closed TOOL=tool 0 "$TW status"
+gate_closed TOOL=/opt/tools/bin/tool 0 "$TU status"
+gate_closed 'TOOL=/opt/my tools/tool' 0 "$TW status"
+gate_says closed - 0 '' "$MAY_RUN" "$TW status"
+gate_says open - 0 '' "$MAY_RUN" "$TW status"
+# Each condition on the hook's environment: another program, a relative
+# path, an absolute path to a file with another name, and for the unquoted
+# word a value the shell would split.
+gate_closed TOOL=git 2 "$TW status"
+gate_closed TOOL=sh 2 "$TW status"
+gate_closed TOOL=./tool 2 "$TW status"
+gate_closed TOOL=bin/tool 2 "$TW status"
+gate_closed TOOL=/opt/tool/git 2 "$TW status"
+gate_closed TOOL=/opt/tools/bin/tool2 2 "$TW status"
+gate_closed TOOL=/opt/tools/bin/xtool 2 "$TW status"
+gate_closed 'TOOL=/opt/my tools/tool' 2 "$TU status"
+gate_closed 'TOOL=tool --flag' 2 "$TU status"
+gate_closed ORCA_CLI_COMMAND=git 2 "$OW orchestration check --terminal t1"
+gate_closed ORCA_CLI_COMMAND=./orca 2 "$OW orchestration check --terminal t1"
+gate_closed 'ORCA_CLI_COMMAND=/tmp/my tools/orca' 2 "$OU orchestration check --terminal t1"
+gate_says open TOOL=git 0 "$MAY_RUN" '' "$TW status"
+# Once read as its name the word is judged as that name. A tool that is not
+# git runs no git whatever follows it. git behind such a word is git: a
+# commit that skips hooks stays blocked under either policy, and one that
+# does not is scanned, which the sandbox here (no repository) cannot do.
+gate_closed - 0 "$TW commit --no-verify -m x"
+gate_closed - 0 "$OW commit --no-verify -m x"
+gate_closed TOOL=git 2 "$TW commit --no-verify -m x"
+gate_closed ORCA_CLI_COMMAND=git 2 "$OW commit --no-verify -m x"
+gate_closed - 0 "$GW status"
+gate_closed - 0 "$GW log --oneline -3"
+gate_closed - 2 "$GW commit --no-verify -m x"
+gate_closed GIT=/usr/bin/git 2 "$GW commit --no-verify -m x"
+gate_closed - 2 "echo start; $GW commit -m x --no-verify"
+gate_closed - 2 "$GW push --no-verify"
+gate_says closed - 2 'disables hooks/signing' "$MAY_RUN" "$GW commit --no-verify -m x"
+gate_says open - 2 'disables hooks/signing' "$MAY_RUN" "$GW commit --no-verify -m x"
+gate_says open - 2 'disables hooks/signing' "$MAY_RUN" "git commit --no-verify -m x"
+gate_says closed - 2 'is not a git repository' "$MAY_RUN" "$GW commit -m x"
+gate_says closed - 2 'is not a git repository' "$MAY_RUN" "git commit -m x"
+# A subcommand that hands a shell command or keystrokes on is judged as the
+# same command under the literal name, and so is the text it is given.
 for gate_relay in \
-  "terminal send --terminal t1 --text 'ls' --enter" "terminal create --title x" \
-  "terminal split --terminal t1" "exec --command 'snapshot'" "eval --expression 'document.title'" \
-  "type --input 'hello'" "keypress --key Enter" "fill --element e5 --value 'hello'" \
-  "inserttext --text 'hello'" "find --locator text --value 'Save'" \
-  "emulator exec --command 'tap 0.5 0.7'" "emulator type 'hello'" \
-  "computer type-text --text 'hello'" "computer press-key --key Return" \
-  "computer hotkey --key CmdOrCtrl+A" "computer paste-text --text 'hello'" \
-  "computer set-value --value 'hello'" "automations run --id a1" "workspace cleanup run" \
-  "plugin test ." "plugin check ." "plugin dev hook --name x" "serve --port 4000" \
-  "claude-teams" "orchestration run" "worktree create --name w1 --run-hooks" \
-  "worktree create --name w1 --setup run" "worktree rm --worktree id:w1 --run-hooks" \
+  "terminal send --terminal t1 --text 'ls' --enter" "exec --command 'snapshot'" \
+  "computer type-text --text 'hello'" "plugin test ." \
+  "automations run --id a1" "worktree create --name w1 --run-hooks" \
   "--environment remote terminal send --terminal t1 --text 'ls'"; do
-  gate_closed - 2 "$OW $gate_relay"
+  gate_closed - 0 "orca $gate_relay"
+  gate_closed - 0 "$OW $gate_relay"
 done
-# Each condition on the hook's environment and on where the word stands.
-gate_closed git 2 "$OW orchestration check --terminal t1"
-gate_closed ./orca 2 "$OW orchestration check --terminal t1"
-gate_closed '/tmp/my tools/orca' 2 "$OU orchestration check --terminal t1"
+# The words eval, alias, function, trap and source (or a lone dot) end the
+# reading as a command name only; as an argument each is text.
+gate_closed - 0 "orca eval --expression 'document.title'"
+gate_closed - 0 "$OW eval --expression 'document.title'"
+gate_closed - 0 "$TW build . --mode eval"
+gate_closed - 2 "$TW status; eval \"\$Y\""
+gate_closed - 2 "eval 'TO''OL=git'; $TW commit --no-verify -m x"
+gate_closed - 2 "command eval 'TO''OL=git'; $TW commit --no-verify -m x"
+gate_closed - 2 "$TW status; . $CASE/note.md; $TW commit --no-verify -m x"
+gate_closed - 2 "orca exec --command 'git commit --no-verify -m x'"
+gate_closed - 2 "$OW exec --command 'git commit --no-verify -m x'"
+gate_closed - 2 "$TW run -c 'git push --no-verify'"
+# Where the word stands: only as the command word of a simple command,
+# behind inert commands or the same word, with nothing reading its output
+# but an inert command.
 gate_closed - 2 "env $OW orchestration check --terminal t1"
 gate_closed - 2 "time $OW status"
 gate_closed - 2 "make; $OW orchestration check --terminal t1"
 gate_closed - 2 "$OW orchestration check --terminal t1 | sh"
-gate_closed - 2 "$OW orchestration check --terminal \"\$(date)\""
 gate_closed - 2 "echo $OW; $OW status"
-gate_closed - 2 "ORCA_CLI_COMMAND=git; $OW status"
-gate_closed - 2 "echo \"\$ORCA_CLI_COMMAND\"; $OW status"
 gate_closed - 2 "$OW worktree list > $CASE/orca; $OW status"
 gate_closed - 2 "$OW status; git commit --no-verify -m x"
-# A word that expands is not read as it stands: it may turn out to be the
-# subcommand or an option that hands a command on.
-gate_closed - 2 "$OW terminal \"\$ACTION\" --terminal t1 --text 'ls' --enter"
-gate_closed - 2 "$OW orchestration check --terminal \"\$T\""
-gate_closed - 2 "$OW worktree create --name w1 \"\$FLAG\""
+gate_closed - 2 "$OW orchestration send --to lead --body 'done'; git commit --no-verify -m x"
+gate_closed - 2 "env $OW orchestration send --to lead --body 'done'"
+gate_closed - 2 "O=$OW; \$O orchestration send --to lead --body 'done'"
+gate_closed - 2 "env $TW status"
+gate_closed - 2 "nohup $TW status"
+gate_closed - 2 "make; $TW status"
+gate_closed - 2 "$TW status | sh"
+gate_closed - 2 "echo $TW; $TW status"
+gate_closed - 2 "x$TW status"
+gate_closed - 2 "${TW}x status"
+gate_closed - 2 "$TW status; git commit --no-verify -m x"
+gate_closed - 2 "O=$TW; \$O status"
+gate_closed - 2 "\"\${AGX:-other}\" sync; $TW status"
+# The command may not name the variable anywhere else: an assignment, unset,
+# read or another expansion can change what the word runs.
+gate_closed - 2 "TOOL=git; $TW status"
+gate_closed - 2 "TOOL=git $TW status"
+gate_closed - 2 "export TOOL=git; $TW status"
+gate_closed - 2 "unset TOOL; $TW status"
+gate_closed - 2 "read TOOL; $TW status"
+gate_closed - 2 ": \"\${TOOL:=git}\"; $TW status"
+gate_closed - 2 "echo \"\$TOOL\"; $TW status"
+gate_closed - 2 "$TW status \"\$TOOL\""
+gate_closed - 2 "$TW status --from \"\${TOOL}\""
+gate_closed - 2 "$TW status; TOOL=git"
+gate_closed - 2 "ORCA_CLI_COMMAND=git; $OW status"
+gate_closed - 2 "ORCA_CLI_COMMAND=git; $OW orchestration send --to lead --body 'done'"
+gate_closed - 2 "echo \"\$ORCA_CLI_COMMAND\"; $OW status"
+# The name can be assigned without being spelled (split by quotes, built
+# from another variable), so nothing that can assign may come before the
+# word: no command but an inert one, and no word of this shape that names a
+# shell builtin.
+gate_closed - 2 "export TO''OL=git; $TW commit --no-verify -m x"
+gate_closed - 2 "x=TO; export \${x}OL=git; $TW commit --no-verify -m x"
+gate_closed - 2 "typeset -x TO''OL=/usr/bin/git; $TW commit --no-verify -m x"
+gate_closed - 2 "$TW status; export TO''OL=git; $TW commit --no-verify -m x"
+for gate_builtin in "export AG''X=git" "typeset -g AG''X=git" "read AG''X" "eval AG''X=git" \
+  "print -v AG''X git" "source $CASE/note.md" "command export AG''X=git" "integer AG''X=1"; do
+  gate_closed - 2 "\"\${AGX:-${gate_builtin%% *}}\" ${gate_builtin#* }; \"\${AGX:-${gate_builtin%% *}}\" commit --no-verify -m x"
+done
+gate_closed - 0 "\"\${AGX:-other}\" sync --name AG''Y; \"\${AGX:-other}\" commit --no-verify -m x"
+# Only the default-value form with a plain name in an upper-case variable no
+# shell sets itself is read. A reserved word is a command name once expanded,
+# not a keyword, so it is not read as written either.
+gate_closed - 2 "\"\${TOOL-tool}\" status"
+gate_closed - 2 "\"\${TOOL:=tool}\" status"
+gate_closed - 2 "\"\${TOOL:+tool}\" status"
+gate_closed - 2 "\"\${tool:-tool}\" status"
+gate_closed - 2 "\"\${BASH:-tool}\" status"
+gate_closed - 2 "\"\${ZSH_NAME:-tool}\" status"
+gate_closed SHELL= 2 "\"\${SHELL:-tool}\" status"
+gate_closed NULLCMD= 2 "\"\${NULLCMD:-tool}\" status"
+gate_closed - 2 "\"\${AGX:-time}\" tool status"
+gate_closed - 2 "\"\${AGX:-do}\" status"
+gate_closed - 2 "\"\${AGX:-function}\" status"
+# The other words of the command are read as written, as behind the literal
+# name: a bare parameter reference cannot change what the word runs. Any
+# other expansion keeps the word unread.
+gate_closed - 0 "$OW terminal \"\$ACTION\" --terminal t1 --text 'ls' --enter"
+gate_closed - 0 "$OW orchestration check --terminal \"\$T\""
+gate_closed - 0 "$OW worktree create --name w1 \"\$FLAG\""
 gate_closed - 0 "$OW orchestration send --to lead --body \"done now\""
+gate_closed - 0 "$TW status \"\$T\" --name \"\${N}\""
+gate_closed - 2 "$TW status \"\${Y:=z}\""
+gate_closed - 2 "$TW status --name \"\${NAME:-main}\""
+gate_closed - 2 "$TW status --dir \"\${TMPDIR:-/tmp}\""
+gate_closed - 2 "$TW status \$((1 + 1))"
+# A substitution in an option value keeps the word unread too, and the
+# message says to pass such text through the command's file option.
+SUBST_HINT="pass text that holds a substitution through the command's file option, such as --body-file or --text-file"
+gate_closed - 2 "$OW orchestration check --terminal \"\$(date)\""
+gate_closed - 2 "$OW orchestration send --to lead --body \"\$(git commit --no-verify -m x)\""
+gate_closed - 2 "$TW send --body \"\$(cat $CASE/note.md)\""
+gate_says closed - 2 "$SUBST_HINT" '' "$OW orchestration send --to lead --body \"\$(cat $CASE/note.md)\""
+gate_says closed - 2 "$SUBST_HINT" '' "$TW send --body \"\$(cat $CASE/note.md)\""
+gate_says closed - 2 "$SUBST_HINT" '' "$TU send --body \`cat $CASE/note.md\`"
+gate_says open - 0 "$SUBST_HINT" '' "$TW send --body \"\$(cat $CASE/note.md)\""
+gate_says closed TOOL=git 2 "$MAY_RUN" "$SUBST_HINT" "$TW status"
+gate_says closed - 2 "$MAY_RUN" "$SUBST_HINT" "\$CMD send --body \"\$(cat $CASE/note.md)\""
+gate_says closed - 0 '' "$MAY_RUN" "$TW send --body-file $CASE/note.md"
 # A printf whose format is a literal that starts with no dash writes only
 # to its output: it cannot assign (-v) or take an option (--). Only string
 # conversions are read: %n assigns in bash and zsh, and zsh evaluates the
@@ -713,16 +844,16 @@ mkdir -p "$CASE/elsewhere/sub"
 ln -s "$CASE/elsewhere/sub" "$CASE/pbin/lnk"
 cp "$(command -v comm)" "$CASE/pbin/comm"
 ln "$CASE/pbin/comm" "$CASE/commhard"
-gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/olink; $OW x"
-gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/ohard; $OW x"
-gate_closed "$CASE/o${nl}bin/orca" 2 "echo x > $CASE/f.md; $OW x"
+gate_closed "ORCA_CLI_COMMAND=$CASE/obin/orca" 2 "echo x > $CASE/olink; $OW x"
+gate_closed "ORCA_CLI_COMMAND=$CASE/obin/orca" 2 "echo x > $CASE/ohard; $OW x"
+gate_closed "ORCA_CLI_COMMAND=$CASE/o${nl}bin/orca" 2 "echo x > $CASE/f.md; $OW x"
 gate_path_saved=$PATH
 PATH=$CASE/pbin:$CASE/qbin:$PATH
 gate_closed - 2 "echo x > $CASE/plink; $OW x"
 gate_closed - 2 "echo x > $CASE/dangle; $OW x"
 gate_closed - 2 "echo x > $CASE/phard; $OW x"
 gate_closed - 2 "echo x > $CASE/commhard; $OW x"
-gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/phard; orca orchestration send --to lead --body x; $OW x"
+gate_closed "ORCA_CLI_COMMAND=$CASE/obin/orca" 2 "echo x > $CASE/phard; orca orchestration send --to lead --body x; $OW x"
 gate_closed - 2 "tee $CASE/plink <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
 gate_closed - 2 "cat <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
 # A here-document written to a file before the word leaves it unknown by the
@@ -778,14 +909,15 @@ gate_closed - 0 "for t in ctx_1 ctx_2${nl}do${nl}  $OW orchestration send --to \
 gate_closed - 0 "for d in a b; do $OW orchestration send --to=x:\$d --body 'push now'; done && echo sent"
 gate_closed - 0 "$OW bot item comment 165 --text 'push landed' 2>&1 | tail -1; $OW bot item comment 166 --text 'commit made' 2>&1 | tail -1"
 gate_closed - 0 "$OW bot item list 2>&1 | head -20"
-# A literal orca message command may come before the word, under the same
-# limits: no redirection that writes a file, nothing but an inert command
-# reading its output, and no other orca subcommand.
-gate_closed - 0 "orca orchestration send --to lead --body 'done'; $OW status"
-gate_closed - 0 "orca bot item comment 1 --text 'note' 2>&1 | tail -1; $OW orchestration check --terminal t1"
+# A command under the literal name is not one that may come before the word,
+# so the word after it stays unknown; after the word it is judged as it is on
+# a line of its own.
+gate_closed - 2 "orca orchestration send --to lead --body 'done'; $OW status"
+gate_closed - 2 "orca bot item comment 1 --text 'note' 2>&1 | tail -1; $OW orchestration check --terminal t1"
 gate_closed - 2 "orca status; $OW status"
 gate_closed - 2 "orca orchestration send --to lead --body 'done' > $CASE/f.md; $OW status"
-gate_closed - 2 "$OW status; orca orchestration send --to lead --body 'x' | sh"
+gate_closed - 0 "$OW status; orca orchestration send --to lead --body 'x' | sh"
+gate_closed - 0 "orca status; orca orchestration send --to lead --body 'x' | sh"
 gate_closed - 2 "orca orchestration send --to lead --body 'x' & $OW status"
 # A command name only run time knows stays one, in a loop or not.
 gate_closed - 2 "\$CMD commit -m x"
@@ -793,22 +925,25 @@ gate_closed - 2 "eval \"\$CMD\" commit -m x"
 gate_closed - 2 "command \"\$x\" commit -m x"
 gate_closed - 2 "for c in git; do \"\$c\" commit -m x; done"
 gate_closed - 2 "for d in a; do $OW orchestration send --to lead --body 'x'; \$d commit -m x; done"
-gate_closed git 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --body 'push now'; done"
+gate_closed ORCA_CLI_COMMAND=git 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --body 'push now'; done"
 # The loop variable may be a shell setting the word depends on.
 gate_closed - 2 "for PATH in $CASE; do $OW orchestration send --to lead --body 'x'; done"
 gate_closed - 2 "for path in $CASE; do $OW orchestration send --to lead --body 'x'; done"
 gate_closed - 2 "for ORCA_CLI_COMMAND in git; do $OW orchestration send --to lead --body 'x'; done"
-# A value only run time knows, or one that is a subcommand or an option.
+# A value only run time knows, or one shaped like an option, is not read. A
+# value the body uses as a subcommand or inside an option is read as the
+# command under the literal name is.
 gate_closed - 2 "for d in \$LIST; do $OW orchestration send --to dispatch:\$d --body 'x'; done"
-gate_closed - 2 "for d in run; do $OW orchestration \$d; done"
-gate_closed - 2 "for d in run; do $OW worktree create --name w1 --setup \$d; done"
+gate_closed - 0 "for d in run; do $OW orchestration \$d; done"
+gate_closed - 0 "for d in run; do $OW worktree create --name w1 --setup \$d; done"
 gate_closed - 2 "for f in --run-hooks; do $OW worktree create --name w1 \$f; done"
 gate_closed - 2 "for f in run-hooks; do $OW worktree create --name w1 --\$f; done"
 gate_closed - 2 "for d in a; do $OW orchestration send --to dispatch:\$e --body 'x'; done"
 gate_closed - 2 "$OW orchestration send --to dispatch:\$d --body 'x'; for d in a; do true; done"
 # The variable holds a loop value only inside the body: a loop in a pipeline
-# runs in a subshell, and one behind || may not run at all.
-gate_closed - 2 "echo x | for d in a; do true; done; $OW worktree create --name w1 --setup \"\$d\""
+# runs in a subshell, and one behind || may not run at all. After the loop a
+# quoted reference is one word like any other; an unquoted one is not read.
+gate_closed - 0 "echo x | for d in a; do true; done; $OW worktree create --name w1 --setup \"\$d\""
 gate_closed - 2 "true || for d in a; do true; done; $OW orchestration send --to x:\$d --body 'x'"
 gate_closed - 2 "for d in a; do true; done; $OW orchestration send --to x:\$d --body 'x'"
 gate_closed - 2 "$OW status | for d in a; do $OW orchestration send --to x:\$d --body 'x'; done"
@@ -840,10 +975,49 @@ gate_closed - 2 "for d in a b; $OW orchestration send --to dispatch:\$d --body '
 # runs is read as what may run.
 gate_closed - 2 "cat > $CASE/note.md <<'EOF'${nl}never pass --no-verify to git commit${nl}EOF${nl}$OW orchestration send --to lead --body-file $CASE/note.md"
 gate_closed - 0 "cat > $CASE/note.md <<'EOF'${nl}never pass --no-verify to git commit${nl}EOF${nl}orca orchestration send --to lead --body-file $CASE/note.md"
-gate_closed "$CASE/orca" 2 "cat > $CASE/orca <<'EOF'${nl}git commit --no-verify -m x${nl}EOF${nl}$OW orchestration send --to lead --body 'done'"
+gate_closed "ORCA_CLI_COMMAND=$CASE/orca" 2 "cat > $CASE/orca <<'EOF'${nl}git commit --no-verify -m x${nl}EOF${nl}$OW orchestration send --to lead --body 'done'"
 gate_closed - 2 "cat > $CASE/gh <<'EOF'${nl}git commit --no-verify -m x${nl}EOF${nl}gh pr view 5"
 # A body that only mentions the name of a later command is prose.
 gate_closed - 0 "cat > $CASE/note.md <<'EOF'${nl}never use git commit --no-verify${nl}EOF${nl}git status"
+# The file rules hold for any such word: a redirection or a here-document
+# written before it leaves it unknown, one after it or one cat only prints
+# does not, and git behind the word is still git.
+gate_closed - 2 "echo a > $CASE/f.md && $TW x"
+gate_closed - 2 "$TW list > $CASE/f.md; $TW x"
+gate_closed - 2 "cat > $CASE/f.md <<'EOF'${nl}x${nl}EOF${nl}$TW x"
+gate_closed - 2 "tee $CASE/f.md <<'EOF'${nl}x${nl}EOF${nl}$TW x"
+gate_closed - 0 "cat <<'EOF'${nl}x${nl}EOF${nl}$TW x"
+gate_closed - 0 "$TW x${nl}cat > $CASE/f.md <<'EOF'${nl}x${nl}EOF"
+gate_closed - 2 "cat <<'EOF'${nl}x${nl}EOF${nl}$GW commit --no-verify -m x"
+gate_closed - 2 "tee $CASE/f.md <<'EOF'${nl}x${nl}EOF${nl}$GW commit --no-verify -m x"
+gate_closed - 2 "$TW x${nl}cat > $CASE/f.md <<'EOF'${nl}call $TW y${nl}EOF"
+gate_closed - 0 "for d in a b; do $TW send --to x:\$d --body 'ok' 2>&1 | tail -1; done"
+gate_closed - 2 "for d in a b; do $GW commit --no-verify -m \"\$d\"; done"
+gate_closed - 2 "for TOOL in git; do $TW commit -m x; done"
+# A gh command that only reads (gh pr|issue|run view|list|checks|status|diff)
+# in literal words is an inert command for the gate, so a word after it is
+# still read and no warning is raised.
+for gate_gh in "gh pr view 5" "gh pr view 5 --json title -q .title" "gh pr checks 5" \
+  "gh pr list --json number --jq '.[].number' | head -5" "gh pr diff 5 | head -20" "gh pr status" \
+  "gh issue view 7 --json title -q .title" "gh issue list --limit 5" "gh issue status" \
+  "gh run view 12 --log 2>&1 | tail -5" "gh run list --limit 3 2>/dev/null"; do
+  gate_closed - 0 "$gate_gh; $OW status"
+  gate_says open - 0 '' "$MAY_RUN" "$gate_gh; $TW status"
+done
+gate_closed - 0 "gh pr checks 5 && $OW orchestration send --to lead --body 'done'"
+gate_closed - 2 "gh pr view 5; $GW commit --no-verify -m x"
+# A gh command that writes, one outside the list, and one with an expansion
+# or a file redirection keep their result: the word after it stays unknown.
+for gate_gh in "gh pr merge 5" "gh pr comment 5 --body x" "gh pr edit 5 --title t" "gh pr checkout 5" \
+  "gh pr create --title t --body b" "gh issue close 7" "gh run rerun 12" "gh run download 12" \
+  "gh run watch 12" "gh api repos/o/r/pulls" "gh repo view" "gh -R o/r pr view 5" \
+  "gh pr view \"\$(cat $CASE/note.md)\"" "gh pr view \"\$N\"" "gh pr view \$N" \
+  "gh pr view 5 > $CASE/f.md" "gh pr diff 5 >> $CASE/f.md" "GH_PAGER=cat gh pr view 5" \
+  "command gh pr view 5" "gh pr view 5 &"; do
+  gate_closed - 2 "$gate_gh; $OW status"
+done
+gate_says open - 0 "$MAY_RUN" '' "gh pr merge 5; $TW status"
+gate_says open - 0 "$MAY_RUN" '' "gh pr view \"\$(cat $CASE/note.md)\"; $TW status"
 # Ground truth: with the variable unset each shell at hand runs the orca on
 # PATH, which only echoes its words here; a value from the environment or an
 # assignment in the command runs that program instead, and the reader control
@@ -897,6 +1071,81 @@ for ow_shell in sh bash dash zsh ksh; do
     *) bad "control: $ow_shell runs git for a loop value that names it" ;;
   esac
 done
+# Ground truth for the general word: each shell runs the tool on PATH for it
+# and git for the word that names git. The controls show what the gate
+# guards against: a name assigned without being spelled, by export or by a
+# word that names the export builtin, makes the same word run git.
+printf '#!/bin/sh\nprintf "tool-ran %%s\\n" "$*"\n' >"$W/obin/tool"
+chmod +x "$W/obin/tool"
+for ow_shell in sh bash dash zsh ksh; do
+  command -v "$ow_shell" >/dev/null 2>&1 || continue
+  for gt_case in \
+    "tool-ran commit --no-verify -m x|$TW commit --no-verify -m x" \
+    "git-ran commit --no-verify -m x|$GW commit --no-verify -m x" \
+    "git-ran commit --no-verify -m x|export TO''OL=git; $TW commit --no-verify -m x" \
+    "git-ran commit --no-verify -m x|\"\${AGX:-export}\" TO''OL=git; $TW commit --no-verify -m x" \
+    "git-ran commit --no-verify -m x|\"\${AGX:-export}\" AG''X=git; \"\${AGX:-export}\" commit --no-verify -m x"; do
+    gt_got=$(cd "$W" && unset TOOL GIT AGX && PATH="$W/obin:$PATH" "$ow_shell" -c "${gt_case#*|}" 2>/dev/null)
+    if [ "$gt_got" = "${gt_case%%|*}" ]; then
+      ok "$ow_shell runs ${gt_case%% *} for: ${gt_case#*|}"
+    else
+      bad "$ow_shell runs ${gt_case%% *} for: ${gt_case#*|} (got: $gt_got)"
+    fi
+  done
+done
+# The lists behind the rule, against the shells at hand: every variable a
+# shell sets when it starts with an empty environment is refused as VAR, and
+# every builtin is an inert command or on the builtin list. The control
+# shows the reading accepts an ordinary word.
+sh "$ROOT/tests/helpers/extract-functions.sh" "$BIN" "$CASE" default_word_mark || bad "isolate default_word_mark"
+{
+  grep -E "^(DEFAULT_WORD_MARK|SHELL_SET_VARIABLES_ERE|SHELL_STARTUP_VARIABLES_ERE|SHELL_BUILTIN_NAMES_ERE|INERT_SEGMENT_COMMANDS_ERE)=" "$BIN"
+  cat "$CASE/default_word_mark.sh"
+  printf '%s\n' 'mark_ok() { default_word_mark "\"\${$1:-tool}\" status" >/dev/null; }' \
+    '[ "$(default_word_mark "\"\${TOOL:-tool}\" status")" = "${DEFAULT_WORD_MARK}tool status" ] || echo "control: TOOL is not read"' \
+    'while read -r lists_name; do' \
+    '  case $lists_name in ""|*[!A-Za-z0-9_]*|[0-9]*) continue ;; esac' \
+    '  if mark_ok "$lists_name"; then echo "variable read: $lists_name"; fi' \
+    'done <"$1"' \
+    'while read -r lists_name; do' \
+    '  case $lists_name in ""|*[!A-Za-z0-9_.+-]*|[.+-]*) continue ;; esac' \
+    '  printf "%s\n" "$lists_name" | awk -v b="$SHELL_BUILTIN_NAMES_ERE" -v i="$INERT_SEGMENT_COMMANDS_ERE" '"'"'$0 !~ b && $0 !~ i { print "builtin unlisted: " $0 }'"'"'' \
+    'done <"$2"'
+} >"$CASE/lists.sh"
+: >"$CASE/vars"
+: >"$CASE/builtins"
+for lists_shell in bash zsh ksh dash; do
+  lists_path=$(command -v "$lists_shell" 2>/dev/null) || continue
+  case $lists_shell in
+    bash)
+      env -i "$lists_path" -c 'compgen -v' >>"$CASE/vars" 2>/dev/null
+      "$lists_path" -c 'compgen -b' >>"$CASE/builtins" 2>/dev/null
+      ;;
+    zsh)
+      env -i "$lists_path" -fc 'print -rl -- ${(k)parameters}' >>"$CASE/vars" 2>/dev/null
+      "$lists_path" -fc 'print -rl -- ${(k)builtins} ${(k)dis_builtins}' >>"$CASE/builtins" 2>/dev/null
+      ;;
+    ksh)
+      env -i "$lists_path" -c 'typeset +' 2>/dev/null | sed 's/.* //' >>"$CASE/vars"
+      "$lists_path" -c 'builtin' 2>/dev/null | grep -v / >>"$CASE/builtins"
+      ;;
+    dash)
+      env -i "$lists_path" -c 'set' 2>/dev/null | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' >>"$CASE/vars"
+      ;;
+  esac
+done
+lists_out=$(env -i PATH="$PATH" sh "$CASE/lists.sh" "$CASE/vars" "$CASE/builtins" 2>&1)
+if [ -z "$lists_out" ] && [ "$(wc -l <"$CASE/vars")" -ge 9 ] && [ "$(wc -l <"$CASE/builtins")" -ge 30 ]; then
+  ok "no shell at hand sets a variable the word is read through, or has a builtin off the list"
+else
+  bad "a shell variable or builtin is not on its list: $lists_out"
+fi
+if printf 'BASH\n' >"$CASE/vars1" && : >"$CASE/b0" \
+  && env -i PATH="$PATH" TOOL=git sh "$CASE/lists.sh" "$CASE/vars1" "$CASE/b0" 2>&1 | grep -q 'control: TOOL is not read'; then
+  ok "control: the list check sees a word that is not read"
+else
+  bad "control: the list check sees a word that is not read"
+fi
 # Ground truth for the here-document rows: each shell writes the body through
 # a link to the orca on PATH, with tee or with a cat redirection, and the word
 # then runs that body, so the gate leaves the word unknown. The control only

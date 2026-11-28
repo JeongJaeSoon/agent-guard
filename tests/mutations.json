@@ -613,23 +613,21 @@
     ]
   },
   {
-    "id": "bash-orca-cli-any-value",
-    "rule": "orca_cli_word_mark (#624): ORCA_CLI_COMMAND must be orca or an absolute path to orca",
-    "old": "      ;;\n    *) return 1 ;;\n  esac\n  OC_CMD=$1",
-    "new": "      ;;\n    *) ;;\n  esac\n  OC_CMD=$1",
+    "id": "bash-default-word-any-value",
+    "rule": "default_word_mark: the variable is empty, the name, or an absolute path whose last component is the name",
+    "old": "          && (val == \"\" || val == name || substr(val, 1, 1) == \"/\" && substr(val, length(val) - length(name)) == \"/\" name) \\\n",
+    "new": "",
     "tests": [
-      "tests/message-value-prose.sh",
-      "tests/heredoc-body-text.sh"
+      "tests/message-value-prose.sh"
     ]
   },
   {
-    "id": "bash-orca-cli-name-spelled",
-    "rule": "orca_cli_word_mark (#624): the command spells the variable name nowhere else",
-    "old": "    if (index(out, \"ORCA_CLI_COMMAND\")) exit 1\n",
+    "id": "bash-default-word-name-spelled",
+    "rule": "default_word_mark: the command spells the variable name nowhere else",
+    "old": "    for (var in vars) if (index(rest, var)) exit 1\n",
     "new": "",
     "tests": [
-      "tests/message-value-prose.sh",
-      "tests/heredoc-body-text.sh"
+      "tests/message-value-prose.sh"
     ]
   },
   {
@@ -3446,6 +3444,60 @@
     "new": "(^|[[:space:];|&(])eval[[:space:]]([^;|&]*(\\$\\$|\\\\\\$($|[^(A-Za-z_{]|\\(\\(|\\{([^A-Za-z_]|[A-Za-z_][A-Za-z0-9_]*($|[^A-Za-z0-9_}]))|[A-Za-z_][A-Za-z0-9_]*([$\\\\`{[(]|[\"'][^[:space:];|&)])))|\\\\\\$)",
     "tests": [
       "tests/eval-deferred-capture.sh"
+    ]
+  },
+  {
+    "id": "bash-default-word-shell-variable",
+    "rule": "default_word_mark: a variable a shell sets itself is not read",
+    "old": "          && var !~ shellset && var !~ startup \\\n",
+    "new": "",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
+  },
+  {
+    "id": "bash-default-word-reserved-name",
+    "rule": "default_word_mark: a reserved word is not read as the name",
+    "old": "          && name !~ /^(if|then|else|elif|fi|case|esac|for|select|while|until|do|done|in|function|time|coproc|foreach|end|repeat|nocorrect)$/ \\\n",
+    "new": "",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
+  },
+  {
+    "id": "bash-default-word-builtin-before",
+    "rule": "message_value_records gate: a marked word that names a shell builtin is no command before another",
+    "old": "      else if (cli && word[1] !~ builtin_names && quiet()) cli_name = word[1]",
+    "new": "      else if (cli && quiet()) cli_name = word[1]",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
+  },
+  {
+    "id": "bash-default-word-other-name-before",
+    "rule": "message_value_records gate: only the same name may come before a marked word",
+    "old": "      cli = cli && all && (cli_name == \"\" || cli_name == word[1])",
+    "new": "      cli = cli && all",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
+  },
+  {
+    "id": "bash-gate-gh-read-only-list",
+    "rule": "message_value_records gate: only gh view, list, checks, status and diff are inert",
+    "old": "word[3] !~ /^(view|list|checks|status|diff)$/) return 0",
+    "new": "word[3] !~ /^[a-z]+$/) return 0",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
+  },
+  {
+    "id": "bash-gate-gh-read-only-literal",
+    "rule": "message_value_records gate: a gh command with an expansion is not inert",
+    "old": "      for (j = 1; j <= n; j++) if (kind[j] != \"0\") return 0\n",
+    "new": "",
+    "tests": [
+      "tests/message-value-prose.sh"
     ]
   }
 ]
