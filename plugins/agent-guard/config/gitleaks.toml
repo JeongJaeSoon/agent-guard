@@ -259,9 +259,11 @@ regexes = [
 # A test description names a numbered stand-in credential (`dummy-key-12345`,
 # `example_token-123456`). The global placeholder entries above end in an
 # alphanumeric run, so they stop at the separator before the number (#599).
-# Anchored to the end of the match, which ends one character past the value:
-# dummy or example, a credential word, then `-` or `_` and 1 to 12 digits,
-# after a separator and blanks, ended by a blank, LF or the line end (not `;`,
+# Anchored to the whole match, spelled as generic-api-key's own grammar (name,
+# keyword, separator), so an equals sign inside a longer value cannot pass for
+# the separator. The value is dummy or example, a credential word, then `-`
+# or `_` and 1 to 12 digits, after the separator and blanks, ended by a
+# blank, LF or the line end (not `;`,
 # which an unquoted dotenv or YAML value keeps). The
 # value may not be quoted or end at a quote, a CR or an escaped `\n`: in a
 # shell word such as `dummy-key-123"abc"` none of them ends the value, though
@@ -272,7 +274,7 @@ description = "Numbered dummy and example credentials (#599)"
 targetRules = ["generic-api-key"]
 regexTarget = "match"
 regexes = [
-  '''(?i)[=:>,|?][ \t]*(?:dummy|example)[_-]?(?:token|key|secret|password)[_-][0-9]{1,12}[ \t\n]?$'''
+  '''(?i)^[\w.-]{0,50}?(?:access|auth|api|credential|creds|key|passw(?:or)?d|secret|token)[ \t\w.-]{0,20}[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[ \t]*(?:dummy|example)[_-]?(?:token|key|secret|password)[_-][0-9]{1,12}[ \t\n]?$'''
 ]
 
 # A container name filter (`docker ps --filter name=<project>-api-1`) after a
