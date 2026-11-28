@@ -11333,6 +11333,10 @@ bash_neutralize_runtime_globals() (
   printf '%s' "$rg_out"
 )
 
+# The word heredoc_body_rewrite's view puts after the `true` of a writer, so
+# a reader can tell it from a `true` the command holds.
+HEREDOC_WRITER_MARK=%:%
+
 # Print $1 without the bodies of the here-documents that `cat` or `tee` only
 # write out, or that a gh or git commit message command reads from stdin
 # (`--body-file -`, `-F -`) behind a quoted delimiter: that text is data, so a
@@ -11344,7 +11348,8 @@ bash_neutralize_runtime_globals() (
 # unchanged: another head (a shell or python runs its body), a pipe, group or
 # background on the line, a body with no terminator, an unquoted delimiter whose
 # body expands anything but a bare parameter reference, or a line the command gate does not read the same
-# way after the rewrite (a later `sh`, `.` or `eval` may run what was written).
+# way after the rewrite (a later `sh`, `.` or `eval` may run what was written),
+# or a written file that is no document (heredoc_files_are_documents).
 # heredoc_body_rewrite reads the text on stdin and holds that decision; with
 # $1 set to 1 it prints, for a text it accepts, the whole text with only a
 # backquote or `$(` in each body line replaced (see
@@ -11352,12 +11357,14 @@ bash_neutralize_runtime_globals() (
 # With $2 set, a written file may be named again, and
 # heredoc_reused_as_body_file decides what those mentions are: `view` prints
 # what it reads (cat and tee writers only), `skip` the text without bodies.
+# With `targets` as $2 it prints, for a text it accepts with a written file
+# named again or not, the word each file is written as, one on a line and
+# without its quotes, for heredoc_files_are_documents: `?` stands for a word
+# that names no path here (one cut at a quoted blank, a quoted `~`, or a
+# relative one in a command that changes directory).
 # With `gate` as $3 the view keeps each writer's own words in place of
 # `true`, so the commit/push gate judges them as on a line with no
 # here-document.
-# The word the view puts after the `true` of a writer, so a reader can tell
-# it from a `true` the command holds.
-HEREDOC_WRITER_MARK=%:%
 heredoc_body_rewrite() {
   LC_ALL=C awk -v neutral="${1:-0}" -v reuse="${2-}" -v reader="${3-}" -v mark="$HEREDOC_WRITER_MARK" '
     function reject() { bad = 1; exit 1 }
@@ -11431,6 +11438,7 @@ heredoc_body_rewrite() {
     }
     {
       kept[++nk] = $0; ntext = ntext $0 "\n"
+      if ($0 ~ /(^|[ \t;&|(){}])(cd|pushd|popd)([ \t;&|)]|$)/) moved = 1
       if (index($0, "<<") == 0) next
       rest = $0
       if (rest ~ /<<</ || rest ~ /\\/) reject()
@@ -11503,9 +11511,9 @@ heredoc_body_rewrite() {
         else if (tee && w[k] !~ /^[-<>&;]/) name = w[k]
         else if (w[k] ~ />/) reject()
         if (w[k] ~ /^(&&|;)$/) tee = 0
-        # The word without its quotes; one cut at a quoted blank is no path.
         raw = name; sub(/<<.*/, "", raw)
-        if (gsub(/["\047]/, "", raw) % 2) raw = "?"
+        qn = gsub(/["\047]/, "", raw)
+        if (qn % 2 || qn && raw ~ /^~/) raw = "?"
         gsub(/["\047]/, "", name); sub(/<<.*/, "", name)
         if (name ~ /[<>]/) reject()
         if (name == "/dev/null") continue
@@ -11518,6 +11526,10 @@ heredoc_body_rewrite() {
       if (msg) {
         if (nh != 1 || !mend) exit 1
         for (k = mend + 1; k <= nk; k++) if (kept[k] !~ /^[ \t]*$/) exit 1
+      }
+      if (reuse == "targets") {
+        for (k = 1; k <= nt; k++) print (moved && written[k] !~ /^[\/~]/ ? "?" : written[k])
+        exit 0
       }
       text = ""
       for (k = 1; k <= nk; k++) text = text kept[k] "\n"
@@ -11532,12 +11544,10 @@ heredoc_body_rewrite() {
       }
       if (text ~ /(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|ruby|perl|php|lua|deno|bun|awk|gawk|mawk|osascript|tclsh|Rscript|swift|java|jshell)([^A-Za-z0-9_-]|$)/) exit 1
       if (reuse == "view") {
-        # The written names on one line, followed there by the word each
-        # was written as, quotes removed, then the text with each writer as `true` and the
-        # mark, and no delimiter line.
+        # The written names on one line, then the text with each writer as
+        # `true` and the mark, and no delimiter line.
         s = ""
         for (k = 1; k <= nt; k++) s = s (k > 1 ? "/" : "") target[k]
-        for (k = 1; k <= nt; k++) s = s " " written[k]
         print s
         for (k = 1; k <= nk; k++) if (!(k in ended)) print (k in view ? view[k] : kept[k])
         exit 0
@@ -11558,10 +11568,9 @@ heredoc_body_rewrite() {
 # be able to change what its name runs. Any other mention of the file (an
 # operand, a second option, a later `sh`) fails, as does a value that is not
 # one literal word ending in that name, or a `$_` anywhere in the command.
-# A file the same command may run is no document either: each written file
-# must pass heredoc_file_is_document, behind inert commands only
-# (message_value_records). A relative one is placed in the directory of this
-# scan, so the command may hold no cd.
+# Each writer must come behind inert commands only (message_value_records):
+# any other command may change what the written path names before
+# heredoc_files_are_documents judges it.
 heredoc_reused_as_body_file() {
   case "$1" in *-file*|*' -F '*) ;; *) return 1 ;; esac
   # `$_` can hand the file on to a later command without naming it.
@@ -11572,8 +11581,6 @@ heredoc_reused_as_body_file() {
   hr_text=${hr_view#*"
 "}
   [ -n "$hr_names" ] && [ "$hr_text" != "$hr_view" ] || return 1
-  hr_written=${hr_names#* }
-  hr_names=${hr_names%% *}
   ! bash_command_sources_script "$hr_text" || return 1
   ! message_command_has_glob "$hr_text" || return 1
   hr_records=$(git_command_records "$hr_text")
@@ -11603,41 +11610,44 @@ heredoc_reused_as_body_file() {
     }
     exit !(total > 0)
   }' </dev/null || return 1
-  case "
-$hr_records
-" in
-    *"
-0cd
-"*) hr_placed=0 ;;
-    *) hr_placed=1 ;;
-  esac
-  for hr_file in $hr_written; do
-    heredoc_file_is_document "$hr_file" "$hr_placed" || return 1
-  done
   printf '%s\n' "$1" | heredoc_body_rewrite 0 skip
 }
 
-# Succeed when the file a here-document is written to as $1 is one nothing
-# runs under another name: the word is a literal path, and the file is not
-# there yet or is a regular file with one name and no execute bit. A link, a
-# second name of a file or an executable file may be what a later command
-# name runs, whatever the command spells. A relative path is judged only
-# when $2 is 1 and this scan runs in the event workdir, so the path names
-# here the file the command writes.
+# Succeed when every file the here-documents of $1 are written to is a
+# document: a file the same command may run under a name it never spells is
+# none, so its body stays in the scan. The word must be a literal path, and
+# the file not there yet or a regular file with one name and no execute bit:
+# a link, a second name of a file or an executable file may be what a later
+# command name runs. A relative path is placed in the event workdir
+# (exception_workdir) and `~/` in a plain home directory; a word only run
+# time knows names no file here.
+heredoc_files_are_documents() {
+  hf_words=$(printf '%s\n' "$1" | heredoc_body_rewrite 0 targets) || return 1
+  for hf_word in $hf_words; do
+    heredoc_file_is_document "$hf_word" || return 1
+  done
+}
 heredoc_file_is_document() {
+  case "$1" in
+    '~/'*) home_is_plain_path || return 1; set -- "$HOME/${1#??}" ;;
+  esac
   case "$1" in ''|-*|*[!A-Za-z0-9_./@%+,:=-]*) return 1 ;; esac
   case "$1" in
     /*) ;;
-    *) [ "$2" = 1 ] && exception_workdir_is_here "${input-}" || return 1 ;;
+    *)
+      hf_dir=$(exception_workdir "${input-}") || return 1
+      case "$hf_dir" in /*) ;; *) return 1 ;; esac
+      set -- "$hf_dir/$1"
+      ;;
   esac
   [ ! -L "$1" ] || return 1
   [ -e "$1" ] || return 0
   [ -f "$1" ] || return 1
-  hr_entry=$(file_stat entry -P "$1") || return 1
-  hr_entry=${hr_entry#*:}
-  case "${hr_entry%%:*}" in *[1357]*) return 1 ;; esac
-  hr_entry=${hr_entry#*:}
-  [ "${hr_entry%%:*}" = 1 ]
+  hf_entry=$(file_stat entry -P "$1") || return 1
+  hf_entry=${hf_entry#*:}
+  case "${hf_entry%%:*}" in *[1357]*) return 1 ;; esac
+  hf_entry=${hf_entry#*:}
+  [ "${hf_entry%%:*}" = 1 ]
 }
 
 bash_strip_heredoc_bodies() (
@@ -11656,7 +11666,7 @@ bash_strip_heredoc_bodies() (
       hd_status=0
       ;;
   esac
-  if [ "$hd_new" = "$hd_cmd" ]; then
+  if [ "$hd_new" = "$hd_cmd" ] || ! heredoc_files_are_documents "$hd_cmd"; then
     printf '%s' "$hd_cmd"
     exit 0
   fi
