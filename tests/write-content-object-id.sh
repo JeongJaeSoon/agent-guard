@@ -151,7 +151,8 @@ MCP クライアントの $P 更新の競合を直す。
 TABLE_BODY="| 변경 | 커밋 |
 | --- | --- |
 | $P fix commit: | $SHA1 |
-| $AU rev: | \`$SHA1\` |"
+| $AU rev: | \`$SHA1\` |
+| $P fix commit: $SHA1 | 확인 |"
 
 # An argument, not a variable: an inherited variable would turn the suite into
 # a run that checks nothing and still passes.
@@ -259,6 +260,11 @@ scan_case 0 'apostrophe inside a word' "Fix the client's $P refresh commit: $SHA
 scan_case 1 'value with equals signs after the id' "$P fix commit: $SHA1, api_$P: $EQ_VALUE"
 scan_case 1 'value with equals signs before the commit clause' "api_$P: $EQ_VALUE, $P fix commit: $SHA1"
 scan_case 1 'equals sign right after the id' "$P fix commit: $SHA1=$TWELVE"
+scan_case 0 'table cell with the label and the id' "| $P fix commit: $SHA1 | ok |"
+scan_case 0 'id in parentheses' "($P fix commit: $SHA1)"
+scan_case 1 'double quote right after the id' "$P fix commit: $SHA1\"$TWELVE"
+scan_case 1 'single quote right after the id' "$P fix commit: $SHA1'x"
+scan_case 1 'quote right after the branch name' "$P change branch: $BRANCH'x"
 scan_case 1 'assignment with a blank after the equals sign' "$P fix commit: $SHA1, $P= $TWELVE"
 scan_case 1 'assignment with blanks around the equals sign' "$P fix commit: $SHA1, api_$P = $MIXED"
 scan_case 1 'quoted commit message with a value' "git commit -m \"$P: $OTHER\""
@@ -283,6 +289,7 @@ scan_case 1 'branch shape with a token tail' "$P branch: 94S-2515-mcp-oidc_$TWEL
 scan_case 0 'dummy key with a number' "$AP-$K=dummy-$K-12345"
 scan_case 1 'dummy key with a random tail' "$AP-$K=dummy-$K-$TWELVE"
 scan_case 1 'dummy key with a number and an adjacent tail' "$AP-$K=dummy-$K-123$TWELVE"
+scan_case 1 'dummy key with a number and a quoted continuation' "$AP-$K=dummy-$K-12345\"$TWELVE\""
 scan_case 1 'dummy key with a number and a random tail' "$AP-$K=dummy-$K-123-$TWELVE"
 
 printf '%s write object id checks, %s failed\n' "$((pass + fail))" "$fail"
