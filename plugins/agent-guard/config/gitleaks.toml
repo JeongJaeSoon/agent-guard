@@ -275,6 +275,22 @@ regexes = [
   '''(?i)[=:>,|?][ \t]*(?:dummy|example)[_-]?(?:token|key|secret|password)[_-][0-9]{1,12}[ \t\n]?$'''
 ]
 
+# A container name filter (`docker ps --filter name=<project>-api-1`) after a
+# container name that ends in a keyword (`<project>-api-1`): generic-api-key
+# reads the keyword, `-1 --filter name` and the `=` as a labelled secret, and
+# a compose project name with a date stamp and a hash clears the entropy floor
+# (#599). Anchored to the end of the match: the separator is the `=` of a
+# `--filter name=` or `-f name=` option, then one name, optionally quoted.
+# Another option (`--filter label=token=<value>`, `-e API_KEY=<value>`) and
+# any vendor rule keep their findings.
+[[allowlists]]
+description = "Container name filters (#599)"
+targetRules = ["generic-api-key"]
+regexTarget = "match"
+regexes = [
+  '''[ \t](?:--filter|-f)[ \t]+name=['"\x60]?[\w.-]+['"\x60]?[ \t\n;]?$'''
+]
+
 # Directory scans skip these exact lockfile names, then agent-guard rescans
 # their non-checksum content through stdin. This avoids checksum false positives
 # without allowing credentials elsewhere in a lockfile.

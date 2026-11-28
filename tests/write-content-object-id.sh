@@ -69,6 +69,9 @@ MIXED=$(printf '%s%s%s' Zt8q3LmX7vR2 nK9pW4cH6dJ1 sF5gB0yA)
 TWELVE=$(printf '%s%s' Ab3Cd4 Ef5Gh6)
 EQ_VALUE=$(printf '%s=%s=%s' Ab3 Cd4 Ef5Gh6)
 BRANCH=$(printf '%s-%s-%s' 94S 2515 mcp-oidc-kind-lenient)
+# A docker compose project name: 31 characters, a date stamp and a hash.
+PJ=$(printf 'e2e-%s-%s' 20261128t085800 k3x9q2zw7m1)
+DL="docker logs --since 2026-11-28T08:58:00Z"
 BR_STOP=$(printf '%s-%s-mcp-%s-kind-lenient' 94S 2515 au""th)
 GH_SHAPE=$(printf '%s%s%s' gh p_R8mZq2Lx7Vt4Nc9P w1Ks6Hd3Fj5Gb0Ya8Ue2)
 # The vendor rule takes exactly 36 characters after the prefix.
@@ -108,6 +111,22 @@ write_case() {
     not_ok "Write: $2 (blocked without the Write content scan message)"
   else
     ok "Write: $2"
+  fi
+}
+
+# $1 expected status, $2 label, $3 Bash command. The same scan on command text.
+bash_case() {
+  n=$((n + 1))
+  jq -nc --arg c "$3" --arg d "$CASE/cwd" --arg s "write-object-id-$n" \
+    '{session_id:$s,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c},cwd:$d}' |
+    (cd "$CASE/cwd" && AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-pre-tool) >"$CASE/out" 2>"$CASE/err"
+  status=$?
+  if [ "$status" -ne "$1" ]; then
+    not_ok "Bash: $2 (expected $1, got $status)"
+  elif [ "$1" -eq 2 ] && ! grep -q 'secret-like value detected in shell command' "$CASE/err"; then
+    not_ok "Bash: $2 (blocked without the shell command scan message)"
+  else
+    ok "Bash: $2"
   fi
 }
 
@@ -191,6 +210,23 @@ if [ "${1-}" = --measure ]; then
   measure 'secret-of pod value' "  expect(out).toBe('secret-of-$POD');"
   measure 'key-of pod value' "  expect(out).toBe('$K-of-$POD');"
   measure 'pod value after a key word and a comma' "const $K = pods[0], other = 'release-$K-5c6b7d8f9-q8w7z';"
+  # A stack summary with a session id line and log words (third report).
+  SID_UUID=$(printf '%s-%s-%s-%s-%s' 7b42a1e9 63dc 4f08 a295 1c8e6d03b574)
+  measure 'SID line' "SID=$SID_UUID"
+  measure 'SID line in a summary' "## stack
+SID=$SID_UUID
+api: up, egress-proxy: up"
+  measure 'SID after an authorization log line' "Egress $AU""orization refused
+SID=$SID_UUID"
+  measure 'authorization log line with a SID' "Egress $AU""orization refused (SID=$SID_UUID)"
+  measure 'authorization refused, then a SID' "Egress $AU""orization refused, SID=$SID_UUID"
+  measure 'authorization refused: then a SID' "Egress $AU""orization refused: SID=$SID_UUID"
+  measure 'authorization refused | SID table' "| Egress $AU""orization refused || SID=$SID_UUID |"
+  measure 'authorization label with a SID value' "Egress $AU""orization: refused, SID: $SID_UUID"
+  measure 'compose logs with a quoted project name' "$DL '$PJ'-$AP-1 2>&1 | grep -E '\"level\":\"(warn|error)\"' | cut -c1-220 | head -20"
+  measure 'compose ps with name filters' "docker ps --filter name='$PJ'-$AP-1 --filter name='$PJ'-egress-proxy-1 --format '{{.Names}} {{.Status}}'"
+  measure 'compose ps with an unquoted name filter' "docker ps --filter name=$PJ-$AP-1 --filter name=$PJ-egress-proxy-1"
+  measure 'compose ps with -f name filters' "docker ps -f name='$PJ'-$AP-1 -f name='$PJ'-egress-proxy-1"
   measure 'kubectl args array' "    ['get', 'pod', '$POD', '-o', 'jsonpath={.data.$P}'],"
   exit 0
 fi
@@ -234,6 +270,13 @@ $PK_FOOT"
 scan_case 1 'git word earlier in the clause than the last word' "- Head commit for the $P fix: $SHA1"
 scan_case 1 'credential label that starts with a git word' "commit signing $K: $SHA1"
 scan_case 1 'credential label between a git word and the colon' "merge bot $P: $SHA1"
+# The command of #599's second report: compose container logs and name filters.
+bash_case 0 'compose logs and ps with name filters' "$DL '$PJ'-$AP-1 2>&1 | grep -E '\"level\":\"(warn|error)\"' | cut -c1-220 | sort | uniq -c | sort -rn | head -20; echo ---proxy; $DL '$PJ'-egress-proxy-1 2>&1 | cut -c1-220 | head -20; echo ---ps; docker ps --filter name='$PJ'-$AP-1 --filter name='$PJ'-egress-proxy-1 --format '{{.Names}} {{.Status}} {{.CreatedAt}}'"
+bash_case 0 'ps with -f name filters' "docker ps -f name='$PJ'-$AP-1 -f name='$PJ'-egress-proxy-1"
+bash_case 2 'name filter then a keyword assignment' "docker ps --filter name='$PJ'-$AP-1 -e api_$P=$MIXED"
+bash_case 2 'label filter with a keyword value' "docker ps --filter label=$P=$MIXED"
+bash_case 2 'environment option with a keyword value' "docker run -e API_$(printf KEY)=$MIXED --name '$PJ'-$AP-1 img"
+scan_case 1 'keyword assignment before a name filter' "api_$P=$MIXED --filter name=x"
 scan_case 0 'commit word after the keyword' "Fix $AU commit: $SHA1"
 scan_case 0 'sha word' "$P fix sha: $SHA1"
 scan_case 0 'rev word' "$AU rev: $SHA1"
