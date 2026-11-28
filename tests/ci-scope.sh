@@ -597,7 +597,7 @@ rm -f "$mutation_listed"
 # the driver must run that job with its suites, and the step must fail the job.
 rules_driver="$ROOT/tests/real-gitleaks-rules.sh"
 rule_suites=$(sed -n "s/^run_suite '.*' \([a-z0-9-]*[.]sh\)\$/\1/p" "$rules_driver" | LC_ALL=C sort)
-expected_rule_suites=$(printf '%s\n' auto-wake-key-allowlist.sh figma-file-key.sh force-with-lease-sha.sh \
+expected_rule_suites=$(printf '%s\n' figma-file-key.sh force-with-lease-sha.sh \
   prefixed-uuid-key.sh prompt-issue-reference.sh prompt-prose-reference.sh prompt-route-reference.sh \
   reference-id-allowlist.sh)
 [ "$rule_suites" = "$expected_rule_suites" ] || fail "the rule suite driver runs exactly the real-gitleaks suites: $(printf '%s ' $rule_suites)"
@@ -658,14 +658,14 @@ rules_run() { # arguments: environment assignments for the driver
   env "$@" sh "$rules_tmp/tree/tests/real-gitleaks-rules.sh" >"$rules_tmp/out" 2>&1
 }
 rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks" || fail 'the rule suite driver passes when every suite passes'
-[ "$(grep -c '^ok - ' "$rules_tmp/out")" -eq 8 ] || fail 'the rule suite driver reports each suite'
+[ "$(grep -c '^ok - ' "$rules_tmp/out")" -eq 7 ] || fail 'the rule suite driver reports each suite'
 printf 'echo "not ok - stand-in"\nexit 1\n' >"$rules_tmp/tree/tests/prefixed-uuid-key.sh"
 if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then fail 'a failing rule suite fails the driver'; fi
 grep -q '^not ok - .*(prefixed-uuid-key[.]sh, exit 1' "$rules_tmp/out" || fail 'the driver names the failing rule suite'
 grep -Fxq '  not ok - stand-in' "$rules_tmp/out" || fail "the driver shows a failing rule suite's output"
 printf 'echo "skip - real gitleaks is not installed"\n' >"$rules_tmp/tree/tests/prefixed-uuid-key.sh"
 rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS= || fail 'outside Linux CI a suite may skip without a real gitleaks'
-[ "$(grep -c '^ok - ' "$rules_tmp/out")" -eq 7 ] || fail 'without a real gitleaks the other suites still run'
+[ "$(grep -c '^ok - ' "$rules_tmp/out")" -eq 6 ] || fail 'without a real gitleaks the other suites still run'
 grep -q '^skip - .*(prefixed-uuid-key[.]sh)$' "$rules_tmp/out" || fail 'the driver reports the skipped rule suite'
 if rules_run CI=true PATH="$rules_tmp/linux:$PATH" AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then
   fail 'on Linux CI a skipped rule suite fails the driver'
@@ -685,7 +685,7 @@ chmod -x "$rules_tmp/bin/gitleaks"
 if rules_run CI= AGENT_GUARD_TEST_REAL_GITLEAKS="$rules_tmp/bin/gitleaks"; then fail 'a scanner that is not executable is refused'; fi
 # A signal still removes the driver's workspace, also under dash.
 # shellcheck disable=SC2016
-printf '%s\n' ': >"$RULES_STARTED"' 'sleep 2' >"$rules_tmp/tree/tests/auto-wake-key-allowlist.sh"
+printf '%s\n' ': >"$RULES_STARTED"' 'sleep 2' >"$rules_tmp/tree/tests/reference-id-allowlist.sh"
 chmod +x "$rules_tmp/bin/gitleaks"
 mkdir "$rules_tmp/tmp"
 env CI= RULES_STARTED="$rules_tmp/started" TMPDIR="$rules_tmp/tmp" \
