@@ -77,17 +77,22 @@ shell 2 "cat of a real env file" "cat .env"
 check 2 claude "Read of an example-named symlink to a real env file" "$(read_json infra/link.env.example)"
 shell 2 "cat of an example-named symlink to a real env file" "cat infra/link.env.example"
 
-# Text that names an example file without opening one (the three shapes of
-# the 2026-11-23 bot report), each with a control that still blocks.
+# Text that names an example file without opening one, with a control that
+# still blocks. An option of the Orca CLI is read as written, so the item
+# comment shapes block; the same text as a gh comment body is data.
 shell 0 "tracked names filtered by an example-name pattern" \
   "git ls-files | grep -iE '\\.env\\.example|\\.env\\.sample|test-ops'"
 shell 2 "the same names fed to a reader" \
   "git ls-files | grep -iE '\\.env\\.example|test-ops' | xargs cat"
-shell 0 "an item comment that names an example file" \
+shell 0 "a gh comment that names an example file" \
+  'gh pr comment 135 --body "checked infra/test-ops.env.example against the template"'
+shell 0 "a gh comment that quotes a deny entry" \
+  "gh pr comment 135 --body \"the entry ('*.env.*') matched the example name\""
+shell 2 "an item comment that names an example file" \
   'orca bot item set 135 --comment "checked infra/test-ops.env.example against the template"'
-shell 0 "an item comment that quotes a deny entry" \
+shell 2 "an item comment that quotes a deny entry" \
   "orca bot item set 135 --comment \"the entry ('*.env.*') matched the example name\""
-shell 0 "a needs-you item with a question and options" \
+shell 2 "a needs-you item with a question and options" \
   'orca bot item set 135 --status needs-you --comment "the .env.example file is ready" --ask "Copy it to .env.local?" --option "Yes" --option "No"'
 shell 2 "an item comment read from a real env file" 'orca bot item set 135 --comment-file .env'
 shell 2 "a quoted item comment file that is a real env file" "orca bot item set 135 --comment-file '.env'"

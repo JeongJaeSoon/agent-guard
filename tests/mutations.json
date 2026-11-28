@@ -544,13 +544,12 @@
     ]
   },
   {
-    "id": "bash-message-set-file-option",
-    "rule": "message values (#620): --comment-file of orca bot item set names a file",
-    "old": "\"|--comment|--title|--description|--done-means|--note|--reason|--ask|--option|\"",
-    "new": "\"|--comment|--comment-file|--title|--description|--done-means|--note|--reason|--ask|--option|\"",
+    "id": "bash-heredoc-body-file-runnable",
+    "rule": "heredoc_reused_as_body_file: a written file the same command may run is no document",
+    "old": "    heredoc_file_is_document \"$hr_file\" \"$hr_placed\" || return 1\n",
+    "new": "    :\n",
     "tests": [
-      "tests/message-value-prose.sh",
-      "tests/bash-path-text-data.sh"
+      "tests/heredoc-body-text.sh"
     ]
   },
   {
@@ -2827,7 +2826,7 @@
   {
     "id": "bash-git-gate-heredoc-writer-words",
     "rule": "heredoc_body_rewrite view for the gate: the command that takes a here-document is judged by its own words",
-    "old": "        view[nk] = lead (reader == \"gate\" ? pre : \" true\") post",
+    "old": "        view[nk] = lead (reader == \"gate\" ? pre : \" true \" mark) post",
     "new": "        view[nk] = lead \" true\" post",
     "tests": [
       "tests/message-value-prose.sh"

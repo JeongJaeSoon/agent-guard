@@ -1,7 +1,8 @@
 #!/bin/sh
-# Message values (orca orchestration send/reply/ask --subject/--body, gh
-# pr|issue --title/--body, git commit -m) are data the CLI sends, not files it
-# opens, so they are left out of the Bash path match. The hook-only checks
+# Message values (gh pr|issue --title/--body, git commit -m) are data the CLI
+# sends, not files it opens, so they are left out of the Bash path match. An
+# option of any other CLI, the Orca CLI included, is read as written. The
+# hook-only checks
 # below are never executed. The git cases are also run in a sandbox repository
 # whose protected files hold a canary: an allowed commit must not record the
 # canary, and the blocked `-F` control must record it, which proves the
@@ -46,35 +47,39 @@ check() { # $1 expected status, $2 command
 
 nl='
 '
-check 0 'orca orchestration send --to lead --body "done: removed .env reference from docs"'
-check 0 "orca orchestration send --to x --type worker_done --subject 'landed' --body 'state.env not read, secrets.json untouched'"
-check 0 "orca orchestration reply --run r1 --id msg_x --body 'state.env not read' --json | grep -o '\"ok\": *[a-z]*'"
-check 0 "orca orchestration ask --to x --subject 'q' --body 'line one${nl}see docs/env.md and .env.local${nl}line three'"
 check 0 'gh pr comment 12 --body "checked that .env.local is ignored"'
+check 0 "gh pr comment 12 --body 'state.env not read' | grep -o 'issuecomment-[0-9]*'"
+check 0 "gh issue comment 7 --body 'line one${nl}see docs/env.md and .env.local${nl}line three'"
 check 0 "gh pr create --title 'stop reading .env' --body 'do not read state.env here'"
 check 0 "gh pr review 3 --comment -b 'secrets.json stays out'"
 check 0 "gh issue edit 7 -t 'move .env docs'"
 check 0 "git commit -m 'drop state.env reads'"
 check 0 "cd /tmp && git commit -am 'docs: .env guide'"
-check 0 "orca orchestration send --to lead --body 'blocked: printenv and gh auth token were refused'"
+check 0 "gh pr comment 12 --body 'blocked: printenv and gh auth token were refused'"
+# Only gh and git commit are on the table: a text option of the Orca CLI is
+# read as written, like an option of any other command.
+check 2 'orca orchestration send --to lead --body "done: removed .env reference from docs"'
+check 2 "orca orchestration send --to x --type worker_done --subject 'landed' --body 'state.env not read, secrets.json untouched'"
+check 2 "orca orchestration reply --run r1 --id msg_x --body 'state.env not read' --json | grep -o '\"ok\": *[a-z]*'"
+check 2 "orca orchestration ask --to x --subject 'q' --body 'line one${nl}see docs/env.md and .env.local${nl}line three'"
+check 2 "orca orchestration send --to lead --body 'blocked: printenv and gh auth token were refused'"
 
 check 2 'orca orchestration send --to x --subject s --body-file state.env'
 # Inside double quotes a backslash before an ordinary character is text, so
 # such a value is still one literal (#502 case 16: a report that quotes a
 # regex). A value with `$` or a backquote, escaped or not, stays in the scan,
 # and so does whatever follows a quote that an escaped backslash closes.
-check 0 'orca orchestration send --to lead --subject s --body "the regex \.env\.local matched a search word"'
-check 0 'orca orchestration send --to lead --subject blocked --body "blocked: sed -E '"'"'s/^[^\t]*\t[^\t]*\t[0-9TZ:.-]+ //'"'"' | head -40"'
+check 0 'gh pr comment 12 --body "the regex \.env\.local matched a search word"'
+check 0 'gh pr comment 12 --body "blocked: sed -E '"'"'s/^[^\t]*\t[^\t]*\t[0-9TZ:.-]+ //'"'"' | head -40"'
 check 0 'git commit -m "docs: escape the dot in \.env\.local"'
-check 2 'orca orchestration send --to lead --subject s --body "a\\" --body-file state.env'
-check 2 'orca orchestration send --to lead --subject s --body "see \\$(cat .env)"'
-check 2 'orca orchestration send --to lead --subject s --body "see \$(cat .env)"'
-check 2 'orca orchestration send --to lead --subject s --body "see \`cat .env\`"'
-check 2 'orca orchestration send --to lead --subject s --body "say \"hi\" about .env.local"'
-# `ask --question` carries the question text as data too (#410); only `ask`
-# takes it, and a file-taking or substituted form is still checked.
-check 0 "orca orchestration ask --to lead --question 'is state.env still read by the loader?'"
-check 0 "orca orchestration ask --to lead --subject q --question 'should .env.local move to secrets.json?'"
+check 2 'gh pr comment 12 --body "a\\" --body-file state.env'
+check 2 'gh pr comment 12 --body "see \\$(cat .env)"'
+check 2 'gh pr comment 12 --body "see \$(cat .env)"'
+check 2 'gh pr comment 12 --body "see \`cat .env\`"'
+check 2 'gh pr comment 12 --body "say \"hi\" about .env.local"'
+# No form of an Orca CLI option is a message value.
+check 2 "orca orchestration ask --to lead --question 'is state.env still read by the loader?'"
+check 2 "orca orchestration ask --to lead --subject q --question 'should .env.local move to secrets.json?'"
 check 2 "orca orchestration send --to lead --question 'is state.env read?'"
 check 2 "orca orchestration ask --to lead --question-file state.env"
 check 2 'orca orchestration ask --to lead --question "$(cat .env)"'
@@ -107,7 +112,7 @@ check 2 "orca orchestration send --to x --body 'see .env' <<'EOF'${nl}x${nl}EOF"
 check 2 "orca orchestration send --to x --body 'see .env' <<EOF${nl}\$(cat .env)${nl}EOF"
 check 2 "orca orchestration send --to x --body 'see .env' <<EOF${nl}\$(cp /bin/cat ~/bin/orca)${nl}EOF"
 # A later segment expands after the message command has run.
-check 0 "orca orchestration send --body 'see .env' && echo \"exit \$? \$(date)\""
+check 0 "gh pr comment 1 --body 'see .env' && echo \"exit \$? \$(date)\""
 check 2 "orca orchestration send --body '.env'; orca orchestration send --body-file .env"
 # Anything on the line that can redefine the command name keeps the message in
 # the scan (PR #220's reason for not exempting git commit -m).
@@ -160,42 +165,42 @@ check 2 "git -c core.editor=sh -C /tmp/x/repo commit -m 'cat .env' -e"
 check 2 "git -c core.hooksPath=x commit -m 'x' && env"
 # Every word is expanded before the name is looked up; an expansion that is
 # not a bare parameter reference may assign PATH (arithmetic in an offset).
-check 2 "echo \"\${PWD:PATH=0}\"; orca orchestration send --body '.env'"
-check 2 "orca orchestration send --from \"\${PWD:PATH=0}\" --body '.env'"
-check 2 "orca orchestration send --from \"\$((PATH=0))\" --body '.env'"
-check 2 "orca orchestration send --from \"\$X[PATH=0]\" --body '.env'"
+check 2 "echo \"\${PWD:PATH=0}\"; gh pr comment 1 --body '.env'"
+check 2 "gh pr comment \"\${PWD:PATH=0}\" --body '.env'"
+check 2 "gh pr comment \"\$((PATH=0))\" --body '.env'"
+check 2 "gh pr comment \"\$X[PATH=0]\" --body '.env'"
 # A process substitution or subshell runs before the command it sits in.
-check 2 "orca orchestration send --body '.env' =(cp /bin/cat ~/bin/orca)"
-check 2 "orca orchestration send --body '.env' <(cp /bin/cat ~/bin/orca)"
+check 2 "gh pr comment 1 --body '.env' =(cp /bin/cat ~/bin/gh)"
+check 2 "gh pr comment 1 --body '.env' <(cp /bin/cat ~/bin/gh)"
 check 2 "git commit -m '.env' >(cp /bin/cat ~/bin/git)"
 check 2 "(cp /bin/cat ~/bin/git); git commit -m '.env'"
 check 2 "git commit -m '.env'; (true)"
-check 0 "orca orchestration send --to x --body 'see .env' 2>&1 | tail -n 1"
+check 0 "gh pr comment 1 --body 'see .env' 2>&1 | tail -n 1"
 # rg runs programs and test evaluates array subscripts, so neither is inert.
-check 2 "rg --pre /bin/sh x ./swap; orca orchestration send --body '.env'"
-check 2 "rg --pre=/bin/sh x ./swap; orca orchestration send --body '.env'"
-check 2 "rg --pre\"\$AG_UNSET\" /bin/sh x ./swap; orca orchestration send --body '.env'"
-check 2 "rg --hostname-bin ./swap x ./notes; orca orchestration send --body '.env'"
-check 2 "rg -n x ./notes; orca orchestration send --body '.env'"
-check 2 "test -v 'path[\$(cp ./reader ~/bin/orca)1]'; orca orchestration send --body '.env'"
-check 2 "[ -v 'path[\$(cp ./reader ~/bin/orca)1]' ]; orca orchestration send --body '.env'"
-check 2 "orca orchestration send --body '.env' | rg --hostname-bin ./swap x"
-check 2 "stat -A path +name /tmp/x; orca orchestration send --body '.env'"
-check 0 "grep -n x ./notes; orca orchestration send --body '.env'"
+check 2 "rg --pre /bin/sh x ./swap; gh pr comment 1 --body '.env'"
+check 2 "rg --pre=/bin/sh x ./swap; gh pr comment 1 --body '.env'"
+check 2 "rg --pre\"\$AG_UNSET\" /bin/sh x ./swap; gh pr comment 1 --body '.env'"
+check 2 "rg --hostname-bin ./swap x ./notes; gh pr comment 1 --body '.env'"
+check 2 "rg -n x ./notes; gh pr comment 1 --body '.env'"
+check 2 "test -v 'path[\$(cp ./reader ~/bin/gh)1]'; gh pr comment 1 --body '.env'"
+check 2 "[ -v 'path[\$(cp ./reader ~/bin/gh)1]' ]; gh pr comment 1 --body '.env'"
+check 2 "gh pr comment 1 --body '.env' | rg --hostname-bin ./swap x"
+check 2 "stat -A path +name /tmp/x; gh pr comment 1 --body '.env'"
+check 0 "grep -n x ./notes; gh pr comment 1 --body '.env'"
 # Piped and backgrounded commands run alongside the message command.
-check 2 "orca orchestration send --body '.env' </tmp/gate | sh -c 'cp /bin/cat ~/bin/orca'"
-check 2 "orca orchestration send --body '.env' | tail -n 1 | sh -c 'cp /bin/cat ~/bin/orca'"
-check 2 "orca orchestration send --body '.env' |& sh -c 'cp /bin/cat ~/bin/orca'"
-check 2 "orca orchestration send --body '.env' & cp /bin/cat ~/bin/orca"
-check 2 "orca orchestration send --body '.env' 2>&1 & cp /bin/cat ~/bin/orca"
-check 2 "echo x 2>&1 & cp /bin/cat ~/bin/orca; orca orchestration send --body '.env'"
-check 2 "orca orchestration send --body '.env' | rg --pre /bin/sh x ./swap"
-check 0 "orca orchestration send --body '.env' --json | jq -r .ok | head -n 1"
-check 0 "orca orchestration send --body '.env' | tail -n 1; cp a b"
-check 2 "orca orchestration send --from \"\`cp /bin/cat ~/bin/orca\`\" --body '.env'"
-check 2 "orca orchestration send --body '.env' <<< \"\$(cp /bin/cat ~/bin/orca)\""
-check 0 "orca orchestration send --from \"\$ORCA_TERMINAL_HANDLE\" --body 'see .env'"
-check 0 "orca orchestration send --from \"\${H}\" --to \"run:\$R\" --body 'see .env'"
+check 2 "gh pr comment 1 --body '.env' </tmp/gate | sh -c 'cp /bin/cat ~/bin/gh'"
+check 2 "gh pr comment 1 --body '.env' | tail -n 1 | sh -c 'cp /bin/cat ~/bin/gh'"
+check 2 "gh pr comment 1 --body '.env' |& sh -c 'cp /bin/cat ~/bin/gh'"
+check 2 "gh pr comment 1 --body '.env' & cp /bin/cat ~/bin/gh"
+check 2 "gh pr comment 1 --body '.env' 2>&1 & cp /bin/cat ~/bin/gh"
+check 2 "echo x 2>&1 & cp /bin/cat ~/bin/gh; gh pr comment 1 --body '.env'"
+check 2 "gh pr comment 1 --body '.env' | rg --pre /bin/sh x ./swap"
+check 0 "gh pr comment 1 --body '.env' | jq -r .ok | head -n 1"
+check 0 "gh pr comment 1 --body '.env' | tail -n 1; cp a b"
+check 2 "gh pr comment \"\`cp /bin/cat ~/bin/gh\`\" --body '.env'"
+check 2 "gh pr comment 1 --body '.env' <<< \"\$(cp /bin/cat ~/bin/gh)\""
+check 0 "gh pr comment \"\$PR\" --body 'see .env'"
+check 0 "gh pr comment \"\${H}\" --repo \"o/\$R\" --body 'see .env'"
 # After `--`, or past an option that may take a value, git commit words are
 # pathspecs it reads into the commit.
 check 2 "git commit --only -- -m '.env'"
@@ -221,7 +226,7 @@ check 0 "git commit -m \\?x -m 'see .env'"
 check 0 "ls *.md; git commit -m 'see .env'"
 check 0 "git commit -m 'see .env' && ls *.md"
 # A risky command quoted in a message is data; the same command run is not.
-check 0 "orca orchestration send --to x --body 'the hook refused printenv'"
+check 0 "gh pr comment 1 --body 'the hook refused printenv'"
 check 2 "orca orchestration send --to x --body 'ok'; printenv"
 check 2 'orca orchestration send --to x --body "$(printenv)"'
 check 2 'orca orchestration send --to x --body "`env`"'
@@ -320,7 +325,7 @@ hd() { # $1 delimiter, $2 body
 }
 check 0 "gh pr comment 12 --body $(hd EOF "## Summary${nl}- Fixed .env loading (see state.env)${nl}- \`secrets.json\` stays out${nl}${nl}the hook refused printenv")"
 check 0 "git commit -m $(hd EOF "fix: stop reading .env${nl}${nl}Co-Authored-By: A <a@example.com>")"
-check 0 "orca orchestration send --to lead --body $(hd EOF "done: we won't, and don't, touch .env")"
+check 2 "orca orchestration send --to lead --body $(hd EOF "done: we won't, and don't, touch .env")"
 check 0 "gh pr create --title 'move .env docs' --body $(hd MSG 'see docs/env.md and .env.local')"
 check 0 "gh pr create --title $(hd T '.env title') --body $(hd B 'state.env body (twice)')"
 check 0 "gh pr comment 1 --body $(hd EOF 'run `cat .env` to see it, or `env`')"
@@ -380,12 +385,12 @@ for hd_shell in sh bash dash zsh ksh; do
   done
 done
 
-# Orca bot text options (bot item comment/add, bot reply) carry text as data;
-# their -file twins, --file and --note (path:line:text) are operands.
-check 0 'orca bot item comment 133 --text "deny rules such as secrets.json, *.pem, .ssh/config stay"'
-check 0 "orca bot item comment 133 --text 'names secrets.json and *.pem' ; ps -axo command | grep -c 'agent-guard/3.11.[345]'"
-check 0 "orca bot item add --title 'document .env names' --description 'covers state.env' --done-means 'secrets.json listed'"
-check 0 "orca bot reply --text 'the .env rule fired'"
+# Orca bot text options (bot item comment/add, bot reply) are read as written,
+# like their -file twins, --file and --note (path:line:text).
+check 2 'orca bot item comment 133 --text "deny rules such as secrets.json, *.pem, .ssh/config stay"'
+check 2 "orca bot item comment 133 --text 'names secrets.json and *.pem' ; ps -axo command | grep -c 'agent-guard/3.11.[345]'"
+check 2 "orca bot item add --title 'document .env names' --description 'covers state.env' --done-means 'secrets.json listed'"
+check 2 "orca bot reply --text 'the .env rule fired'"
 check 2 'orca bot item comment 1 --text-file .env'
 check 2 "orca bot item comment 1 --text 'see attachment' --file .env"
 check 2 'orca bot item comment 1 --text "$(cat .env)"'
@@ -397,12 +402,12 @@ check 2 "orca bot reply --text 'x' --note .env:1:comment"
 check 2 "orca bot reply --text 'x' --file secrets.json"
 check 2 "orca bot item list --text '.env'"
 check 2 "orca bot comment 1 --text '.env'"
-# An orca message command made of literal words, with no redirection that
-# writes a file, may come before another message command; git add and git
-# status may come before git commit. Anything else still ends the exemption.
-check 0 "orca orchestration reply --id m1 --body 'about .env' | tail -1; orca orchestration send --to a --subject 's state.env' --body 'b secrets.json' | tail -1"
-check 0 "orca orchestration reply --id m1 --body 'about .env' 2>&1 | tail -1; orca bot item comment 1 --text 'see secrets.json' >/dev/null 2>&1"
-check 0 "orca bot item comment 21 --text 'a .env' | tail -1; orca orchestration send --to bot:X --type status --subject 's' --body 'state.env' | tail -1"
+# git add and git status may come before git commit. Anything else still ends
+# the exemption, a message command included.
+check 2 "orca orchestration reply --id m1 --body 'about .env' | tail -1; orca orchestration send --to a --subject 's state.env' --body 'b secrets.json' | tail -1"
+check 2 "orca orchestration reply --id m1 --body 'about .env' 2>&1 | tail -1; orca bot item comment 1 --text 'see secrets.json' >/dev/null 2>&1"
+check 2 "orca bot item comment 21 --text 'a .env' | tail -1; orca orchestration send --to bot:X --type status --subject 's' --body 'state.env' | tail -1"
+check 2 "gh pr comment 1 --body 'about .env' | tail -1; gh pr comment 2 --body 'b secrets.json' | tail -1"
 check 0 "git add a.txt && git commit -q -m 'mention .env and state.env'"
 check 0 "cd /tmp && git status --short && git add a.txt b.txt && git commit -m 'see .env'"
 check 2 "orca orchestration check --terminal t1; orca orchestration reply --id m1 --body 'about .env'"
@@ -432,27 +437,26 @@ check 2 "git -c core.hooksPath=x add a.txt && git commit -m '.env'"
 check 2 "git add a.txt && docker ps && git commit -m '.env'"
 # A quoted value that starts with a list dash and a blank is a value; a word
 # that starts like an option is not, whatever follows it.
-check 0 "orca orchestration send --to a --subject s --body '- one (*.pem etc).${nl}  path: docs/state.env${nl}- two'"
-check 0 "orca orchestration send --to run:r1 --type status --subject 's' --body \"- fixed .env docs\" --json | head -c 60"
+check 0 "gh pr comment 1 --body '- one (*.pem etc).${nl}  path: docs/state.env${nl}- two'"
+check 0 "gh pr comment 1 --body \"- fixed .env docs\" | head -c 60"
 check 0 "gh pr comment 1 --body '- see .env'"
 check 0 "git commit -m '- drop state.env reads'"
-check 2 'orca orchestration send --to a --body --body-file=.env'
-check 2 "orca orchestration send --to a --body '--body-file=.env'"
-check 2 'orca orchestration send --to a --body -F .env'
+check 2 'gh pr comment 1 --body --body-file=.env'
+check 2 "gh pr comment 1 --body '--body-file=.env'"
+check 2 'gh pr comment 1 --body -F .env'
 check 2 "gh pr create --title t --body '-F' .env"
-check 2 "orca orchestration send --to a --body '-x .env'"
-check 2 "orca orchestration send --to a --body '-- .env'"
-check 2 'orca orchestration send --to a --body - .env'
-check 2 "orca orchestration send --to a --body '- ok' .env"
-# Orca tells its bots to call the CLI as "${ORCA_CLI_COMMAND:-orca}". That
-# exact word is orca while the hook's environment leaves the variable unset
-# or empty, or holds an absolute path to a file named orca, and the command
-# names the variable nowhere else. Any other variable stays an expansion.
+check 2 "gh pr comment 1 --body '-x .env'"
+check 2 "gh pr comment 1 --body '-- .env'"
+check 2 'gh pr comment 1 --body - .env'
+check 2 "gh pr comment 1 --body '- ok' .env"
+# Orca tells its bots to call the CLI as "${ORCA_CLI_COMMAND:-orca}". The
+# message check reads that word as any other expansion, so no option behind
+# it is a message value, whatever the hook's environment holds.
 OW='"${ORCA_CLI_COMMAND:-orca}"'
 OU='${ORCA_CLI_COMMAND:-orca}'
-check 0 "$OW bot item comment 1 --text 'see .env'"
-check 0 "$OU orchestration send --to a --subject s --body 'see state.env'"
-check 0 "$OW orchestration reply --id m1 --body 'about .env' | tail -1; $OW bot item comment 2 --text 'secrets.json'"
+check 2 "$OW bot item comment 1 --text 'see .env'"
+check 2 "$OU orchestration send --to a --subject s --body 'see state.env'"
+check 2 "$OW orchestration reply --id m1 --body 'about .env' | tail -1; $OW bot item comment 2 --text 'secrets.json'"
 check 2 "O=$OW; \$O bot item comment 1 --text 'see .env'"
 check 2 "\$O bot item comment 1 --text 'see .env'"
 check 2 "\"\$O\" bot item comment 1 --text 'see .env'"
@@ -488,7 +492,7 @@ check 2 "$OW bot item comment 1 --text 'a'; nohup $OW .env"
 check 2 "$OW bot item comment 1 --text 'a'; echo \"\$( $OW .env )\""
 check 2 "$OW orchestration check --terminal t1; $OW bot item comment 1 --text '.env'"
 check 2 "$OW bot item comment 1 --text $OW .env"
-check 0 "$OW bot item comment 1 --text 'a' | tail -1; $OW orchestration send --to x --subject s --body 'see .env' | tail -1"
+check 2 "$OW bot item comment 1 --text 'a' | tail -1; $OW orchestration send --to x --subject s --body 'see .env' | tail -1"
 check 2 "gh pr comment 5 -F .env --body 'x'"
 check 0 "gh pr comment 5 -F --body 'see .env'"
 # $_ is the last argument of the command before it, so a word an exemption
@@ -510,8 +514,8 @@ check 2 "grep -c -e '.env'; make -f \$_"
 check 2 "orca orchestration send --to a --body 'x; env | sort'; eval \"\$_\""
 check 2 "git commit -m 'x; env | sort'; eval \"\$_\""
 check 2 "grep -c -e ' env | sort'; eval \"\$_\""
-check 0 "orca orchestration send --to a --body 'see .env'; echo done"
-check 0 "orca orchestration send --to a --body 'see .env'; echo \$_x \"\${_y}\""
+check 0 "gh pr comment 1 --body 'see .env'; echo done"
+check 0 "gh pr comment 1 --body 'see .env'; echo \$_x \"\${_y}\""
 # Ground truth: where the shell keeps $_, the reader after a message command
 # prints the canary, so the block above is not a formality.
 mkdir -p "$W/lbin"
@@ -532,11 +536,11 @@ orca_env() { # $1 ORCA_CLI_COMMAND in the hook's environment, $2 expected status
   n=$((n + 1))
   if [ "$status" -eq "$2" ]; then ok "ORCA_CLI_COMMAND=$1: expected $2: $3"; else bad "ORCA_CLI_COMMAND=$1: expected $2 got $status: $3"; fi
 }
-orca_env '' 0 "$OW bot item comment 1 --text 'see .env'"
-orca_env orca 0 "$OW bot item comment 1 --text 'see .env'"
-orca_env /Applications/Orca.app/Contents/Resources/bin/orca 0 "$OW bot item comment 1 --text 'see .env'"
-orca_env /Applications/Orca.app/Contents/Resources/bin/orca 0 "$OU bot item comment 1 --text 'see .env'"
-orca_env '/tmp/my tools/orca' 0 "$OW bot item comment 1 --text 'see .env'"
+orca_env '' 2 "$OW bot item comment 1 --text 'see .env'"
+orca_env orca 2 "$OW bot item comment 1 --text 'see .env'"
+orca_env /Applications/Orca.app/Contents/Resources/bin/orca 2 "$OW bot item comment 1 --text 'see .env'"
+orca_env /Applications/Orca.app/Contents/Resources/bin/orca 2 "$OU bot item comment 1 --text 'see .env'"
+orca_env '/tmp/my tools/orca' 2 "$OW bot item comment 1 --text 'see .env'"
 orca_env '/tmp/my tools/orca' 2 "$OU bot item comment 1 --text 'see .env'"
 orca_env '/tmp/x*/orca' 2 "$OU bot item comment 1 --text 'see .env'"
 orca_env /bin/cat 2 "$OW bot item comment 1 --text '.env'"
@@ -545,9 +549,12 @@ orca_env ./orca 2 "$OW bot item comment 1 --text '.env'"
 orca_env bin/orca 2 "$OW bot item comment 1 --text '.env'"
 orca_env 'orca --text-file' 2 "$OU bot item comment 1 --text '.env'"
 orca_env /tmp/orca/cat 2 "$OW bot item comment 1 --text '.env'"
-# The commit/push gate reads the Orca CLI word the same way, so a message
-# command called through it is not a command name only run time knows. The
-# closed policy blocks such a name, so each row runs under it, on both hosts.
+# The commit/push gate reads the Orca CLI word as orca while the hook's
+# environment leaves the variable unset or empty, or holds `orca` or an
+# absolute path to a file named orca, and the command names the variable
+# nowhere else, so a command called through it is not a command name only run
+# time knows. The closed policy blocks such a name, so each row runs under
+# it, on both hosts.
 gate_closed() { # $1 ORCA_CLI_COMMAND in the hook's environment (- for unset), $2 expected status, $3 command
   for gate_host in claude codex; do
     (
