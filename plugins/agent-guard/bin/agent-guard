@@ -8380,8 +8380,9 @@ AWK_RECORD_SEPARATOR='
 # without a redirection, a printf or a read-only gh command as below, or
 # another marked segment that runs the same name, which is no shell builtin,
 # and whose only redirections are `2>&1` and /dev/null. None of those can
-# assign the variable behind a mark or write a file. $5 is set when a gh
-# command of the text holds an unquoted glob (message_command_has_glob).
+# assign the variable behind a mark or write a file. $5 is set when the text
+# holds an unquoted glob (message_command_has_glob): the records do not tell
+# one from a quoted character, so no gh command of such a text is inert.
 message_value_records() {
   printf '%s\n' "$1" | MV_CLI_WORD=${3-} MV_CLI_TEXT=${4-} MV_CLI_GLOB=${5-} LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" -v builtin_names="$SHELL_BUILTIN_NAMES_ERE" -v writer_mark="$HEREDOC_WRITER_MARK" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR$AWK_INERT_COMMAND"'
@@ -8734,7 +8735,7 @@ default_words_as_names() {
     fi
     dw_glob=
     case $dw_marked in
-      *[*?[^#]*) ! message_command_has_glob "$dw_marked" || dw_glob=1 ;;
+      *[*?[^#]*) ! message_command_has_glob "$dw_marked" any || dw_glob=1 ;;
     esac
     if [ -n "$dw_text" ] \
       && message_value_records "$(git_command_records "$dw_text")" gate "$DEFAULT_WORD_MARK" "$dw_marked" "$dw_glob" \
@@ -8753,8 +8754,9 @@ default_words_as_names() {
 # character. The records show a glob word as a literal, but its expansion can
 # add words (files named `--` or `-m`) and turn a message value into a
 # pathspec. `^` and `#` are globs under zsh EXTENDED_GLOB.
+# With $2 set, succeed for such a character in any command.
 message_command_has_glob() {
-  MV_CMD=$1 LC_ALL=C awk 'BEGIN {
+  MV_CMD=$1 LC_ALL=C awk -v any="${2-}" 'BEGIN {
     s = ENVIRON["MV_CMD"]; n = length(s); q = 0; fw = ""; inw = 1; glob = 0
     for (i = 1; i <= n; i++) {
       c = substr(s, i, 1)
@@ -8768,7 +8770,7 @@ message_command_has_glob() {
       if (c == "\047") { q = 1; started = 1; continue }
       if (c == "\"") { q = 2; started = 1; continue }
       if (c ~ /[;&|\n]/) {
-        if (glob && fw ~ /^(git|gh)$/) exit 0
+        if (glob && (any != "" || fw ~ /^(git|gh)$/)) exit 0
         fw = ""; inw = 1; started = 0; glob = 0
         continue
       }
@@ -8776,7 +8778,7 @@ message_command_has_glob() {
       if (c ~ /[*?[^#]/) glob = 1
       if (inw) { fw = fw c; started = 1 }
     }
-    exit !(glob && fw ~ /^(git|gh)$/)
+    exit !(glob && (any != "" || fw ~ /^(git|gh)$/))
   }'
 }
 

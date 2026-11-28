@@ -1030,6 +1030,13 @@ for gate_gh in "gh pr merge 5" "gh pr comment 5 --body x" "gh pr edit 5 --title 
   "command gh pr view 5"; do
   gate_closed - 2 "$gate_gh; $OW status"
 done
+# An unquoted glob anywhere on the line keeps a gh command from being inert,
+# whatever stands before its name: a loop keyword, or a word that runs gh.
+gate_closed - 2 "for d in a b; do gh pr view *; $TW x; done"
+gate_closed - 2 "\"\${GH:-gh}\" pr view *; $TW x"
+gate_closed - 2 "gh pr view 5; $TW sync *.md"
+gate_closed - 0 "for d in a b; do gh pr view 5; $TW x; done"
+gate_closed - 0 "gh pr view 5; $TW sync '*.md'"
 gate_says open - 0 "$MAY_RUN" '' "gh pr merge 5; $TW status"
 gate_says open - 0 "$MAY_RUN" '' "gh pr view \"\$(cat $CASE/note.md)\"; $TW status"
 # Ground truth: with the variable unset each shell at hand runs the orca on

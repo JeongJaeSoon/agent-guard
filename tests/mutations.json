@@ -3526,5 +3526,14 @@
     "tests": [
       "tests/message-value-prose.sh"
     ]
+  },
+  {
+    "id": "bash-gate-gh-read-only-glob-anywhere",
+    "rule": "default_words_as_names: an unquoted glob in any command of the line counts, not only behind a literal gh",
+    "old": "message_command_has_glob \"$dw_marked\" any ||",
+    "new": "message_command_has_glob \"$dw_marked\" ||",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
   }
 ]
