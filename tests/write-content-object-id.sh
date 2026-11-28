@@ -77,6 +77,12 @@ AWS_SHAPE=$(printf '%s%s' AK IAQ7ZK3M9X2LTW5RBN)
 ANT_SHAPE=$(printf '%s%s%s' sk-an t-api03-Hq7Lm2Zx9Rt4Vc8N k3Pw6Sd1Fj5Gb0Ya2Ue7Ko4)
 SLACK_SHAPE=$(printf '%s%s%s' xo xb-2648391057-8392016473215- Zq4Lm8Rt2Vx6Nc0Pk3Hw9Sd)
 GL_SHAPE=$(printf '%s%s' glp at-x7Kq2Lm9Rt4Vz8Nc3Pw1)
+# A Google API key shape that ends in a numbered example credential.
+GCP_SHAPE=$(printf '%s%s%s' AI za Rt4Vz8Nc3Pw1Hq7Lm2Zx9K example$K-12)
+if [ "${#GCP_SHAPE}" -ne 39 ]; then
+  printf 'not ok - Google API key shape length\n'
+  exit 1
+fi
 PK_HEAD=$(printf '%s%s' '-----BEGIN RSA PRI' 'VATE KEY-----')
 PK_FOOT=$(printf '%s%s' '-----END RSA PRI' 'VATE KEY-----')
 PK_BODY=$(printf '%s%s\n%s%s\n%s%s' \
@@ -199,6 +205,8 @@ write_case 2 'draft with a Slack bot token shape' "$TABLE_BODY
 $SLACK_SHAPE"
 write_case 2 'draft with a GitLab token shape' "$EN_BODY
 $GL_SHAPE"
+write_case 2 'draft with a Google API key shape ending in a numbered example' "$EN_BODY
+$GCP_SHAPE"
 write_case 2 'draft with a private key' "$EN_BODY
 
 $PK_HEAD
@@ -251,6 +259,8 @@ scan_case 0 'apostrophe inside a word' "Fix the client's $P refresh commit: $SHA
 scan_case 1 'value with equals signs after the id' "$P fix commit: $SHA1, api_$P: $EQ_VALUE"
 scan_case 1 'value with equals signs before the commit clause' "api_$P: $EQ_VALUE, $P fix commit: $SHA1"
 scan_case 1 'equals sign right after the id' "$P fix commit: $SHA1=$TWELVE"
+scan_case 1 'assignment with a blank after the equals sign' "$P fix commit: $SHA1, $P= $TWELVE"
+scan_case 1 'assignment with blanks around the equals sign' "$P fix commit: $SHA1, api_$P = $MIXED"
 scan_case 1 'quoted commit message with a value' "git commit -m \"$P: $OTHER\""
 scan_case 1 'unquoted commit message with a value' "git commit -m $P: $OTHER"
 scan_case 1 'echoed sentence with the id' "echo \"Head commit for the $P fix: $SHA1\""
