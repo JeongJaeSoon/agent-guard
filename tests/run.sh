@@ -12730,9 +12730,9 @@ if [ -n "$REAL_GITLEAKS" ]; then
   uuidk_case 1 "a non-UUID hex value under a bare key field is still found" \
     "{\"key\":\"$UUIDK_HEX\"}"
 
-  # An Orca repository id (`--repo id:<uuid>`) after a word holding `key`.
+  # No longer exempt: a UUID under an id: label (`--repo id:<uuid>`) after a word holding `key`.
   UUIDK_MK=$(printf '%s%s' model- key)
-  uuidk_case 0 "a UUID under an id: label after a key word is clean" \
+  uuidk_case 1 "a UUID under an id: label after a key word is found" \
     "skills-sync card /b/94S-1415-$UUIDK_MK.full.md --repo id:$UUIDK_ID --name x"
   uuidk_case 0 "a quoted UUID under an id: label after a key word is clean" \
     "$UUIDK_MK --repo 'id:$UUIDK_ID' --name x"

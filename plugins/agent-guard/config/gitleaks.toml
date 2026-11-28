@@ -137,21 +137,6 @@ regexes = [
   '''^\n?[ \t]*"key"[ \t]*:[ \t]*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",?[ \t]*\r?\n?$'''
 ]
 
-# An `id:` label names an identifier, not a credential, yet generic-api-key
-# lets up to 20 characters sit between its keyword and the `:`, so a nearby
-# word such as `model-key.md --repo id:<uuid>` turns an Orca repository id into
-# a finding. Anchored to the end of the match and to that option: `--repo`,
-# optional quote, `id:` and one lowercase canonical UUID. A bare `id:` label is
-# not enough (`Authorization: token id:<uuid>` keeps its finding), nor are
-# `key: <uuid>` and `api_key=<uuid>`.
-[[allowlists]]
-description = "Orca repository ids (--repo id:<uuid>)"
-targetRules = ["generic-api-key"]
-regexTarget = "match"
-regexes = [
-  '''--repo[ \t]+['"]?id:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\x60'"\s;]?$'''
-]
-
 # Fixtures and API payloads name a stored object by reference (`clientId`,
 # `tokenRef`, `credential_ref`, `session_id`) and fill it with a random UUID.
 # generic-api-key reads the keyword inside the field name as a credential
@@ -174,23 +159,6 @@ targetRules = ["generic-api-key"]
 regexTarget = "match"
 regexes = [
   '''^(?:[\w.-]{0,4}[a-z0-9]|[\w.-]{0,5}s|[\w.-]*(?:[a-ru-z0-9]|(?:[0-9A-DF-Za-df-z_.-]|[0-9A-QS-Za-qs-z_.-][\w.-]|[0-9ABD-Zabd-z_.-][\w.-]{2}|[0-9A-DF-Za-df-z_.-][\w.-]{3}|[0-9A-RT-Za-rt-z_.-][\w.-]{4})t|(?:[0-9A-SU-Za-su-z_.-]|[0-9A-DF-Za-df-z_.-][\w.-]|[0-9A-QS-Za-qs-z_.-][\w.-]{2}|[0-9ABD-Zabd-z_.-][\w.-]{3}|[0-9A-DF-Za-df-z_.-][\w.-]{4}|[0-9A-RT-Za-rt-z_.-][\w.-]{5})s))(?:Id|Ref|_id|_ref)['"]?[ \t]*(?:=|:|=>|:=)[ \t]*(?:"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"|'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'|\x60[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\x60|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[ \t\n;]?)$'''
-]
-
-# `orch-dash inbox resolve --key auto-wake:<dispatch id>` names an inbox item
-# by its dispatch id (`ctx_` plus lowercase hex). generic-api-key reads the
-# `key` option, the `auto-wake:` label and the id as a labelled secret. Anchored
-# to the whole match: the `--key` option, the `auto-wake:` label and one
-# lowercase dispatch id, nothing before or after. The end allows only a real
-# shell separator (space, tab, newline, `;`), not `\s`: the match stops at a
-# quote, CR or form feed, so `ctx_<hex>"Z"` or `ctx_<hex><CR>Z` is one longer
-# shell argument that must keep its finding. Another option, another label, an uppercase or longer
-# id, and `api_key=ctx_...` keep their findings.
-[[allowlists]]
-description = "Orca auto-wake inbox keys (--key auto-wake:ctx_<hex>)"
-targetRules = ["generic-api-key"]
-regexTarget = "match"
-regexes = [
-  '''^--key[ \t]+auto-wake:ctx_[0-9a-f]{6,32}[ \t\n;]?$'''
 ]
 
 # `git push --force-with-lease=<ref>:<expect>` carries the object id the remote
