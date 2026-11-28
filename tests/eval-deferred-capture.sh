@@ -17,6 +17,8 @@ BIN=${AGENT_GUARD_TEST_BINARY:-$ROOT/plugins/agent-guard/bin/agent-guard}
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-eval-capture.XXXXXX") || exit 1
 trap 'rm -rf "$CASE"' 0 HUP INT TERM
 export AGENT_GUARD_LOG_MODE=off AGENT_GUARD_RELEASE_CHECK=off
+# The rows expect a plain session in the default failure mode.
+unset AGENT_GUARD_SESSION_ROLE AGENT_GUARD_INFRA_FAILURE_MODE
 export AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks"
 W="$CASE/w"
 mkdir -p "$W" "$CASE/stub"
@@ -110,6 +112,13 @@ indirect 'eval "x=\$A""$m"; echo "$x"'
 indirect 'eval "x=\${!n}"; echo "$x"'
 indirect 'k=x; eval "$k=\$$n"; echo "$x"'
 indirect 'eval "printf %s \"\$$n\""'
+# A deferred expansion that is not an assignment value runs a command the
+# text never names.
+indirect 'c=print; eval "\${c}env"'
+indirect 'c=print; eval "x=\$(\${c}env)"; echo "$x"'
+check 2 'eval "\$cmd"'
+check 2 'eval "\$c AWS_SECRET_ACCESS_KEY"'
+check 2 'eval \$c'
 # Shell-specific or erroring forms stay blocked without a ground-truth run.
 check 2 'eval "x=\${(P)n}"'
 check 2 'eval "x=\$(($n))"'
