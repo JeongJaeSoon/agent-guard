@@ -1,8 +1,8 @@
 #!/bin/sh
-# Looking up the agent runner's own variables (`ORCA_*`, `CLAUDE_JOB_DIR`) is
-# not an environment dump. Only a whole lookup is left out of the deny
-# patterns: `printenv` with allow-listed names, or `env` piped through a
-# quoted `^PREFIX` grep and filters that cannot read files. The hook-only
+# Looking up the host's `CLAUDE_JOB_DIR` is not an environment dump. Only a
+# whole lookup is left out of the deny patterns: `printenv CLAUDE_JOB_DIR`, or
+# `env` piped through a quoted `^CLAUDE_JOB_DIR=` grep and filters that cannot
+# read files. `ORCA_*` names get no allowance. The hook-only
 # checks are never executed.
 #
 # Controls: the secret-bearing lookups, anything that dumps more than the
@@ -39,21 +39,34 @@ check() { # $1 expected status, $2 command
   fi
 }
 
-# Allow-listed names.
-check 0 'printenv ORCA_TERMINAL_HANDLE'
-check 0 'printenv ORCA_TERMINAL_HANDLE ORCA_WORKTREE_ID 2>/dev/null'
+# The allow-listed name.
 check 0 'printenv CLAUDE_JOB_DIR'
-check 0 'echo start; printenv ORCA_RUN_ID && echo done'
+check 0 'printenv CLAUDE_JOB_DIR 2>/dev/null'
+check 0 'echo start; printenv CLAUDE_JOB_DIR && echo done'
 
-# Quoted prefix greps over a bare `env`.
-check 0 "env | grep '^ORCA_TERMINAL_HANDLE='"
-check 0 "env | grep -i '^ORCA_RUN_ID=' | head -1"
+# A quoted whole-name grep over a bare `env`.
 check 0 "env | grep '^CLAUDE_JOB_DIR='"
-check 0 "env | grep -q '^ORCA_RUN_ID='"
-check 0 "env | grep -c '^ORCA_RUN_ID='"
-check 0 "echo a; env | grep '^ORCA_RUN_ID=' | wc -l; ls"
-check 0 "cd /tmp && env | grep -c '^ORCA_RUN_ID=' && ls"
-check 0 "echo \"\$(env | grep '^ORCA_RUN_ID=' | wc -l)\""
+check 0 "env | grep -i '^CLAUDE_JOB_DIR=' | head -1"
+check 0 "env | grep -q '^CLAUDE_JOB_DIR='"
+check 0 "env | grep -c '^CLAUDE_JOB_DIR='"
+check 0 "echo a; env | grep '^CLAUDE_JOB_DIR=' | wc -l; ls"
+check 0 "cd /tmp && env | grep -c '^CLAUDE_JOB_DIR=' && ls"
+check 0 "echo \"\$(env | grep '^CLAUDE_JOB_DIR=' | wc -l)\""
+check 0 "env | grep -i '^CLAUDE_JOB_DIR=' | cut -c1-80"
+
+# Orca's `ORCA_*` variables are not allow-listed: Agent Guard keeps logic for
+# widely used tools only, so these lookups are environment dumps like any other.
+check 2 'printenv ORCA_TERMINAL_HANDLE'
+check 2 'printenv ORCA_TERMINAL_HANDLE ORCA_WORKTREE_ID 2>/dev/null'
+check 2 'printenv CLAUDE_JOB_DIR ORCA_RUN_ID'
+check 2 'echo start; printenv ORCA_RUN_ID && echo done'
+check 2 "env | grep '^ORCA_TERMINAL_HANDLE='"
+check 2 "env | grep -i '^ORCA_RUN_ID=' | head -1"
+check 2 "env | grep -q '^ORCA_RUN_ID='"
+check 2 "env | grep -c '^ORCA_RUN_ID='"
+check 2 "echo a; env | grep '^ORCA_RUN_ID=' | wc -l; ls"
+check 2 "cd /tmp && env | grep -c '^ORCA_RUN_ID=' && ls"
+check 2 "echo \"\$(env | grep '^ORCA_RUN_ID=' | wc -l)\""
 # A count or an exit status is an oracle: a regex that hides a secret name
 # (`TOKE[N]`) and anchors a guessed value tells it apart one character at a
 # time, so only a literal whole name may select a variable.
@@ -131,7 +144,7 @@ check 2 "X=\$(env) env | grep '^ORCA_'"
 # A filter that drops the name and keeps the value would hide a token-named
 # variable from the post-tool layer, which keys on the name.
 check 2 "env | grep -i '^ORCA_' | cut -c1-80"
-check 0 "env | grep -i '^ORCA_RUN_ID=' | cut -c1-80"
+check 2 "env | grep -i '^ORCA_RUN_ID=' | cut -c1-80"
 check 2 "env | grep '^ORCA_' | cut -d= -f2"
 check 2 "env | grep '^ORCA_' | cut -c10-"
 check 2 "env | grep '^ORCA_' | tail -c 12"
