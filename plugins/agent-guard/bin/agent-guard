@@ -8741,20 +8741,20 @@ orca_cli_word_mark() {
 
 # Succeed when no file the gate reading of message_value_records lets a
 # command write before an Orca CLI word ($1: D lines naming the directories a
-# cd may leave, then a T line per target) can change what the word or an
-# inert command runs: no target is in a PATH directory, is the file one of
-# them runs (a hard link to it) or is a symbolic link, which may name a file
-# not made yet. A relative target is read in the absolute directory $2 and
+# cd may leave, then a T line per target) can change what the word, a
+# literal orca or an inert command runs: no target is in a PATH directory,
+# is the file one of them runs (a hard link to it) or is a symbolic link,
+# which may name a file not made yet; and no newline splits a path read here. A relative target is read in the absolute directory $2 and
 # in each D directory, and in none when $2 is not one.
 orca_cli_writes_safe() (
-  case $2 in *'
+  case $2${ORCA_CLI_COMMAND-}$PATH in *'
 '*) return 1 ;; esac
-  ow_runs=${ORCA_CLI_COMMAND-}
-  case $ow_runs in ''|orca) ow_runs=$(command -v orca 2>/dev/null) || ow_runs= ;; esac
+  ow_runs=
+  case ${ORCA_CLI_COMMAND-} in /*) ow_runs=$ORCA_CLI_COMMAND ;; esac
   set -f
   ow_names=${INERT_SEGMENT_COMMANDS_ERE#'^('}
   IFS='|'
-  for ow_name in ${ow_names%')$'} printf; do
+  for ow_name in ${ow_names%')$'} printf orca; do
     IFS=:
     for ow_entry in $PATH; do
       if [ -f "$ow_entry/$ow_name" ] && [ -x "$ow_entry/$ow_name" ]; then

@@ -696,6 +696,7 @@ ln "$CASE/pbin/comm" "$CASE/commhard"
 gate_closed "$CASE/obin/orca" 0 "echo x > $CASE/f.md; $OW x"
 gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/olink; $OW x"
 gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/ohard; $OW x"
+gate_closed "$CASE/o${nl}bin/orca" 2 "echo x > $CASE/f.md; $OW x"
 gate_path_saved=$PATH
 PATH=$CASE/pbin:$CASE/qbin:$PATH
 gate_closed - 0 "echo x > $CASE/f.md; $OW x"
@@ -703,6 +704,8 @@ gate_closed - 2 "echo x > $CASE/plink; $OW x"
 gate_closed - 2 "echo x > $CASE/dangle; $OW x"
 gate_closed - 2 "echo x > $CASE/phard; $OW x"
 gate_closed - 2 "echo x > $CASE/commhard; $OW x"
+gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/phard; orca orchestration send --to lead --body x; $OW x"
+gate_closed "$CASE/obin/orca" 0 "echo x > $CASE/f.md; orca orchestration send --to lead --body x; $OW x"
 # The here-document view leaves out what tee writes, so it takes no write.
 gate_closed - 2 "tee $CASE/plink <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
 gate_closed - 2 "cat <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
