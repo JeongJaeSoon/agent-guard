@@ -54,6 +54,17 @@ check 0 "cd /tmp && env | grep -c '^CLAUDE_JOB_DIR=' && ls"
 check 0 "echo \"\$(env | grep '^CLAUDE_JOB_DIR=' | wc -l)\""
 check 0 "env | grep -i '^CLAUDE_JOB_DIR=' | cut -c1-80"
 
+# The one allowed name is matched whole: a value suffix, a regex or a longer
+# name is a lookup like any other.
+check 2 "env | grep -q '^CLAUDE_JOB_DIR=a'"
+check 2 "env | grep -c '^CLAUDE_JOB_DIR.*a'"
+check 2 "env | grep -q '^CLAUDE_JOB_DI.='"
+check 2 "env | grep -E -q '^(CLAUDE_JOB_DIR)='"
+check 2 "env | grep -q '^CLAUDE_JOB_DIR'"
+check 2 'printenv CLAUDE_JOB_DIRX'
+check 2 'printenv CLAUDE_JOB_DIR_TOKEN'
+check 2 'printenv claude_job_dir'
+
 # Orca's `ORCA_*` variables are not allow-listed: Agent Guard keeps logic for
 # widely used tools only, so these lookups are environment dumps like any other.
 check 2 'printenv ORCA_TERMINAL_HANDLE'
