@@ -656,20 +656,13 @@ gate_closed - 2 "printf '%*s' 'PATH=1' a; $OW x"
 gate_closed - 2 "printf =ls; $OW x"
 gate_closed - 0 "printf '%-10s|%.3s|%b|%%\\n' a b c && $OW x"
 gate_closed - 2 "printf a && \"\$G\" commit -m x"
-# Before the word, a segment may write a literal file that is not named
-# orca in any case, does not sit in a PATH directory and is not the file the
-# word runs (a symbolic or hard link to it). A relative target needs a known
-# directory: it is read in the hook's and in that of each literal absolute
-# cd on the line (a cd may fail, and a loop runs its body again), and in
-# none once the line holds any other cd, or one through `..`, which the
-# shell takes back along the path as written, not as the file system
-# resolves it. An attached `>>` or a quoted `>` is not read: without the
-# quotes the two readings look the same.
-gate_closed - 0 "printf '%s\\n' 'text' > $CASE/note.md && $OW orchestration send --to lead --body-file $CASE/note.md 2>&1 | tail -1"
-gate_closed - 0 "cd $CASE && printf '%s\\n' 'x' > note.md && $OW orchestration send --to lead --body-file $CASE/note.md"
-gate_closed - 0 "echo a > $CASE/f.md && $OW x"
-gate_closed - 0 "echo a >> $CASE/f.md; echo b 2>/dev/null >$CASE/g.md; $OW x"
-gate_closed - 0 "echo a > note.md && $OW x"
+# A segment before the word that redirects into a file still leaves the
+# word unknown: the file may be what the word runs, a link to it, a file
+# in a PATH directory or code the Orca launcher loads, and the gate does
+# not resolve where a write lands. Bots write such files with their file
+# tool instead.
+gate_closed - 2 "printf '%s\\n' 'text' > $CASE/note.md && $OW orchestration send --to lead --body-file $CASE/note.md 2>&1 | tail -1"
+gate_closed - 2 "echo a > $CASE/f.md && $OW x"
 gate_closed - 2 "echo x > $CASE/orca; $OW x"
 gate_closed - 2 "echo x > $CASE/ORCA; $OW x"
 gate_closed - 2 "echo x >>$CASE/Orca; $OW x"
@@ -682,7 +675,6 @@ gate_closed - 2 "echo x > '>'$CASE/f.md; $OW x"
 gate_closed - 2 "echo x >'>'$CASE/f.md; $OW x"
 gate_closed - 2 "echo x &> $CASE/f.md; $OW x"
 gate_closed - 2 "echo x > $CASE/f.md 1>&2 3< $CASE/f.md; $OW x"
-gate_closed - 0 "cd $CASE; echo x > note.md; $OW x"
 gate_closed - 2 "cd sub && echo x > note.md && $OW x"
 gate_closed - 2 "printf a > $CASE/f.md && $OW worktree list > $CASE/g.md; $OW x"
 mkdir -p "$CASE/pbin" "$CASE/obin"
@@ -699,50 +691,26 @@ mkdir -p "$CASE/elsewhere/sub"
 ln -s "$CASE/elsewhere/sub" "$CASE/pbin/lnk"
 cp "$(command -v comm)" "$CASE/pbin/comm"
 ln "$CASE/pbin/comm" "$CASE/commhard"
-gate_closed "$CASE/obin/orca" 0 "echo x > $CASE/f.md; $OW x"
 gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/olink; $OW x"
 gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/ohard; $OW x"
 gate_closed "$CASE/o${nl}bin/orca" 2 "echo x > $CASE/f.md; $OW x"
 gate_path_saved=$PATH
 PATH=$CASE/pbin:$CASE/qbin:$PATH
-gate_closed - 0 "echo x > $CASE/f.md; $OW x"
 gate_closed - 2 "echo x > $CASE/plink; $OW x"
 gate_closed - 2 "echo x > $CASE/dangle; $OW x"
 gate_closed - 2 "echo x > $CASE/phard; $OW x"
 gate_closed - 2 "echo x > $CASE/commhard; $OW x"
 gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/phard; orca orchestration send --to lead --body x; $OW x"
-gate_closed "$CASE/obin/orca" 0 "echo x > $CASE/f.md; orca orchestration send --to lead --body x; $OW x"
-# The here-document view leaves out what tee writes, so it takes no write.
 gate_closed - 2 "tee $CASE/plink <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
 gate_closed - 2 "cat <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
 gate_closed - 2 "echo x > $CASE/pbin/note.md; $OW x"
 gate_closed - 2 "cd $CASE/pbin && echo x > note.md && $OW x"
 gate_closed - 2 "cd $CASE/pbin; echo x > note.md; $OW x"
 gate_closed - 2 "cd $CASE/pbin/lnk/.. && echo x > note.md && $OW x"
-gate_closed - 0 "cd $CASE/pbin/lnk/.. && echo x > $CASE/f.md && $OW x"
 gate_closed - 2 "for d in a b; do echo x > note.md; $OW x; cd $CASE/pbin; done"
-gate_closed - 0 "for d in a b; do echo x > note.md; $OW x; cd $CASE; done"
 gate_closed - 2 "$OW x | tail -1 > $CASE/plink"
-gate_closed - 0 "$OW x | tail -1 > $CASE/f.md"
 gate_closed - 2 "for d in a b; do $OW x; echo x > $CASE/plink; done"
-gate_closed - 0 "for d in a b; do $OW x; echo x > $CASE/f.md; done"
-gate_closed - 0 "$OW x; echo x > $CASE/plink"
 PATH=$gate_path_saved
-# With no directory in the event, a relative target is read nowhere.
-gate_nocwd() { # $1 expected status, $2 command
-  (
-    unset ORCA_CLI_COMMAND
-    AGENT_GUARD_INFRA_FAILURE_MODE=closed AGENT_GUARD_HOOK_HOST=claude
-    export AGENT_GUARD_INFRA_FAILURE_MODE AGENT_GUARD_HOOK_HOST
-    cd "$W" && jq -nc --arg c "$2" '{tool_name:"Bash",tool_input:{command:$c}}' \
-      | "$BIN" hook-pre-tool >/dev/null 2>"$CASE/err"
-  )
-  status=$?
-  n=$((n + 1))
-  if [ "$status" -eq "$1" ]; then ok "closed gate, no cwd: expected $1: $2"; else bad "closed gate, no cwd: expected $1 got $status: $2"; fi
-}
-gate_nocwd 2 "echo a > note.md && $OW x"
-gate_nocwd 0 "echo a > $CASE/f.md && $OW x"
 # A for loop over literal values runs the same message command once per
 # value: the word stays orca while the loop's variable names no shell setting
 # and every value can be neither a subcommand nor an option, and every

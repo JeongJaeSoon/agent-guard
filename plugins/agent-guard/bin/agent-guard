@@ -8385,11 +8385,9 @@ AWK_RECORD_SEPARATOR='
 # list accepts, read as `orca` (orca_cli_words_as_orca). With `gate` as $2,
 # the same for the commit/push gate, which only asks what the word runs: the
 # segment may hold any orca subcommand in literal words, behind the same
-# segments, unless it relays what it is given (relays). It then prints the
-# files those segments write (orca_cli_writes_safe), and with $5 set takes
-# no write, as for a view that leaves some out.
+# segments, unless it relays what it is given (relays).
 message_value_records() {
-  printf '%s\n' "$1" | MV_CLI_WORD=${3-} MV_CLI_TEXT=${4-} LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" -v no_writes="${5-}" \
+  printf '%s\n' "$1" | MV_CLI_WORD=${3-} MV_CLI_TEXT=${4-} LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR$AWK_INERT_COMMAND"'
     # In END a bare exit would end with status 0 before the last line there.
     function bail() { failed = 1; exit (ending && (mode == "words" || mode == "gate")) }
@@ -8403,43 +8401,18 @@ message_value_records() {
     # A redirection may write a file a command name resolves to. The gate
     # also takes a printf whose format is a literal with no leading dash (so
     # no -v assignment and no option, no zsh =name) whose conversions only
-    # print strings (%n assigns in bash and zsh, and zsh reads the argument
-    # of a number or a * width as arithmetic, which may assign), written
-    # before any redirection (which the shell takes out of the words first), and a `> FILE`, `>> FILE` or `>FILE` to a literal file
-    # not named orca in any case, which gate_write keeps in seg_writes for
-    # orca_cli_writes_safe; it needs every PATH entry absolute, as cd does,
-    # and no_writes unset. A glob in the format may expand to an option.
-    # An attached `>>FILE` is not taken: without its quotes, a `>` to a
-    # quoted name that starts with `>` reads the same.
+    # print strings: %n assigns in bash and zsh, and zsh reads the argument
+    # of a number or a * width as arithmetic, which may assign. A glob in
+    # the format may expand to an option.
     function inert(   j) {
-      seg_writes = ""
-      if (kind[1] != "0") return 0
-      if (!inert_command(word[1]) \
-          && !(mode == "gate" && gate_printf())) return 0
-      for (j = 1; j <= n; j++) {
-        if (word[j] !~ /[<>]/) continue
-        if (mode != "gate" || no_writes != "" || cd_ok != "1" || kind[j] != "0") return 0
-        if (dup[j] && word[j] ~ /^[12]?>$/ && j < n && word[j + 1] ~ /^[12]$/) { j++; continue }
-        if (dup[j]) return 0
-        if (word[j] ~ /^[12]?>>?$/) {
-          if (j == n || kind[j + 1] != "0" || !gate_write(word[++j])) return 0
-        } else if (word[j] !~ /^[12]?>[^>]/ || !gate_write(substr(word[j], index(word[j], ">") + 1))) return 0
-      }
+      if (kind[1] != "0" || !inert_command(word[1]) && !(mode == "gate" && gate_printf())) return 0
+      for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) return 0
       return 1
     }
     function gate_printf(   f) {
-      if (word[1] != "printf" || n < 2 || kind[2] != "0" || word[2] ~ /^[-=]|[<>]|[][*?{}~^#]/) return 0
+      if (word[1] != "printf" || n < 2 || kind[2] != "0" || word[2] ~ /^[-=]|[][*?{}~^#]/) return 0
       f = word[2]; gsub(/%%|%[-0-9.]*[sb]/, "", f)
       return index(f, "%") == 0
-    }
-    # A write target the shell takes as written: no expansion, glob, tilde
-    # or zsh =name, and a last step that is a name other than orca.
-    function gate_write(w,   base) {
-      if (w !~ /^[A-Za-z0-9_.\/@%+,:-]+$/) return 0
-      base = w; sub(/.*\//, "", base)
-      if (base == "" || base == "." || base == ".." || tolower(base) == "orca") return 0
-      seg_writes = seg_writes "T" w "\n"
-      return 1
     }
     # The index of the git subcommand after the global options that only move
     # git (-C <dir>) or set one config value (-c <name>=<value>) (#500); 0
@@ -8543,8 +8516,6 @@ message_value_records() {
           if (kind[j] != "0" || word[j] !~ /^[A-Za-z0-9_.:\/@%+,]+$/ || word[j] ~ /^(exec|eval|run)$/) return 0
         loop_var[word[2]] = 1; want_do = 1; loop_name[++depth] = word[2]; loop_cli[depth] = cli_ok
       } else if (depth && kind[1] == "0" && word[1] == "done") {
-        # The next pass of the body runs its Orca words after what it wrote last.
-        if (cli_ok > loop_cli[depth]) { writes = writes pending; pending = "" }
         if (n > 1 || !ok || bound == "0|" || bound == "3&") {
           if (cli_ok > loop_cli[depth]) bail()
           ok = 0; ok_commit = 0
@@ -8593,7 +8564,7 @@ message_value_records() {
       # The gate reads the subcommand and its options as written, so no
       # word may expand: one could turn out to be either.
       known = mode == "gate" && cli && all && fixed && !relays()
-      if (known && ok) { cli_ok++; writes = writes pending; pending = "" }
+      if (known && ok) cli_ok++
       if (ok || commit && ok_commit) {
         if (cli && mode == "words" && topts fopts != "") cli_ok++
         for (j = (commit ? gc + 1 : 2); topts fopts != "" && j <= n; j++) {
@@ -8613,17 +8584,8 @@ message_value_records() {
         }
         if (commit && git_edits()) out = substr(out, 1, before)
       }
-      # What this segment leaves for the ones after it. A write counts once an
-      # Orca word runs after it, or at once in a pipeline that starts with one.
-      # A relative target is read in each directory a literal absolute cd on
-      # the line may leave, and in none once another cd is on it: the shell
-      # takes a `..` back along the path as written, which the file system
-      # may resolve elsewhere.
-      if (mode == "gate" && kind[1] == "0" && word[1] == "cd") {
-        if (n == 2 && kind[2] == "0" && word[2] ~ /^\/[A-Za-z0-9_.\/@%+,:-]*$/ && word[2] !~ /(^|\/)\.\.(\/|$)/) dirs = dirs "D" word[2] "\n"
-        else cd_unknown = 1
-      }
-      if (all && inert()) { if (pipe_target) writes = writes seg_writes; else pending = pending seg_writes }
+      # What this segment leaves for the ones after it.
+      if (all && inert()) ;
       else if (all && kind[1] == "0" && word[1] == "orca" && (topts != "" || known) && quiet()) ;
       else if (lit && word[1] == "git" && word[2] ~ /^(add|status)$/ && quiet_none()) ok = 0
       else { ok = 0; ok_commit = 0 }
@@ -8681,9 +8643,7 @@ message_value_records() {
       if (mode == "words" || mode == "gate") {
         s = ENVIRON["MV_CLI_TEXT"]; w = ENVIRON["MV_CLI_WORD"]; total = 0
         while (w != "" && (p = index(s, w)) > 0) { total++; s = substr(s, p + length(w)) }
-        if (failed || total == 0 || cli_ok != total || cd_unknown && writes ~ /(^|\n)T[^\/]/) exit 1
-        if (mode == "gate" && writes != "") printf "%s%s", dirs, writes
-        exit 0
+        exit !(!failed && total > 0 && cli_ok == total)
       }
       if (!failed) printf "%s", out
     }
@@ -8740,68 +8700,6 @@ orca_cli_word_mark() {
   }' </dev/null
 }
 
-# Succeed when no file the gate reading of message_value_records lets a
-# command write before an Orca CLI word ($1: D lines naming the directories a
-# cd may leave, then a T line per target) can change what the word, a
-# literal orca or an inert command runs: no target is in a PATH directory,
-# is the file one of them runs (a hard link to it) or is a symbolic link,
-# which may name a file not made yet; and no newline splits a path read here. A relative target is read in the absolute directory $2 and
-# in each D directory, and in none when $2 is not one.
-orca_cli_writes_safe() (
-  case $2${ORCA_CLI_COMMAND-}$PATH in *'
-'*) return 1 ;; esac
-  ow_runs=
-  case ${ORCA_CLI_COMMAND-} in /*) ow_runs=$ORCA_CLI_COMMAND ;; esac
-  set -f
-  ow_names=${INERT_SEGMENT_COMMANDS_ERE#'^('}
-  IFS='|'
-  for ow_name in ${ow_names%')$'} printf orca; do
-    IFS=:
-    for ow_entry in $PATH; do
-      if [ -f "$ow_entry/$ow_name" ] && [ -x "$ow_entry/$ow_name" ]; then
-        ow_runs="$ow_runs${ow_runs:+
-}$ow_entry/$ow_name"
-        break
-      fi
-    done
-    IFS='|'
-  done
-  IFS='
-'
-  ow_dirs=$2
-  for ow_rec in $1; do
-    case $ow_rec in D*) ow_dirs="$ow_dirs
-${ow_rec#D}" ;; esac
-  done
-  for ow_rec in $1; do
-    case $ow_rec in
-      T/*) ow_paths=${ow_rec#T} ;;
-      T*)
-        case $2 in /*) ;; *) return 1 ;; esac
-        ow_paths=
-        for ow_dir in $ow_dirs; do ow_paths="$ow_paths${ow_paths:+
-}$ow_dir/${ow_rec#T}"; done
-        ;;
-      *) continue ;;
-    esac
-    for ow_path in $ow_paths; do
-      ow_dir=${ow_path%/*}
-      [ -n "$ow_dir" ] || ow_dir=/
-      IFS=:
-      for ow_entry in $PATH; do
-        if [ "$ow_dir" = "$ow_entry" ] || [ "$ow_dir" -ef "$ow_entry" ]; then return 1; fi
-      done
-      IFS='
-'
-      if [ -L "$ow_path" ]; then return 1; fi
-      for ow_run in $ow_runs; do
-        if [ "$ow_path" -ef "$ow_run" ]; then return 1; fi
-      done
-    done
-  done
-  return 0
-)
-
 # Print $1 with the Orca CLI word read as `orca`, or unchanged. The name of
 # the variable can be assigned without being spelled (a name split by quotes
 # or built from another variable), so the word is orca only where nothing
@@ -8812,9 +8710,7 @@ ${ow_rec#D}" ;; esac
 # command that is not on the table) leaves all of them expansions. With
 # `heredoc` as $2 the command is judged as heredoc_body_rewrite's view of it,
 # which exists only when cat or tee writes every here-document. $3 names the
-# reading message_value_records makes: `words` unless given. $4 is the
-# directory the command starts in, for the files the gate lets it write; the
-# here-document view takes no write, since it leaves out what tee writes.
+# reading message_value_records makes: `words` unless given.
 orca_cli_words_as_orca() {
   case "$1" in
     *'${ORCA_CLI_COMMAND:-orca}'*) ;;
@@ -8822,9 +8718,7 @@ orca_cli_words_as_orca() {
   esac
   if oc_marked=$(orca_cli_word_mark "$1"); then
     oc_text=$oc_marked
-    oc_no_writes=
     if [ "${2-}" = heredoc ]; then
-      oc_no_writes=1
       if oc_text=$(printf '%s\n' "$oc_marked" | heredoc_body_rewrite 0 view); then
         oc_text=${oc_text#*"
 "}
@@ -8833,8 +8727,7 @@ orca_cli_words_as_orca() {
       fi
     fi
     if [ -n "$oc_text" ] \
-      && oc_writes=$(message_value_records "$(git_command_records "$oc_text")" "${3:-words}" "$ORCA_CLI_WORD_MARK" "$oc_text" "$oc_no_writes") \
-      && { [ -z "$oc_writes" ] || orca_cli_writes_safe "$oc_writes" "${4-}"; } \
+      && message_value_records "$(git_command_records "$oc_text")" "${3:-words}" "$ORCA_CLI_WORD_MARK" "$oc_text" \
       && OC_TEXT=$oc_marked LC_ALL=C awk -v mark="$ORCA_CLI_WORD_MARK" 'BEGIN {
         s = ENVIRON["OC_TEXT"]; out = ""
         while ((p = index(s, mark)) > 0) { out = out substr(s, 1, p - 1) "orca"; s = substr(s, p + length(mark)) }
@@ -16375,8 +16268,8 @@ check_git_command() {
   # reads it so (orca_cli_words_as_orca), whatever the subcommand, unless
   # the subcommand relays a command or keystrokes; anywhere else it stays a
   # name only run time knows.
-  cmd=$(orca_cli_words_as_orca "$1" "" gate "${2:-}")
-  [ "$cmd" != "$1" ] || cmd=$(orca_cli_words_as_orca "$1" heredoc gate "${2:-}")
+  cmd=$(orca_cli_words_as_orca "$1" "" gate)
+  [ "$cmd" != "$1" ] || cmd=$(orca_cli_words_as_orca "$1" heredoc gate)
   workdir=${2:-}
   git_c_records=$(is_git_commit_or_push "$cmd" "$workdir")
   git_command_status=$?
