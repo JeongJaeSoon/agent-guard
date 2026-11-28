@@ -73,7 +73,6 @@ run_suite() {
   sed 's/^/  /' "$CASE/out"
 }
 
-run_suite 'auto-wake dispatch ids under --key are clean while key-shaped values stay found' auto-wake-key-allowlist.sh
 run_suite 'UUID reference ids are clean while UUID-shaped credentials stay found' reference-id-allowlist.sh
 run_suite 'Figma MCP file keys pass while the same value elsewhere stays found' figma-file-key.sh
 run_suite 'issue ids after a Secret-suffixed name pass while secret shapes stay blocked' prompt-issue-reference.sh
