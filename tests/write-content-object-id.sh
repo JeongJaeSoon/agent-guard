@@ -6,9 +6,11 @@ set -u
 # commit: <id>") reads to generic-api-key as a keyword-labelled secret, so the
 # Write PreToolUse check blocked drafts in the agent's own scratchpad (#599).
 # Only a line that names the id as a commit (commit, sha, rev, merge, head as
-# a word of the plain clause right before it), or an issue-key branch name as a
-# branch, and holds no other value-length run after a separator may pass;
-# numbered dummy/example placeholders pass too. A 40-hex value under a credential name without that git
+# the last word before the colon) and holds no other value-length run after a
+# separator may pass; numbered dummy/example placeholders pass too. Branch
+# names stay as they are: one with a stopword word passes, others are found,
+# because an issue-key branch name and a human passphrase share a shape.
+# A 40-hex value under a credential name without that git
 # word (the old GitHub token shape), a second assignment on the line, a value
 # on the next line, other lengths or uppercase, vendor token shapes, a
 # high-entropy name=value and a private key keep their findings.
@@ -67,6 +69,7 @@ MIXED=$(printf '%s%s%s' Zt8q3LmX7vR2 nK9pW4cH6dJ1 sF5gB0yA)
 TWELVE=$(printf '%s%s' Ab3Cd4 Ef5Gh6)
 EQ_VALUE=$(printf '%s=%s=%s' Ab3 Cd4 Ef5Gh6)
 BRANCH=$(printf '%s-%s-%s' 94S 2515 mcp-oidc-kind-lenient)
+BR_STOP=$(printf '%s-%s-mcp-%s-kind-lenient' 94S 2515 au""th)
 GH_SHAPE=$(printf '%s%s%s' gh p_R8mZq2Lx7Vt4Nc9P w1Ks6Hd3Fj5Gb0Ya8Ue2)
 # The vendor rule takes exactly 36 characters after the prefix.
 if [ "${#GH_SHAPE}" -ne 40 ]; then
@@ -184,10 +187,10 @@ write_case 0 'ko PR body naming commit and sha ids' "$KO_BODY"
 write_case 0 'ja PR body naming commit and merge ids' "$JA_BODY"
 write_case 0 'markdown table of commits' "$TABLE_BODY"
 write_case 0 'Korean words between the keyword and the colon' "- $P 수정 커밋: $SHA1"
-write_case 0 'issue-key branch name after a credential word' "$EN_BODY
+write_case 0 'branch name with a stopword word after a credential word' "$EN_BODY
 
-$P change branch: $BRANCH"
-write_case 2 'branch word earlier in the clause than the last word' "Branch for the $P change: $BRANCH"
+$P change branch: $BR_STOP"
+write_case 2 'branch name without a stopword word after a credential word' "$P change branch: $BRANCH"
 write_case 0 'numbered dummy credential in a test description' "The test sends $AP-$K=dummy-$K-12345 and expects a block."
 write_case 0 'numbered example credential' "$P=example_$P-123456"
 
@@ -264,7 +267,6 @@ scan_case 0 'table cell with the label and the id' "| $P fix commit: $SHA1 | ok 
 scan_case 0 'id in parentheses' "($P fix commit: $SHA1)"
 scan_case 1 'double quote right after the id' "$P fix commit: $SHA1\"$TWELVE"
 scan_case 1 'single quote right after the id' "$P fix commit: $SHA1'x"
-scan_case 1 'quote right after the branch name' "$P change branch: $BRANCH'x"
 scan_case 1 'assignment with a blank after the equals sign' "$P fix commit: $SHA1, $P= $TWELVE"
 scan_case 1 'assignment with blanks around the equals sign' "$P fix commit: $SHA1, api_$P = $MIXED"
 scan_case 1 'quoted commit message with a value' "git commit -m \"$P: $OTHER\""
@@ -273,18 +275,11 @@ scan_case 1 'echoed sentence with the id' "echo \"Head commit for the $P fix: $S
 scan_case 1 'long first word after a separator' "$P, $TWELVE commit: $SHA1"
 scan_case 1 'long hyphenated first word after a separator' "$P, $TWELVE-head fix: $SHA1"
 
-# Branch names: only an issue key, a number and lowercase words.
-scan_case 0 'branch name as a value' "$P branch: $BRANCH"
-scan_case 0 'digit-led lowercase issue key' "$P branch: $(printf '%s' "$BRANCH" | tr 'A-Z' 'a-z')"
-scan_case 1 'mixed-case key with words (a password shape)' "pass$(printf w)ord: Summer-2024-winter-sale"
+# Branch names are measured, not exempt: the stopword list decides.
+scan_case 0 'branch name with a stopword word' "$P branch: $BR_STOP"
+scan_case 1 'branch name without a stopword word' "$P branch: $BRANCH"
 scan_case 1 'branch-shaped password' "pass$(printf w)ord: $BRANCH"
-scan_case 1 'branch shape under a credential name without the branch word' "$P: $BRANCH"
-scan_case 1 'branch word then an equals sign' "$P branch=$BRANCH"
-scan_case 1 'branch word glued to a field name' "$P-branch: $BRANCH"
-scan_case 1 'branch shape with a digit in a word' "$P branch: 94S-2515-mcp-k3x9q2-lenient"
-scan_case 1 'branch shape with an uppercase word' "$P branch: 94S-2515-mcp-Oidc-lenient"
-scan_case 1 'branch shape with one word' "$P branch: 94S-2515-mcpoidckind"
-scan_case 1 'branch shape with a token tail' "$P branch: 94S-2515-mcp-oidc_$TWELVE"
+scan_case 1 'branch-shaped password under a branch label' "Password for staging branch: $BRANCH"
 # Numbered placeholders: only the dummy/example credential words and digits.
 scan_case 0 'dummy key with a number' "$AP-$K=dummy-$K-12345"
 scan_case 1 'dummy key with a random tail' "$AP-$K=dummy-$K-$TWELVE"

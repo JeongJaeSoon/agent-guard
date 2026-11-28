@@ -243,57 +243,49 @@ regexes = [
 ]
 
 # A PR body, review reply or note names a full git object id (40 hex, or 64 in
-# a SHA-256 repository) as a commit, or a branch by its issue-key name, near a
-# credential word: "the token fix, merge commit:" and the id, "auth fix
-# branch:" and the name. generic-api-key reads the credential word, the colon
-# and the value as a labelled secret, so drafts were blocked (#599). Both
-# have an entropy above 3.5; a branch name passes the stopword list only when
-# one of its words happens to be a stopword. As in the force-with-lease
-# allowlist above, the match can start at a keyword inside a longer name and
-# cannot show what else the line holds, so this anchors the LINE, and a line
-# allowlist excuses every generic-api-key finding on it.
-# The line is excused only when:
-# - nothing before the value is quoted: no `"` and no `'` except an
+# a SHA-256 repository) as a commit near a credential word: "the token fix
+# commit:" and the id. generic-api-key reads the credential word, the colon and
+# the id as a labelled secret (entropy about 3.7), so drafts were blocked
+# (#599). As in the force-with-lease allowlist above, the match can start at a
+# keyword inside a longer name and cannot show what else the line holds, so
+# this anchors the LINE, and a line allowlist excuses every generic-api-key
+# finding on it. The line is excused only when:
+# - nothing before the id is quoted: no `"` and no `'` except an
 #   apostrophe inside a word (`client's`), so a quoted shell message
 #   (`git commit -m "rotate, token fix commit: <hex>"`) is not prose;
-# - the clause right before the value is plain words: the start of the line,
-#   or a separator, blanks and a first word of at most 9 token characters; no
+# - the clause right before the id is plain words: the start of the line, or
+#   a separator, blanks and a first word of at most 9 token characters; no
 #   backtick or word that starts with `-` and a letter (a shell option);
 # - the last of those words, right before the colon and standing alone
 #   (optionally in `(`, `*` or `[`), is commit, commits, committed, sha,
-#   sha1, sha256, rev, revision, merge, merged, merges or head before an object
-#   id, or branch or branches before a branch name, in any case. The word
-#   names what the value is: in `commit signing key:` it is key, so the value
-#   is a credential; `deploy-key-commit`, `token_commit` and `headroom` are
-#   field names, not such a word. Prose that names the commit earlier ("Head
-#   commit for the token fix:") keeps its finding; write "token fix, head
-#   commit:" instead;
-# - a colon and at most three blanks follow, then the value alone or in
+#   sha1, sha256, rev, revision, merge, merged, merges or head, in any case.
+#   The word names what the value is: in `commit signing key:` it is key, so
+#   the value is a credential; `deploy-key-commit`, `token_commit` and
+#   `headroom` are field names, not such a word. Prose that names the commit
+#   earlier ("Head commit for the token fix:") keeps its finding; write
+#   "token fix commit:" instead;
+# - a colon and at most three blanks follow, then the id alone or in
 #   backticks, ended by a blank, `)`, `]`, a separator or the line end
 #   (never a quote, which a YAML or shell word keeps inside the value), with an
-#   optional sentence period before that end: exactly 40 or 64
-#   lowercase hex, or an issue key of 2 to 10 uppercase letters or digits (or
-#   digit-led lowercase), a number of 1 to 6 digits and at least two words of
-#   2 to 20 lowercase letters, all joined by `-`; `=` and `,` assign, so
-#   they never introduce such a value;
+#   optional sentence period before that end; the id is exactly 40 or 64
+#   lowercase hex; `=` and `,` assign, so they never introduce it;
 # - every other separator on the line is followed by blanks (and quotes after
-#   the value) and then a run of at most 9 token characters, or by a character
+#   the id) and then a run of at most 9 token characters, or by a character
 #   outside that set, as in the force-with-lease CHUNK. `=` always counts as
 #   a separator, and generic-api-key also keeps it inside a value, so a run
 #   may not end in `=` (`token= <value>`) and a run ending in a token
 #   character may not be followed by `=` (`Ab3=Cd4=Ef5`). No second
 #   value-length run can hide on the line.
-# A 40-hex value or a branch-shaped value under a credential name with no
-# such word keeps its finding (some real credentials are 40 hex, and a
-# passphrase can look like a branch name). So do a value on the next line,
-# quotes, uppercase hex, other lengths, and any vendor rule finding.
+# A 40-hex value under a credential name with no such word keeps its finding:
+# some real credentials are 40 hex. So do a value on the next line, quotes,
+# uppercase hex, other lengths, and any vendor rule finding. Branch names are
+# not exempt: an issue-key branch name and a human passphrase share a shape.
 [[allowlists]]
-description = "Git object ids and issue-key branch names named as such in prose (#599)"
+description = "Git object ids named as commits in prose (#599)"
 targetRules = ["generic-api-key"]
 regexTarget = "line"
 regexes = [
-  '''^\n?(?:[ \t]*(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*(?:'[^\n=:>,|?'"\x60 \t]+)*|-+)[ \t]+)*[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}[ \t]*|(?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*(?:(?:[=:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?|[=:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?)*[=:>,|?]|(?:[=:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?|[=:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?)*[=:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?])[ \t]+(?:[\w.+/][\w.+/-]{0,8}[ \t]+(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*(?:'[^\n=:>,|?'"\x60 \t]+)*|-+)[ \t]+)*[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}[ \t]*|[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}[ \t]*)):[ \t]{0,3}(?:\x60(?:[0-9a-f]{40}|[0-9a-f]{64})|(?:[0-9a-f]{40}|[0-9a-f]{64}))(?:\x60(?:\.?[ \t)\]][^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?|\.?(?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*(?:[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?)?)|\.?[ \t)\]][^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?|\.?(?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*(?:[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?)?)\r?$''',
-  '''^\n?(?:[ \t]*(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*(?:'[^\n=:>,|?'"\x60 \t]+)*|-+)[ \t]+)*[(*\[]{0,2}(?i:branch(?:es)?)[)*\]]{0,2}[ \t]*|(?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*(?:(?:[=:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?|[=:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?)*[=:>,|?]|(?:[=:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?|[=:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?)*[=:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?])[ \t]+(?:[\w.+/][\w.+/-]{0,8}[ \t]+(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*(?:'[^\n=:>,|?'"\x60 \t]+)*|-+)[ \t]+)*[(*\[]{0,2}(?i:branch(?:es)?)[)*\]]{0,2}[ \t]*|[(*\[]{0,2}(?i:branch(?:es)?)[)*\]]{0,2}[ \t]*)):[ \t]{0,3}(?:\x60(?:[0-9A-Z]{2,10}|[0-9][0-9a-z]{1,9})-[0-9]{1,6}(?:-[a-z]{2,20}){2,}|(?:[0-9A-Z]{2,10}|[0-9][0-9a-z]{1,9})-[0-9]{1,6}(?:-[a-z]{2,20}){2,})(?:\x60(?:\.?[ \t)\]][^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?|\.?(?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*(?:[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?)?)|\.?[ \t)\]][^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?|\.?(?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*(?:[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?)?)\r?$'''
+  '''^\n?(?:[ \t]*(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*(?:'[^\n=:>,|?'"\x60 \t]+)*|-+)[ \t]+)*[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}[ \t]*|(?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*(?:(?:[=:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?|[=:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?)*[=:>,|?]|(?:[=:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?|[=:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n'"-](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*|[^\w.=+/:>,|?\n\x60'"\t\f\r -](?:[^\n=:>,|?'"\w]|\w+(?:'\w+)*)*)?)*[=:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?])[ \t]+(?:[\w.+/][\w.+/-]{0,8}[ \t]+(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*(?:'[^\n=:>,|?'"\x60 \t]+)*|-+)[ \t]+)*[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}[ \t]*|[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}[ \t]*)):[ \t]{0,3}(?:\x60(?:[0-9a-f]{40}|[0-9a-f]{64})|(?:[0-9a-f]{40}|[0-9a-f]{64}))(?:\x60(?:\.?[ \t)\]][^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?|\.?(?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*(?:[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?)?)|\.?[ \t)\]][^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?|\.?(?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*(?:[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?|[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*[:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{0,8}[\w.+/-][^\w.=+/:>,|?\n-][^\n=:>,|?]*|[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?)*(?:[=:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-](?:[:>,|?][\x60'"\t\f\r ]*[\w.=+/-]{0,8}[\w.+/-])*)?)?)\r?$'''
 ]
 
 # A test description names a numbered stand-in credential (`dummy-key-12345`,
