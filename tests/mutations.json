@@ -914,6 +914,24 @@
     ]
   },
   {
+    "id": "bash-env-lookup-grep-name-prefix",
+    "rule": "bash_strip_safe_env_lookups: an env | grep lookup names CLAUDE_JOB_DIR whole, with its =",
+    "old": "      return s ~ /^\\^CLAUDE_JOB_DIR=$/ && !secretish(s)\n",
+    "new": "      return s ~ /^\\^CLAUDE_JOB_DIR/ && !secretish(s)\n",
+    "tests": [
+      "tests/env-lookup-allowlist.sh"
+    ]
+  },
+  {
+    "id": "bash-env-lookup-printenv-name-prefix",
+    "rule": "bash_strip_safe_env_lookups: printenv names CLAUDE_JOB_DIR whole",
+    "old": "        if (wk != \"u\" || wv !~ /^CLAUDE_JOB_DIR$/ || secretish(wv)) return 0\n",
+    "new": "        if (wk != \"u\" || wv !~ /^CLAUDE_JOB_DIR/ || secretish(wv)) return 0\n",
+    "tests": [
+      "tests/env-lookup-allowlist.sh"
+    ]
+  },
+  {
     "id": "bash-secret-write-newline-ends-pipe",
     "rule": "bash_file_write_env_names: a newline after a pipe continues the pipeline",
     "old": "          if (!pipe_open) flush()\n",
