@@ -196,7 +196,7 @@ hook hook-user-prompt open "$GOOD" "$big_prompt"
 check 'explicit open passes a prompt over the scan cap' test "$s" -eq 0
 
 # Failures that are not a missing secret scan keep the open default.
-unresolved='{"tool_name":"Bash","tool_input":{"command":"\"${TOOL:-git}\" commit -m x"}}'
+unresolved='{"tool_name":"Bash","tool_input":{"command":"$TOOL commit -m x"}}'
 hook hook-pre-tool unset "$GOOD" "$unresolved"
 check 'an unresolved git command still continues by default' \
   sh -c 'test "$1" -eq 0 && grep -Fq "could not be resolved safely" "$2" && grep -Fq "continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." "$2"' \
