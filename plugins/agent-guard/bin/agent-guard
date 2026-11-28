@@ -8413,7 +8413,7 @@ message_value_records() {
     function gh_reads(   j) {
       if (word[1] != "gh" || word[2] !~ /^(pr|issue|run)$/ || word[3] !~ /^(view|list|checks|status|diff)$/) return 0
       for (j = 1; j <= n; j++) if (kind[j] != "0") return 0
-      for (j = 4; j <= n; j++) if (word[j] ~ /^(--web|-[A-Za-z]*w[A-Za-z]*)$/) return 0
+      for (j = 4; j <= n; j++) if (word[j] ~ /^(--web(=|$)|-[A-Za-z]*w)/) return 0
       return 1
     }
     function gate_printf(   f) {

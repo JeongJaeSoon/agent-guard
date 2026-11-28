@@ -3512,7 +3512,7 @@
   {
     "id": "bash-gate-gh-read-only-browser",
     "rule": "message_value_records gate: a gh read with -w or --web is not inert",
-    "old": "      for (j = 4; j <= n; j++) if (word[j] ~ /^(--web|-[A-Za-z]*w[A-Za-z]*)$/) return 0\n",
+    "old": "      for (j = 4; j <= n; j++) if (word[j] ~ /^(--web(=|$)|-[A-Za-z]*w)/) return 0\n",
     "new": "",
     "tests": [
       "tests/message-value-prose.sh"

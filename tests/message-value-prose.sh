@@ -1021,6 +1021,7 @@ for gate_gh in "gh pr merge 5" "gh pr comment 5 --body x" "gh pr edit 5 --title 
   "gh run watch 12" "gh api repos/o/r/pulls" "gh repo view" "gh -R o/r pr view 5" \
   "gh pr view \"\$(cat $CASE/note.md)\"" "gh pr view \"\$N\"" "gh pr view \$N" \
   "gh pr view 5 --web" "gh pr view 5 -w" "gh pr diff 5 --web" "gh issue list -w" "gh run view 12 -vw" \
+  "gh pr view 5 --web=true" "gh pr view 5 -w=true" \
   "gh pr view 5 > $CASE/f.md" "gh pr diff 5 >> $CASE/f.md" "GH_PAGER=cat gh pr view 5" \
   "command gh pr view 5"; do
   gate_closed - 2 "$gate_gh; $OW status"
