@@ -317,7 +317,8 @@ truth 0 "document, then a loop over a glob that prints names" \
 # read as data only when the file it is written to is not there yet, or is a
 # regular file with one name and no execute bit, at a path the hook can
 # place: an absolute one, one under a plain home directory, or a relative one
-# in a command with no cd, of an event that names its workdir. Written to a
+# in a command with no cd, pushd or popd word, of an event that names its
+# workdir. Written to a
 # link, to a second name of a file or to an executable file, or to a word only
 # run time knows, the body stays in the scan, since a later command name may
 # run it. A file named again as a gh body file must also be written behind
@@ -390,6 +391,7 @@ judged 2 "executable file that nothing in the command names again" "cat > pbin/h
 judged 2 "relative document after a cd, which the hook does not follow" "cd ./notes && cat > n.md ${NAMES}$SENDS n.md"
 judged 2 "document under a quoted tilde, which no shell expands" "cat > '~/n.md' ${NAMES}$SENDS '~/n.md'"
 ran default 2 "link under the home directory" "cat > ~/lnk ${READS}$SENDS ~/lnk"
+ran default 2 "link after a quoted cd, sent as its body file" "\"cd\" ./notes && cat > nlk ${READS_UP}$SENDS nlk"
 judged 2 "relative document in a command that changes directory later" "cat > notes/n.md ${NAMES}cd notes && $SENDS n.md"
 judged 2 "document written after the command that sends it" "$SENDS $RUNBOX/notes/n.md${NL}cat > $RUNBOX/notes/n.md ${NAMES}true"
 ran default 0 "new document sent as a body file" "cat > notes/n.md ${NAMES}$SENDS notes/n.md"
@@ -413,8 +415,12 @@ ran default 2 "link behind an fd number, not named again" "cat 1>lnk ${READS}gh 
 ran default 2 "second name of the command file, not named again" "cat > hrd ${READS}gh pr view 5"
 ran default 2 "executable file a later command starts itself, not named again" "cat > pbin/helper ${READS}tool"
 ran default 2 "target only known at run time" "L=lnk; cat > \$L ${READS}gh pr view 5"
+ran default 2 "link after a cd spelled with quotes inside, not named again" "c''d ./notes && cat > nlk ${READS_UP}gh pr view 5"
+judged 2 "relative document after pushd, not named again" "pushd ./notes; cat > n.md ${NAMES}tool"
 judged 2 "relative document after a cd, not named again" "cd ./notes && cat > n.md ${NAMES}tool"
 ran default 0 "new document, then a command that does not name it" "cat > notes/n.md ${NAMES}tool"
+ran default 0 "new document after prose that mentions cd" "echo 'use cd to navigate'; cat > notes/n.md ${NAMES}tool"
+ran default 0 "new document whose body mentions cd" "cat > notes/n.md <<'EOF'${NL}run cd first, then see ./key.p8${NL}EOF${NL}tool"
 ran default 0 "new document in a directory made first" "mkdir -p notes/d && cat > notes/d/x.md ${NAMES}tool"
 ran default 0 "plain document written again, then a command that does not name it" "cat > notes/old.md ${NAMES}tool"
 ran default 0 "new document under an absolute path after a cd" "cd ./notes && cat > $RUNBOX/notes/n.md ${NAMES}tool"

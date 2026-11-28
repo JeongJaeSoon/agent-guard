@@ -778,6 +778,15 @@ gate_closed - 0 "for t in ctx_1 ctx_2${nl}do${nl}  $OW orchestration send --to \
 gate_closed - 0 "for d in a b; do $OW orchestration send --to=x:\$d --body 'push now'; done && echo sent"
 gate_closed - 0 "$OW bot item comment 165 --text 'push landed' 2>&1 | tail -1; $OW bot item comment 166 --text 'commit made' 2>&1 | tail -1"
 gate_closed - 0 "$OW bot item list 2>&1 | head -20"
+# A literal orca message command may come before the word, under the same
+# limits: no redirection that writes a file, nothing but an inert command
+# reading its output, and no other orca subcommand.
+gate_closed - 0 "orca orchestration send --to lead --body 'done'; $OW status"
+gate_closed - 0 "orca bot item comment 1 --text 'note' 2>&1 | tail -1; $OW orchestration check --terminal t1"
+gate_closed - 2 "orca status; $OW status"
+gate_closed - 2 "orca orchestration send --to lead --body 'done' > $CASE/f.md; $OW status"
+gate_closed - 2 "$OW status; orca orchestration send --to lead --body 'x' | sh"
+gate_closed - 2 "orca orchestration send --to lead --body 'x' & $OW status"
 # A command name only run time knows stays one, in a loop or not.
 gate_closed - 2 "\$CMD commit -m x"
 gate_closed - 2 "eval \"\$CMD\" commit -m x"
