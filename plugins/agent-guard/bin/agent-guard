@@ -8398,11 +8398,21 @@ message_value_records() {
       return w ~ /^-[aqsvne]+$/ || w ~ /^--[a-z-]+=/ \
         || w ~ /^--(all|quiet|verbose|signoff|no-signoff|edit|no-edit|amend|allow-empty|allow-empty-message|only|include|dry-run|reset-author|status|no-status|no-gpg-sign|short|porcelain|long)$/
     }
-    # A redirection may write a file a command name resolves to.
+    # A redirection may write a file a command name resolves to. The gate
+    # also takes a printf whose format is a literal with no leading dash (so
+    # no -v assignment and no option, no zsh =name) whose conversions only
+    # print strings: %n assigns in bash and zsh, and zsh reads the argument
+    # of a number or a * width as arithmetic, which may assign. A glob in
+    # the format may expand to an option.
     function inert(   j) {
-      if (kind[1] != "0" || !inert_command(word[1])) return 0
+      if (kind[1] != "0" || !inert_command(word[1]) && !(mode == "gate" && gate_printf())) return 0
       for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) return 0
       return 1
+    }
+    function gate_printf(   f) {
+      if (word[1] != "printf" || n < 2 || kind[2] != "0" || word[2] ~ /^[-=]|[][*?{}~^#]/) return 0
+      f = word[2]; gsub(/%%|%[-0-9.]*[sb]/, "", f)
+      return index(f, "%") == 0
     }
     # The index of the git subcommand after the global options that only move
     # git (-C <dir>) or set one config value (-c <name>=<value>) (#500); 0
@@ -15691,7 +15701,10 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         case "$record_kind:${token##*/}" in
           1:*|4:*[\$\`]*)
             printf 'G\n'
-            git_unresolved "the command name $(git_reason_word "$token") is only known at run time"
+            case $token in
+              '${ORCA_CLI_COMMAND:-orca}') git_unresolved "the command the Orca CLI word runs is only known at run time" ;;
+              *) git_unresolved "the command name $(git_reason_word "$token") is only known at run time" ;;
+            esac
             # The variable may be resolvable; the resolver itself failed.
             if [ -n "$git_var" ] && [ "$git_vars_failed" -eq 1 ]; then printf 'F\n'; fi
             matched=0

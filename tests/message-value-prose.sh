@@ -633,6 +633,84 @@ gate_closed - 2 "$OW terminal \"\$ACTION\" --terminal t1 --text 'ls' --enter"
 gate_closed - 2 "$OW orchestration check --terminal \"\$T\""
 gate_closed - 2 "$OW worktree create --name w1 \"\$FLAG\""
 gate_closed - 0 "$OW orchestration send --to lead --body \"done now\""
+# A printf whose format is a literal that starts with no dash writes only
+# to its output: it cannot assign (-v) or take an option (--). Only string
+# conversions are read: %n assigns in bash and zsh, and zsh evaluates the
+# argument of a number conversion or a * width as arithmetic, which may
+# assign. The shell takes a redirection out before the format, so a later
+# word may be the format, and zsh expands a leading =.
+gate_closed - 0 "printf a && $OW x"
+gate_closed - 0 "printf '%s\\n' \"\$X\" && $OW status"
+gate_closed - 2 "printf -v ORCA_CLI_COMM''AND git; $OW commit -m x"
+gate_closed - 2 "printf -- -v x; $OW x"
+gate_closed - 2 "printf \"\$F\" && $OW x"
+gate_closed - 2 "printf %n PATH; $OW x"
+gate_closed - 2 "printf 'a%5n' x; $OW x"
+gate_closed - 2 "printf '%ln' x; $OW x"
+gate_closed - 2 "printf > $CASE/f.md -v X git; $OW x"
+gate_closed - 2 "printf 2>&1 -v X git; $OW x"
+gate_closed - 2 "cd $CASE && printf [-]v X git; $OW x"
+gate_closed - 2 "printf {-v,X} git; $OW x"
+gate_closed - 2 "printf %d 'PATH=1'; $OW x"
+gate_closed - 2 "printf '%*s' 'PATH=1' a; $OW x"
+gate_closed - 2 "printf =ls; $OW x"
+gate_closed - 0 "printf '%-10s|%.3s|%b|%%\\n' a b c && $OW x"
+gate_closed - 2 "printf a && \"\$G\" commit -m x"
+# A segment before the word that redirects into a file still leaves the
+# word unknown: the file may be what the word runs, a link to it, a file
+# in a PATH directory or code the Orca launcher loads, and the gate does
+# not resolve where a write lands. Bots write such files with their file
+# tool instead.
+gate_closed - 2 "printf '%s\\n' 'text' > $CASE/note.md && $OW orchestration send --to lead --body-file $CASE/note.md 2>&1 | tail -1"
+gate_closed - 2 "echo a > $CASE/f.md && $OW x"
+gate_closed - 2 "echo x > $CASE/orca; $OW x"
+gate_closed - 2 "echo x > $CASE/ORCA; $OW x"
+gate_closed - 2 "echo x >>$CASE/Orca; $OW x"
+gate_closed - 2 "echo x > \"\$T\"; $OW x"
+gate_closed - 2 "echo x > $CASE/\$T; $OW x"
+gate_closed - 2 "echo x > $CASE/*.md; $OW x"
+gate_closed - 2 "echo x >| $CASE/f.md; $OW x"
+gate_closed - 2 "echo x >>$CASE/f.md; $OW x"
+gate_closed - 2 "echo x > '>'$CASE/f.md; $OW x"
+gate_closed - 2 "echo x >'>'$CASE/f.md; $OW x"
+gate_closed - 2 "echo x &> $CASE/f.md; $OW x"
+gate_closed - 2 "echo x > $CASE/f.md 1>&2 3< $CASE/f.md; $OW x"
+gate_closed - 2 "cd sub && echo x > note.md && $OW x"
+gate_closed - 2 "printf a > $CASE/f.md && $OW worktree list > $CASE/g.md; $OW x"
+mkdir -p "$CASE/pbin" "$CASE/obin"
+printf '#!/bin/sh\n' >"$CASE/pbin/orca"
+printf '#!/bin/sh\n' >"$CASE/obin/orca"
+chmod +x "$CASE/pbin/orca" "$CASE/obin/orca"
+ln -s "$CASE/obin/orca" "$CASE/olink"
+ln "$CASE/obin/orca" "$CASE/ohard"
+ln -s "$CASE/pbin/orca" "$CASE/plink"
+mkdir -p "$CASE/qbin"
+ln -s "$CASE/qbin/orca" "$CASE/dangle"
+ln "$CASE/pbin/orca" "$CASE/phard"
+mkdir -p "$CASE/elsewhere/sub"
+ln -s "$CASE/elsewhere/sub" "$CASE/pbin/lnk"
+cp "$(command -v comm)" "$CASE/pbin/comm"
+ln "$CASE/pbin/comm" "$CASE/commhard"
+gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/olink; $OW x"
+gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/ohard; $OW x"
+gate_closed "$CASE/o${nl}bin/orca" 2 "echo x > $CASE/f.md; $OW x"
+gate_path_saved=$PATH
+PATH=$CASE/pbin:$CASE/qbin:$PATH
+gate_closed - 2 "echo x > $CASE/plink; $OW x"
+gate_closed - 2 "echo x > $CASE/dangle; $OW x"
+gate_closed - 2 "echo x > $CASE/phard; $OW x"
+gate_closed - 2 "echo x > $CASE/commhard; $OW x"
+gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/phard; orca orchestration send --to lead --body x; $OW x"
+gate_closed - 2 "tee $CASE/plink <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "cat <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "echo x > $CASE/pbin/note.md; $OW x"
+gate_closed - 2 "cd $CASE/pbin && echo x > note.md && $OW x"
+gate_closed - 2 "cd $CASE/pbin; echo x > note.md; $OW x"
+gate_closed - 2 "cd $CASE/pbin/lnk/.. && echo x > note.md && $OW x"
+gate_closed - 2 "for d in a b; do echo x > note.md; $OW x; cd $CASE/pbin; done"
+gate_closed - 2 "$OW x | tail -1 > $CASE/plink"
+gate_closed - 2 "for d in a b; do $OW x; echo x > $CASE/plink; done"
+PATH=$gate_path_saved
 # A for loop over literal values runs the same message command once per
 # value: the word stays orca while the loop's variable names no shell setting
 # and every value can be neither a subcommand nor an option, and every
