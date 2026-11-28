@@ -289,6 +289,7 @@ JSON
     'git clone -q /tmp/x/a /tmp/x/b && cd /tmp/x/b && git commit -m x	a cd runs after git `clone`' \
     'gh repo clone o/r /tmp/x/c; cd /tmp/x/c && git push	a cd runs after `gh`' \
     'G=~/bin/git; $G push	the command name `$G` is only known at run time' \
+    '"${ORCA_CLI_COMMAND:-orca}" x "$Y"	the command the Orca CLI word runs is only known at run time' \
     'for p in a b; do git -C $p push; done	so quote it'; do
     shell_cmd=${case_line%%"	"*}
     reason=${case_line#*"	"}

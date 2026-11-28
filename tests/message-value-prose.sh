@@ -633,6 +633,67 @@ gate_closed - 2 "$OW terminal \"\$ACTION\" --terminal t1 --text 'ls' --enter"
 gate_closed - 2 "$OW orchestration check --terminal \"\$T\""
 gate_closed - 2 "$OW worktree create --name w1 \"\$FLAG\""
 gate_closed - 0 "$OW orchestration send --to lead --body \"done now\""
+# A printf whose format is a literal that starts with no dash writes only
+# to its output: it cannot assign (-v) or take an option (--).
+gate_closed - 0 "printf a && $OW x"
+gate_closed - 0 "printf '%s\\n' \"\$X\" && $OW status"
+gate_closed - 2 "printf -v ORCA_CLI_COMM''AND git; $OW commit -m x"
+gate_closed - 2 "printf -- -v x; $OW x"
+gate_closed - 2 "printf \"\$F\" && $OW x"
+gate_closed - 2 "printf a && \"\$G\" commit -m x"
+# Before the word, a segment may write a literal file that is not named
+# orca in any case, does not sit in a PATH directory and is not the file the
+# word runs (a symbolic or hard link to it). A relative target needs a known
+# directory: it is read in the hook's and in that of each literal absolute
+# cd on the line (a cd may fail, and a loop runs its body again), and in
+# none once the line holds any other cd.
+gate_closed - 0 "printf '%s\\n' 'text' > $CASE/note.md && $OW orchestration send --to lead --body-file $CASE/note.md 2>&1 | tail -1"
+gate_closed - 0 "cd $CASE && printf '%s\\n' 'x' > note.md && $OW orchestration send --to lead --body-file $CASE/note.md"
+gate_closed - 0 "echo a > $CASE/f.md && $OW x"
+gate_closed - 0 "echo a >>$CASE/f.md; echo b 2>/dev/null >$CASE/g.md; $OW x"
+gate_closed - 0 "echo a > note.md && $OW x"
+gate_closed - 2 "echo x > $CASE/orca; $OW x"
+gate_closed - 2 "echo x > $CASE/ORCA; $OW x"
+gate_closed - 2 "echo x >>$CASE/Orca; $OW x"
+gate_closed - 2 "echo x > \"\$T\"; $OW x"
+gate_closed - 2 "echo x > $CASE/\$T; $OW x"
+gate_closed - 2 "echo x > $CASE/*.md; $OW x"
+gate_closed - 2 "echo x >| $CASE/f.md; $OW x"
+gate_closed - 2 "echo x &> $CASE/f.md; $OW x"
+gate_closed - 2 "echo x > $CASE/f.md 1>&2 3< $CASE/f.md; $OW x"
+gate_closed - 0 "cd $CASE; echo x > note.md; $OW x"
+gate_closed - 2 "cd sub && echo x > note.md && $OW x"
+gate_closed - 2 "printf a > $CASE/f.md && $OW worktree list > $CASE/g.md; $OW x"
+mkdir -p "$CASE/pbin" "$CASE/obin"
+printf '#!/bin/sh\n' >"$CASE/pbin/orca"
+printf '#!/bin/sh\n' >"$CASE/obin/orca"
+chmod +x "$CASE/pbin/orca" "$CASE/obin/orca"
+ln -s "$CASE/obin/orca" "$CASE/olink"
+ln "$CASE/obin/orca" "$CASE/ohard"
+ln -s "$CASE/pbin/orca" "$CASE/plink"
+mkdir -p "$CASE/qbin"
+ln -s "$CASE/qbin/orca" "$CASE/dangle"
+ln "$CASE/pbin/orca" "$CASE/phard"
+gate_closed "$CASE/obin/orca" 0 "echo x > $CASE/f.md; $OW x"
+gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/olink; $OW x"
+gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/ohard; $OW x"
+gate_path_saved=$PATH
+PATH=$CASE/pbin:$CASE/qbin:$PATH
+gate_closed - 0 "echo x > $CASE/f.md; $OW x"
+gate_closed - 2 "echo x > $CASE/plink; $OW x"
+gate_closed - 2 "echo x > $CASE/dangle; $OW x"
+gate_closed - 2 "echo x > $CASE/phard; $OW x"
+gate_closed - 2 "echo x > $CASE/pbin/note.md; $OW x"
+gate_closed - 2 "cd $CASE/pbin && echo x > note.md && $OW x"
+gate_closed - 2 "cd $CASE/pbin; echo x > note.md; $OW x"
+gate_closed - 2 "for d in a b; do echo x > note.md; $OW x; cd $CASE/pbin; done"
+gate_closed - 0 "for d in a b; do echo x > note.md; $OW x; cd $CASE; done"
+gate_closed - 2 "$OW x | tail -1 > $CASE/plink"
+gate_closed - 0 "$OW x | tail -1 > $CASE/f.md"
+gate_closed - 2 "for d in a b; do $OW x; echo x > $CASE/plink; done"
+gate_closed - 0 "for d in a b; do $OW x; echo x > $CASE/f.md; done"
+gate_closed - 0 "$OW x; echo x > $CASE/plink"
+PATH=$gate_path_saved
 # A for loop over literal values runs the same message command once per
 # value: the word stays orca while the loop's variable names no shell setting
 # and every value can be neither a subcommand nor an option, and every
