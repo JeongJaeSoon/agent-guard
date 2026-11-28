@@ -636,11 +636,14 @@ gate_closed - 0 "echo start; $TW list --json | jq -r '.[].name'"
 gate_closed TOOL= 0 "$TW status"
 gate_closed TOOL=tool 0 "$TW status"
 gate_closed TOOL=/opt/tools/bin/tool 0 "$TU status"
+gate_closed 'TOOL=/opt/my tools/tool' 0 "$TW status"
+gate_closed 'ORCA_CLI_COMMAND=/Applications/Orca Preview.app/Contents/Resources/bin/orca' 0 "$OW status"
+gate_closed 'GIT=/opt/my tools/git' 2 "$GW commit --no-verify -m x"
 gate_says closed - 0 '' "$MAY_RUN" "$TW status"
 gate_says open - 0 '' "$MAY_RUN" "$TW status"
 # Each condition on the hook's environment: another program, a relative
-# path, an absolute path to a file with another name, and a path that is not
-# in plain characters.
+# path, an absolute path to a file with another name, a path the shell would
+# split or expand in the unquoted word, and one with a quote in it.
 gate_closed TOOL=git 2 "$TW status"
 gate_closed TOOL=sh 2 "$TW status"
 gate_closed TOOL=./tool 2 "$TW status"
@@ -649,8 +652,8 @@ gate_closed TOOL=/opt/tool/git 2 "$TW status"
 gate_closed TOOL=/opt/tools/bin/tool2 2 "$TW status"
 gate_closed TOOL=/opt/tools/bin/xtool 2 "$TW status"
 gate_closed 'TOOL=/opt/my tools/tool' 2 "$TU status"
-gate_closed 'TOOL=/opt/my tools/tool' 2 "$TW status"
-gate_closed 'TOOL=/opt/t*/tool' 2 "$TW status"
+gate_closed 'TOOL=/opt/t*/tool' 2 "$TU status"
+gate_closed "TOOL=/opt/it's/tool" 2 "$TW status"
 gate_closed 'TOOL=tool --flag' 2 "$TU status"
 gate_closed ORCA_CLI_COMMAND=git 2 "$OW orchestration check --terminal t1"
 gate_closed ORCA_CLI_COMMAND=./orca 2 "$OW orchestration check --terminal t1"
@@ -1022,6 +1025,7 @@ for gate_gh in "gh pr merge 5" "gh pr comment 5 --body x" "gh pr edit 5 --title 
   "gh pr view \"\$(cat $CASE/note.md)\"" "gh pr view \"\$N\"" "gh pr view \$N" \
   "gh pr view 5 --web" "gh pr view 5 -w" "gh pr diff 5 --web" "gh issue list -w" "gh run view 12 -vw" \
   "gh pr view 5 --web=true" "gh pr view 5 -w=true" \
+  "gh pr view 5 --json *" "gh pr view 5 -?" "gh pr list --jq .[0].number" \
   "gh pr view 5 > $CASE/f.md" "gh pr diff 5 >> $CASE/f.md" "GH_PAGER=cat gh pr view 5" \
   "command gh pr view 5"; do
   gate_closed - 2 "$gate_gh; $OW status"

@@ -8380,9 +8380,10 @@ AWK_RECORD_SEPARATOR='
 # without a redirection, a printf or a read-only gh command as below, or
 # another marked segment that runs the same name, which is no shell builtin,
 # and whose only redirections are `2>&1` and /dev/null. None of those can
-# assign the variable behind a mark or write a file.
+# assign the variable behind a mark or write a file. $5 is set when a gh
+# command of the text holds an unquoted glob (message_command_has_glob).
 message_value_records() {
-  printf '%s\n' "$1" | MV_CLI_WORD=${3-} MV_CLI_TEXT=${4-} LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
+  printf '%s\n' "$1" | MV_CLI_WORD=${3-} MV_CLI_TEXT=${4-} MV_CLI_GLOB=${5-} LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" -v builtin_names="$SHELL_BUILTIN_NAMES_ERE" -v writer_mark="$HEREDOC_WRITER_MARK" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR$AWK_INERT_COMMAND"'
     # In END a bare exit would end with status 0 before the last line there.
     function bail() { failed = 1; exit (ending && mode == "gate") }
@@ -8409,8 +8410,9 @@ message_value_records() {
     # For the gate, a gh command that only asks the API and prints: `gh
     # pr|issue|run view|list|checks|status|diff` in literal words, so no
     # expansion can turn out to be another subcommand, and without -w or
-    # --web, which starts a browser.
+    # --web, which starts a browser. A glob may expand to either.
     function gh_reads(   j) {
+      if (ENVIRON["MV_CLI_GLOB"] != "") return 0
       if (word[1] != "gh" || word[2] !~ /^(pr|issue|run)$/ || word[3] !~ /^(view|list|checks|status|diff)$/) return 0
       for (j = 1; j <= n; j++) if (kind[j] != "0") return 0
       for (j = 4; j <= n; j++) if (word[j] ~ /^(--web(=|$)|-[A-Za-z]*w)/) return 0
@@ -8662,9 +8664,11 @@ DEFAULT_WORD_MARK=__agent_guard_default_word__
 # command inherits, leaves VAR unset or empty or holds name, and the command
 # spells VAR nowhere else (an assignment, unset, read or another expansion
 # would change what the word runs). It runs a path that VAR holds when that
-# is absolute, in plain characters, with name as its last component: the
-# path stays in the reading, since a file named like a builtin is not the
-# builtin. VAR is an upper-case name no shell sets itself. name is a plain
+# is absolute with name as its last component: the path stays in the
+# reading, as one quoted word, since a file named like a builtin is not the
+# builtin. The unquoted word needs a path the shell cannot split or expand,
+# the quoted one a path with no quote or newline in it. VAR is an upper-case
+# name no shell sets itself. name is a plain
 # word and no reserved word: a shell runs what a word expands to as a
 # command, never as a keyword.
 default_word_mark() {
@@ -8680,12 +8684,13 @@ default_word_mark() {
       before = a > 1 ? substr(s, a - 1, 1) : (out == "" ? " " : substr(out, length(out), 1))
       after = substr(s, a + len, 1)
       val = ENVIRON[var]
-      path = substr(val, 1, 1) == "/" && substr(val, length(val) - length(name)) == "/" name && val ~ /^[A-Za-z0-9_.\/@%+,:=-]+$/
+      path = substr(val, 1, 1) == "/" && substr(val, length(val) - length(name)) == "/" name \
+        && (quoted ? val !~ /[\047\n]/ : val ~ /^[A-Za-z0-9_.\/@%+,:=-]+$/)
       if (before ~ /[ \t\n;&|]/ && (after == "" || after ~ /[ \t\n]/) \
           && var !~ shellset && var !~ startup \
           && name !~ /^(if|then|else|elif|fi|case|esac|for|select|while|until|do|done|in|function|time|coproc|foreach|end|repeat|nocorrect)$/ \
           && (val == "" || val == name || path)) {
-        out = out substr(s, 1, a - 1) mark (path ? val : name); rest = rest substr(s, 1, a - 1) " "
+        out = out substr(s, 1, a - 1) mark (path ? "\047" val "\047" : name); rest = rest substr(s, 1, a - 1) " "
         vars[var] = 1; found = 1
       } else {
         out = out substr(s, 1, a + len - 1); rest = rest substr(s, 1, a + len - 1)
@@ -8727,8 +8732,12 @@ default_words_as_names() {
         dw_text=
       fi
     fi
+    dw_glob=
+    case $dw_marked in
+      *[*?[^#]*) ! message_command_has_glob "$dw_marked" || dw_glob=1 ;;
+    esac
     if [ -n "$dw_text" ] \
-      && message_value_records "$(git_command_records "$dw_text")" gate "$DEFAULT_WORD_MARK" "$dw_marked" \
+      && message_value_records "$(git_command_records "$dw_text")" gate "$DEFAULT_WORD_MARK" "$dw_marked" "$dw_glob" \
       && DW_TEXT=$dw_marked LC_ALL=C awk -v mark="$DEFAULT_WORD_MARK" 'BEGIN {
         s = ENVIRON["DW_TEXT"]; out = ""
         while ((p = index(s, mark)) > 0) { out = out substr(s, 1, p - 1); s = substr(s, p + length(mark)) }

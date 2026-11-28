@@ -3503,7 +3503,7 @@
   {
     "id": "bash-default-word-path-kept",
     "rule": "default_word_mark: an absolute path in the variable stays a path in the reading",
-    "old": "mark (path ? val : name);",
+    "old": "mark (path ? \"\\047\" val \"\\047\" : name);",
     "new": "mark name;",
     "tests": [
       "tests/message-value-prose.sh"
@@ -3513,6 +3513,15 @@
     "id": "bash-gate-gh-read-only-browser",
     "rule": "message_value_records gate: a gh read with -w or --web is not inert",
     "old": "      for (j = 4; j <= n; j++) if (word[j] ~ /^(--web(=|$)|-[A-Za-z]*w)/) return 0\n",
+    "new": "",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
+  },
+  {
+    "id": "bash-gate-gh-read-only-glob",
+    "rule": "message_value_records gate: a gh read with an unquoted glob is not inert",
+    "old": "      if (ENVIRON[\"MV_CLI_GLOB\"] != \"\") return 0\n",
     "new": "",
     "tests": [
       "tests/message-value-prose.sh"
