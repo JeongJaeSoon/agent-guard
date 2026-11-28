@@ -132,7 +132,7 @@ measure() {
     --config "$AGENT_GUARD_GITLEAKS_CONFIG" --exit-code 1 \
     --report-format json --report-path "$CASE/report.json" <"$CASE/in" >/dev/null 2>&1
   printf 'measure - %s: status %s rules %s\n' "$1" "$?" \
-    "$(jq -r '[.[] | .RuleID + "/" + (.Secret | length | tostring)] | join(",")' "$CASE/report.json" 2>/dev/null)"
+    "$(jq -r '[.[] | .RuleID + "/" + (.Secret | length | tostring) + "@" + (.StartColumn | tostring)] | join(",")' "$CASE/report.json" 2>/dev/null)"
 }
 
 EN_BODY="## Summary
@@ -178,6 +178,20 @@ if [ "${1-}" = --measure ]; then
   measure 'x run' "$P=xxxxxxxxxxxxxxxx"
   measure 'angle placeholder' "$P=<$P>"
   measure 'variable placeholder' "$P=\${TOKEN}"
+  # Werft-style fixtures: a fake kubectl answer built from a Pod name.
+  POD=$(printf 'release-%s-%s-%s' "$K" 7d9f8b6c5 x2k9p)
+  measure 'pod value as an object value' "    expect(out).toEqual({ $P: '$P-of-$POD' });"
+  measure 'pod value in a test string' "  it('returns $P-of-$POD for the pod', async () => {"
+  measure 'pod value next to a key word' "const $K = \"$P-of-$POD\";"
+  measure 'pod name list' "    pods: ['$POD', 'release-$K-5c6b7d8f9-q8w7z'],"
+  measure 'pod name as a value' "  podName: '$POD',"
+  measure 'kubectl output line' "$POD   1/1   Running   0   3m"
+  measure 'pod name as a map key' "    '$POD': '$P-of-$POD',"
+  measure 'pod value under a token field' "  $P: 'release-$K-7d9f8b6c5-x2k9p',"
+  measure 'secret-of pod value' "  expect(out).toBe('secret-of-$POD');"
+  measure 'key-of pod value' "  expect(out).toBe('$K-of-$POD');"
+  measure 'pod value after a key word and a comma' "const $K = pods[0], other = 'release-$K-5c6b7d8f9-q8w7z';"
+  measure 'kubectl args array' "    ['get', 'pod', '$POD', '-o', 'jsonpath={.data.$P}'],"
   exit 0
 fi
 
