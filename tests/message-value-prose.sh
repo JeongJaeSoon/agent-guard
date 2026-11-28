@@ -647,6 +647,8 @@ gate_closed - 2 "printf 'a%5n' x; $OW x"
 gate_closed - 2 "printf '%ln' x; $OW x"
 gate_closed - 2 "printf > $CASE/f.md -v X git; $OW x"
 gate_closed - 2 "printf 2>&1 -v X git; $OW x"
+gate_closed - 2 "cd $CASE && printf [-]v X git; $OW x"
+gate_closed - 2 "printf {-v,X} git; $OW x"
 gate_closed - 2 "printf a && \"\$G\" commit -m x"
 # Before the word, a segment may write a literal file that is not named
 # orca in any case, does not sit in a PATH directory and is not the file the
@@ -689,6 +691,8 @@ ln -s "$CASE/qbin/orca" "$CASE/dangle"
 ln "$CASE/pbin/orca" "$CASE/phard"
 mkdir -p "$CASE/elsewhere/sub"
 ln -s "$CASE/elsewhere/sub" "$CASE/pbin/lnk"
+cp "$(command -v comm)" "$CASE/pbin/comm"
+ln "$CASE/pbin/comm" "$CASE/commhard"
 gate_closed "$CASE/obin/orca" 0 "echo x > $CASE/f.md; $OW x"
 gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/olink; $OW x"
 gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/ohard; $OW x"
@@ -698,6 +702,10 @@ gate_closed - 0 "echo x > $CASE/f.md; $OW x"
 gate_closed - 2 "echo x > $CASE/plink; $OW x"
 gate_closed - 2 "echo x > $CASE/dangle; $OW x"
 gate_closed - 2 "echo x > $CASE/phard; $OW x"
+gate_closed - 2 "echo x > $CASE/commhard; $OW x"
+# The here-document view leaves out what tee writes, so it takes no write.
+gate_closed - 2 "tee $CASE/plink <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "cat <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
 gate_closed - 2 "echo x > $CASE/pbin/note.md; $OW x"
 gate_closed - 2 "cd $CASE/pbin && echo x > note.md && $OW x"
 gate_closed - 2 "cd $CASE/pbin; echo x > note.md; $OW x"
@@ -711,6 +719,21 @@ gate_closed - 2 "for d in a b; do $OW x; echo x > $CASE/plink; done"
 gate_closed - 0 "for d in a b; do $OW x; echo x > $CASE/f.md; done"
 gate_closed - 0 "$OW x; echo x > $CASE/plink"
 PATH=$gate_path_saved
+# With no directory in the event, a relative target is read nowhere.
+gate_nocwd() { # $1 expected status, $2 command
+  (
+    unset ORCA_CLI_COMMAND
+    AGENT_GUARD_INFRA_FAILURE_MODE=closed AGENT_GUARD_HOOK_HOST=claude
+    export AGENT_GUARD_INFRA_FAILURE_MODE AGENT_GUARD_HOOK_HOST
+    cd "$W" && jq -nc --arg c "$2" '{tool_name:"Bash",tool_input:{command:$c}}' \
+      | "$BIN" hook-pre-tool >/dev/null 2>"$CASE/err"
+  )
+  status=$?
+  n=$((n + 1))
+  if [ "$status" -eq "$1" ]; then ok "closed gate, no cwd: expected $1: $2"; else bad "closed gate, no cwd: expected $1 got $status: $2"; fi
+}
+gate_nocwd 2 "echo a > note.md && $OW x"
+gate_nocwd 0 "echo a > $CASE/f.md && $OW x"
 # A for loop over literal values runs the same message command once per
 # value: the word stays orca while the loop's variable names no shell setting
 # and every value can be neither a subcommand nor an option, and every
