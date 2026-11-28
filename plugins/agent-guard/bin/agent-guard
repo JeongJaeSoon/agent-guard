@@ -8710,7 +8710,9 @@ orca_cli_word_mark() {
 # command that is not on the table) leaves all of them expansions. With
 # `heredoc` as $2 the command is judged as heredoc_body_rewrite's view of it,
 # which exists only when cat or tee writes every here-document. $3 names the
-# reading message_value_records makes: `words` unless given.
+# reading message_value_records makes: `words` unless given. For `gate` the
+# view holds each writer's own words: a file written before the word leaves
+# it an expansion, with a here-document as with a redirection alone.
 orca_cli_words_as_orca() {
   case "$1" in
     *'${ORCA_CLI_COMMAND:-orca}'*) ;;
@@ -8719,7 +8721,7 @@ orca_cli_words_as_orca() {
   if oc_marked=$(orca_cli_word_mark "$1"); then
     oc_text=$oc_marked
     if [ "${2-}" = heredoc ]; then
-      if oc_text=$(printf '%s\n' "$oc_marked" | heredoc_body_rewrite 0 view); then
+      if oc_text=$(printf '%s\n' "$oc_marked" | heredoc_body_rewrite 0 view "${3-}"); then
         oc_text=${oc_text#*"
 "}
       else
@@ -11363,8 +11365,11 @@ bash_neutralize_runtime_globals() (
 # With $2 set, a written file may be named again, and
 # heredoc_reused_as_body_file decides what those mentions are: `view` prints
 # what it reads (cat and tee writers only), `skip` the text without bodies.
+# With `gate` as $3 the view keeps each writer's own words in place of
+# `true`, so the commit/push gate judges them as on a line with no
+# here-document.
 heredoc_body_rewrite() {
-  LC_ALL=C awk -v neutral="${1:-0}" -v reuse="${2-}" '
+  LC_ALL=C awk -v neutral="${1:-0}" -v reuse="${2-}" -v reader="${3-}" '
     function reject() { bad = 1; exit 1 }
     # The words of s, quoted text replaced by Q, in w[1..]; returns the count.
     function words(s, w) {
@@ -11482,7 +11487,7 @@ heredoc_body_rewrite() {
         # Only a writer with plain `>`, `>>` or tee targets stands aside: the
         # names listed below are then all it writes.
         if (!writer || piped != "" || rest ~ /[0-9][<>]/ || rest ~ /[<>]&/) reject()
-        view[nk] = lead " true" post
+        view[nk] = lead (reader == "gate" ? pre : " true") post
       }
       if (!writer) {
         # A message body read from stdin: the line must be the first, the

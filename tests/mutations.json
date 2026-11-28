@@ -2807,6 +2807,15 @@
     ]
   },
   {
+    "id": "bash-git-gate-heredoc-writer-words",
+    "rule": "heredoc_body_rewrite view for the gate: the command that takes a here-document is judged by its own words",
+    "old": "        view[nk] = lead (reader == \"gate\" ? pre : \" true\") post",
+    "new": "        view[nk] = lead \" true\" post",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
+  },
+  {
     "id": "scan-hook-input-private-directory",
     "rule": "hook input scan: gitleaks stdin runs from the private directory, not beside the repository's ignore file",
     "old": "      ag_gs_dir=$GITLEAKS_HOOK_CWD\n",
