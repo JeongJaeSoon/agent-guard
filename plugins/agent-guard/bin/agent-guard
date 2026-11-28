@@ -8400,14 +8400,18 @@ message_value_records() {
     }
     # A redirection may write a file a command name resolves to. The gate
     # also takes a printf whose format is a literal with no leading dash (so
-    # no -v assignment and no option), and a `>` or `>>` to a literal file
+    # no -v assignment and no option) and no %n (which assigns in bash and
+    # zsh), written before any redirection (which the shell takes out of the
+    # words first), and a `> FILE`, `>> FILE` or `>FILE` to a literal file
     # not named orca in any case, which gate_write keeps in seg_writes for
     # orca_cli_writes_safe; it needs every PATH entry absolute, as cd does.
+    # An attached `>>FILE` is not taken: without its quotes, a `>` to a
+    # quoted name that starts with `>` reads the same.
     function inert(   j) {
       seg_writes = ""
       if (kind[1] != "0") return 0
       if (!inert_command(word[1]) \
-          && !(mode == "gate" && word[1] == "printf" && n > 1 && kind[2] == "0" && substr(word[2], 1, 1) != "-")) return 0
+          && !(mode == "gate" && gate_printf())) return 0
       for (j = 1; j <= n; j++) {
         if (word[j] !~ /[<>]/) continue
         if (mode != "gate" || cd_ok != "1" || kind[j] != "0") return 0
@@ -8415,14 +8419,18 @@ message_value_records() {
         if (dup[j]) return 0
         if (word[j] ~ /^[12]?>>?$/) {
           if (j == n || kind[j + 1] != "0" || !gate_write(word[++j])) return 0
-        } else if (!gate_write(word[j])) return 0
+        } else if (word[j] !~ /^[12]?>[^>]/ || !gate_write(substr(word[j], index(word[j], ">") + 1))) return 0
       }
       return 1
+    }
+    function gate_printf(   f) {
+      if (word[1] != "printf" || n < 2 || kind[2] != "0" || word[2] ~ /^-|[<>]/) return 0
+      f = word[2]; gsub(/%%/, "", f)
+      return f !~ /%[^A-Za-z]*[hlLqjzt]*n/
     }
     # A write target the shell takes as written: no expansion, glob, tilde
     # or zsh =name, and a last step that is a name other than orca.
     function gate_write(w,   base) {
-      sub(/^[12]?>>?/, "", w)
       if (w !~ /^[A-Za-z0-9_.\/@%+,:-]+$/) return 0
       base = w; sub(/.*\//, "", base)
       if (base == "" || base == "." || base == ".." || tolower(base) == "orca") return 0
@@ -8604,9 +8612,11 @@ message_value_records() {
       # What this segment leaves for the ones after it. A write counts once an
       # Orca word runs after it, or at once in a pipeline that starts with one.
       # A relative target is read in each directory a literal absolute cd on
-      # the line may leave, and in none once another cd is on it.
+      # the line may leave, and in none once another cd is on it: the shell
+      # takes a `..` back along the path as written, which the file system
+      # may resolve elsewhere.
       if (mode == "gate" && kind[1] == "0" && word[1] == "cd") {
-        if (n == 2 && kind[2] == "0" && word[2] ~ /^\/[A-Za-z0-9_.\/@%+,:-]*$/) dirs = dirs "D" word[2] "\n"
+        if (n == 2 && kind[2] == "0" && word[2] ~ /^\/[A-Za-z0-9_.\/@%+,:-]*$/ && word[2] !~ /(^|\/)\.\.(\/|$)/) dirs = dirs "D" word[2] "\n"
         else cd_unknown = 1
       }
       if (all && inert()) { if (pipe_target) writes = writes seg_writes; else pending = pending seg_writes }

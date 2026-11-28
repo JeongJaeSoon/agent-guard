@@ -634,23 +634,33 @@ gate_closed - 2 "$OW orchestration check --terminal \"\$T\""
 gate_closed - 2 "$OW worktree create --name w1 \"\$FLAG\""
 gate_closed - 0 "$OW orchestration send --to lead --body \"done now\""
 # A printf whose format is a literal that starts with no dash writes only
-# to its output: it cannot assign (-v) or take an option (--).
+# to its output: it cannot assign (-v) or take an option (--). A %n
+# conversion assigns too in bash and zsh, and the shell takes a
+# redirection out before it, so a later word may be the format.
 gate_closed - 0 "printf a && $OW x"
 gate_closed - 0 "printf '%s\\n' \"\$X\" && $OW status"
 gate_closed - 2 "printf -v ORCA_CLI_COMM''AND git; $OW commit -m x"
 gate_closed - 2 "printf -- -v x; $OW x"
 gate_closed - 2 "printf \"\$F\" && $OW x"
+gate_closed - 2 "printf %n PATH; $OW x"
+gate_closed - 2 "printf 'a%5n' x; $OW x"
+gate_closed - 2 "printf '%ln' x; $OW x"
+gate_closed - 2 "printf > $CASE/f.md -v X git; $OW x"
+gate_closed - 2 "printf 2>&1 -v X git; $OW x"
 gate_closed - 2 "printf a && \"\$G\" commit -m x"
 # Before the word, a segment may write a literal file that is not named
 # orca in any case, does not sit in a PATH directory and is not the file the
 # word runs (a symbolic or hard link to it). A relative target needs a known
 # directory: it is read in the hook's and in that of each literal absolute
 # cd on the line (a cd may fail, and a loop runs its body again), and in
-# none once the line holds any other cd.
+# none once the line holds any other cd, or one through `..`, which the
+# shell takes back along the path as written, not as the file system
+# resolves it. An attached `>>` or a quoted `>` is not read: without the
+# quotes the two readings look the same.
 gate_closed - 0 "printf '%s\\n' 'text' > $CASE/note.md && $OW orchestration send --to lead --body-file $CASE/note.md 2>&1 | tail -1"
 gate_closed - 0 "cd $CASE && printf '%s\\n' 'x' > note.md && $OW orchestration send --to lead --body-file $CASE/note.md"
 gate_closed - 0 "echo a > $CASE/f.md && $OW x"
-gate_closed - 0 "echo a >>$CASE/f.md; echo b 2>/dev/null >$CASE/g.md; $OW x"
+gate_closed - 0 "echo a >> $CASE/f.md; echo b 2>/dev/null >$CASE/g.md; $OW x"
 gate_closed - 0 "echo a > note.md && $OW x"
 gate_closed - 2 "echo x > $CASE/orca; $OW x"
 gate_closed - 2 "echo x > $CASE/ORCA; $OW x"
@@ -659,6 +669,9 @@ gate_closed - 2 "echo x > \"\$T\"; $OW x"
 gate_closed - 2 "echo x > $CASE/\$T; $OW x"
 gate_closed - 2 "echo x > $CASE/*.md; $OW x"
 gate_closed - 2 "echo x >| $CASE/f.md; $OW x"
+gate_closed - 2 "echo x >>$CASE/f.md; $OW x"
+gate_closed - 2 "echo x > '>'$CASE/f.md; $OW x"
+gate_closed - 2 "echo x >'>'$CASE/f.md; $OW x"
 gate_closed - 2 "echo x &> $CASE/f.md; $OW x"
 gate_closed - 2 "echo x > $CASE/f.md 1>&2 3< $CASE/f.md; $OW x"
 gate_closed - 0 "cd $CASE; echo x > note.md; $OW x"
@@ -674,6 +687,8 @@ ln -s "$CASE/pbin/orca" "$CASE/plink"
 mkdir -p "$CASE/qbin"
 ln -s "$CASE/qbin/orca" "$CASE/dangle"
 ln "$CASE/pbin/orca" "$CASE/phard"
+mkdir -p "$CASE/elsewhere/sub"
+ln -s "$CASE/elsewhere/sub" "$CASE/pbin/lnk"
 gate_closed "$CASE/obin/orca" 0 "echo x > $CASE/f.md; $OW x"
 gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/olink; $OW x"
 gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/ohard; $OW x"
@@ -686,6 +701,8 @@ gate_closed - 2 "echo x > $CASE/phard; $OW x"
 gate_closed - 2 "echo x > $CASE/pbin/note.md; $OW x"
 gate_closed - 2 "cd $CASE/pbin && echo x > note.md && $OW x"
 gate_closed - 2 "cd $CASE/pbin; echo x > note.md; $OW x"
+gate_closed - 2 "cd $CASE/pbin/lnk/.. && echo x > note.md && $OW x"
+gate_closed - 0 "cd $CASE/pbin/lnk/.. && echo x > $CASE/f.md && $OW x"
 gate_closed - 2 "for d in a b; do echo x > note.md; $OW x; cd $CASE/pbin; done"
 gate_closed - 0 "for d in a b; do echo x > note.md; $OW x; cd $CASE; done"
 gate_closed - 2 "$OW x | tail -1 > $CASE/plink"
