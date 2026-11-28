@@ -13289,6 +13289,10 @@ shell_command_words_to() {
   scw_memo_set=1
   return "$scw_memo_status"
 }
+# Only this run's answers count: a memo inherited from the environment would
+# stand in for the tokenizer.
+unset gcr_memo_set gcr_memo_text gcr_memo_gate gcr_memo_out gcr_memo_status \
+  scw_memo_set scw_memo_text scw_memo_out scw_memo_status
 
 # Print the words of $1 one per line, split where the shell splits them: at
 # blanks and at the operators `;`, `|`, `||`, `&&` and a lone `&` (not the
@@ -20632,12 +20636,6 @@ redact_live_probe_response_json() {
 # length-aware matching and preserves the same contract across jq versions.
 redact_nul_response_json() {
   resp=$1
-  # $1 is jq -c output, and JSON spells a NUL only as \u0000: without that
-  # text the walk below prints $1 unchanged.
-  case "$resp" in
-    *'\u0000'*) ;;
-    *) printf '%s' "$resp"; return 0 ;;
-  esac
   { printf '%s' "$resp"; } 2>/dev/null | jq -c "$JQ_WALK"'
     walk(if type == "string" and (index("\u0000") != null)
          then "[REDACTED]" else . end)

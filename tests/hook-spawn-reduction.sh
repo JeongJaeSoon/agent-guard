@@ -587,12 +587,12 @@ fi
 
 # --- fewer jq runs per PostToolUse, fewer awk runs per Bash PreToolUse -------
 # A clean Bash PostToolUse used to start 11 jq runs, and Bash PreToolUse 13
-# awk runs for 'ls -la src' (16 for the cd, pipe and list below). Each shortcut answers what the run it replaces
-# answered: the object check the primed input already made, a NUL walk that
-# cannot change a response with no NUL, the re-validation of a bundle that is
-# exactly the empty one, two line-to-JSON runs over consecutive input, an awk
-# filter folded into the awk after the sort, and the tokenizers asked again for
-# the same text by sibling subshells. The cases below pin the counts and that
+# awk runs for 'ls -la src' (16 for the cd, pipe and list below). Each
+# shortcut answers what the run it replaces answered: the object check the
+# primed input already made, the re-validation of a bundle that is exactly the
+# empty one, two line-to-JSON runs over consecutive input, an awk filter folded
+# into the awk after the sort, and the tokenizers asked again for the same text
+# by sibling subshells. The cases below pin the counts and that
 # every mask and denial they touch still happens.
 cat >"$CASE/bin/jq" <<EOF
 #!/bin/sh
@@ -616,10 +616,9 @@ post_jq_runs '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"make
 check "clean Bash PostToolUse with jq counted passes unchanged" \
   sh -c '[ "$1" -eq 0 ] && [ ! -s "$2" ]' _ "$?" "$CASE/out/stdout"
 got=$(wc -l <"$CASE/jq-runs" | tr -d ' ')
-check "a clean Bash PostToolUse starts at most 7 jq runs (got $got)" [ "$got" -le 7 ]
+check "a clean Bash PostToolUse starts at most 8 jq runs (got $got)" [ "$got" -le 8 ]
 check "a clean Bash PostToolUse makes no second object check" \
   sh -c '! grep -Eq "^-e type == \"object\"\$" "$1"' _ "$CASE/jq-calls"
-check "a response with no NUL starts no NUL walk" lacks "$nul_walk" "$CASE/jq-calls"
 check "the empty secret bundle is not parsed again" \
   lacks 'invalid secret bundle' "$CASE/jq-calls"
 check "compact-token lines are encoded in one jq run" \
@@ -705,6 +704,22 @@ memo_ok=$(
   printf 'done\n'
 )
 check "memoized tokenizers match the command substitution they replace" [ "$memo_ok" = done ]
+
+# The memo lives in shell variables: one inherited from the environment must
+# never stand in for the tokenizer, whole or in part (set -u).
+memo_env_case() { # $1 label, then env assignments
+  memo_label=$1; shift
+  env "$@" sh -c 'cd "$1" && printf "%s" "$2" | "$3" hook-pre-tool' _ "$CASE/repo" \
+    '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cat .env"}}' "$GUARD" \
+    >"$CASE/out/stdout" 2>"$CASE/out/stderr"
+  memo_status=$?
+  check "$memo_label: the protected-path command is still denied (got $memo_status)" [ "$memo_status" -eq 2 ]
+  check "$memo_label: no shell error" sh -c '! grep -Eq "parameter not set|unbound variable|: [0-9]+: " "$1"' _ "$CASE/out/stderr"
+}
+memo_env_case "an inherited memo flag alone" gcr_memo_set=1 scw_memo_set=1
+memo_env_case "a forged inherited memo" \
+  gcr_memo_set=1 "gcr_memo_text=cat .env" gcr_memo_gate= gcr_memo_out=0true gcr_memo_status=0 \
+  scw_memo_set=1 "scw_memo_text=cat .env" scw_memo_out=true scw_memo_status=0
 
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

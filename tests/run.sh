@@ -2660,6 +2660,8 @@ mkdir -p "$FAIL_VALIDATE_JQ_DIR"
   printf '%s\n' '#!/bin/sh'
   printf '%s\n' 'case "$*" in'
   printf '%s\n' '  *"type == \"object\""*) exit 2 ;;'
+  # The input cache parses the same input; a jq that cannot parse it fails there too.
+  printf '%s\n' '  *"def cached("*) exit 2 ;;'
   printf '%s\n' 'esac'
   printf '%s\n' 'exec "${AGENT_GUARD_TEST_REAL_JQ:?}" "$@"'
 } >"$FAIL_VALIDATE_JQ"
