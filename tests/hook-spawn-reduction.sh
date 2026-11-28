@@ -726,6 +726,15 @@ memo_retry=$(
   shell_command_words_to 'echo fresh-b'; second=$?
   { [ "$first" -ne 0 ] && [ "$second" -eq 0 ] && [ "$SCW_OUT" = "$(printf 'echo\nfresh-b')" ]; } \
     || printf 'scw failure memoized\n'
+  # A failure on another text leaves the kept answer's status alone.
+  git_command_records_to 'echo kept-a'
+  rm -f "$CASE/awk-failed-once"
+  git_command_records_to 'echo other-a'
+  git_command_records_to 'echo kept-a' || printf 'gcr hit took a later failure status\n'
+  shell_command_words_to 'echo kept-b'
+  rm -f "$CASE/awk-failed-once"
+  shell_command_words_to 'echo other-b'
+  shell_command_words_to 'echo kept-b' || printf 'scw hit took a later failure status\n'
   printf 'done\n'
 )
 check "a failed tokenizer run is not memoized" [ "$memo_retry" = done ]

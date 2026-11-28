@@ -13266,12 +13266,12 @@ git_command_records_to() {
   if [ "${gcr_memo_set:-}" = 1 ] && [ "${2:-}" = "$gcr_memo_gate" ] \
       && [ "$1" = "$gcr_memo_text" ]; then
     GCR_OUT=$gcr_memo_out
-    return "$gcr_memo_status"
+    return 0
   fi
   GCR_OUT=$(git_command_records "$1" "${2:-}")
-  gcr_memo_status=$?
-  # A failed run is not kept: the next caller runs the tokenizer again.
-  [ "$gcr_memo_status" -eq 0 ] || return "$gcr_memo_status"
+  gcr_status=$?
+  # Only a successful run is kept: the next caller runs a failed one again.
+  [ "$gcr_status" -eq 0 ] || return "$gcr_status"
   gcr_memo_text=$1
   gcr_memo_gate=${2:-}
   gcr_memo_out=$GCR_OUT
@@ -13282,11 +13282,11 @@ git_command_records_to() {
 shell_command_words_to() {
   if [ "${scw_memo_set:-}" = 1 ] && [ "$1" = "$scw_memo_text" ]; then
     SCW_OUT=$scw_memo_out
-    return "$scw_memo_status"
+    return 0
   fi
   SCW_OUT=$(shell_command_words "$1")
-  scw_memo_status=$?
-  [ "$scw_memo_status" -eq 0 ] || return "$scw_memo_status"
+  scw_status=$?
+  [ "$scw_status" -eq 0 ] || return "$scw_status"
   scw_memo_text=$1
   scw_memo_out=$SCW_OUT
   scw_memo_set=1
@@ -13294,8 +13294,8 @@ shell_command_words_to() {
 }
 # Only this run's answers count: a memo inherited from the environment would
 # stand in for the tokenizer.
-unset gcr_memo_set gcr_memo_text gcr_memo_gate gcr_memo_out gcr_memo_status \
-  scw_memo_set scw_memo_text scw_memo_out scw_memo_status
+unset gcr_memo_set gcr_memo_text gcr_memo_gate gcr_memo_out \
+  scw_memo_set scw_memo_text scw_memo_out
 
 # Print the words of $1 one per line, split where the shell splits them: at
 # blanks and at the operators `;`, `|`, `||`, `&&` and a lone `&` (not the
@@ -23296,7 +23296,9 @@ hook_post_tool() {
     # Refuse an over-limit input before the call copies it ('' resets alike).
     # Inline, not a helper: in dash each function definition costs every hook.
     if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
-    if ! json_input_is_primed_object "$input" \
+    # Only a primed cache is asked: the call copies the input, and an input
+    # over the priming limit is never primed.
+    if { [ "${JV_CACHE_OBJECT:-}" != 1 ] || ! json_input_is_primed_object "$input"; } \
       && ! printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
       if recover_post_tool_validation_failure "$input"; then
         return 0
