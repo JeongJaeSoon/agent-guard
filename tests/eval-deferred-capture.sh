@@ -63,8 +63,9 @@ done
 # stub's id and not the canary. "leak": the output holds the canary.
 truth() {
   n=$((n + 1))
+  rm -f "$W/ids.txt" "$W/helper.sh"
   PATH="$CASE/stub:$PATH" AG_CANARY_SECRET=$canary n=AG_CANARY_SECRET m=G_CANARY_SECRET \
-    bash -c "$2" >"$CASE/out" 2>&1 </dev/null
+    bash -c 'cd "$0" && eval "$1"' "$W" "$2" >"$CASE/out" 2>&1 </dev/null
   case $1 in
     ids)
       if grep -qF -- "$sid" "$CASE/out" && ! grep -qF -- "$canary" "$CASE/out"; then
@@ -96,6 +97,11 @@ allowed 'for col in session_id id; do eval "v_$col=\$(sqlite3 stack.db \"select 
 allowed 'while IFS== read -r k v; do eval "$k=\$v"; done <<< "$(sqlite3 stack.db "select '\''SESSION_ID='\'' || session_id from requests")"; echo "$SESSION_ID"'
 allowed 'while IFS== read -r k v; do eval "$k=\${v}"; done < <(sqlite3 stack.db "select '\''SESSION_ID='\'' || session_id from requests"); echo "$SESSION_ID $REQUEST_ID"'
 allowed 'sqlite3 stack.db "select '\''SESSION_ID='\'' || session_id from requests" | { while IFS== read -r k v; do eval "$k=\$v"; done; echo "$SESSION_ID"; }'
+# The reported shape: an eval in a loop body assigns query results, and the
+# ids are written to a helper file.
+allowed 'for t in sessions requests; do eval "id_$t=\$(sqlite3 stack.db \"select id from $t limit 1\")"; done; printf '\''SID=%s\nRID=%s\n'\'' "$id_sessions" "$id_requests" > ids.txt; cat ids.txt'
+allowed 'while IFS== read -r k v; do eval "$k=\$v"; printf '\''%s=%s\n'\'' "$k" "$v" >> ids.txt; done < <(sqlite3 stack.db "select '\''SESSION_ID='\'' || session_id from requests"); cat ids.txt'
+allowed 'for t in sessions; do eval "sid=\$(sqlite3 stack.db \"select id from $t limit 1\")"; echo "SID=$sid" > helper.sh; done; cat helper.sh'
 # Shapes main already allowed stay allowed.
 allowed 'eval "$(sqlite3 stack.db "select '\''SESSION_ID='\'' || session_id from requests")"; echo "$SESSION_ID"'
 allowed 'eval "sid=$(sqlite3 stack.db '\''select id from sessions limit 1'\'')"; echo "$sid"'
