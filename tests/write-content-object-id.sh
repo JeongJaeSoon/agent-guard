@@ -65,6 +65,7 @@ AP=$(printf '%s%s' ap i)
 MIXED=$(printf '%s%s%s' Zt8q3LmX7vR2 nK9pW4cH6dJ1 sF5gB0yA)
 # Twelve distinct characters: entropy log2(12), just over the 3.5 floor.
 TWELVE=$(printf '%s%s' Ab3Cd4 Ef5Gh6)
+EQ_VALUE=$(printf '%s=%s=%s' Ab3 Cd4 Ef5Gh6)
 BRANCH=$(printf '%s-%s-%s' 94S 2515 mcp-oidc-kind-lenient)
 GH_SHAPE=$(printf '%s%s%s' gh p_R8mZq2Lx7Vt4Nc9P w1Ks6Hd3Fj5Gb0Ya8Ue2)
 # The vendor rule takes exactly 36 characters after the prefix.
@@ -242,6 +243,14 @@ scan_case 1 'id line followed by a keyword assignment line' "$P fix commit: $SHA
 api_$P=$OTHER"
 scan_case 1 'high-entropy name=value' "api_$P=$MIXED"
 # Shell text is not prose: the commit verb, an option or a quote keeps it found.
+scan_case 1 'double-quoted message with a comma before the commit clause' "git commit -m \"rotate, $P fix commit: $OTHER\""
+scan_case 1 'single-quoted message with a comma before the commit clause' "git commit -m 'rotate, $P fix commit: $OTHER'"
+scan_case 1 'quoted word before the commit clause' "the \"client\" $P fix commit: $SHA1"
+scan_case 0 'apostrophe inside a word' "Fix the client's $P refresh commit: $SHA1"
+# generic-api-key keeps = inside a value, so = does not split a run.
+scan_case 1 'value with equals signs after the id' "$P fix commit: $SHA1, api_$P: $EQ_VALUE"
+scan_case 1 'value with equals signs before the commit clause' "api_$P: $EQ_VALUE, $P fix commit: $SHA1"
+scan_case 1 'equals sign right after the id' "$P fix commit: $SHA1=$TWELVE"
 scan_case 1 'quoted commit message with a value' "git commit -m \"$P: $OTHER\""
 scan_case 1 'unquoted commit message with a value' "git commit -m $P: $OTHER"
 scan_case 1 'echoed sentence with the id' "echo \"Head commit for the $P fix: $SHA1\""
