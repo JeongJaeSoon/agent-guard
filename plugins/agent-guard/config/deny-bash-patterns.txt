@@ -36,8 +36,8 @@
 # (`${!PREFIX*}`, `${!arr[@]}`) prints names only and stays allowed.
 \$\{![A-Za-z_][A-Za-z0-9_]*(\}|[:#%/^,~=+?-]|\[[^]@*]|@[A-Za-z])
 (^|[[:space:];|&(])(declare|typeset|local)([[:space:]]+-[A-Za-z]+)*[[:space:]]+-[A-Za-z]*n
-# `eval` that expands a variable's value into the command it runs does the same.
-(^|[[:space:];|&(])eval[[:space:]][^;|&]*(\\\$|\$\$)
+# `eval` text that builds a variable name or a command at run time (`\$$n`, `\${$n}`, `\$A$n`, `\$c args`) does the same; `x=\$(cmd)` or `x=\$v` does not.
+(^|[[:space:];|&(])eval[[:space:]]([^;|&]*(\$\$|[^=;|&]\\\$|\\\$($|[^(A-Za-z_{]|\(\(|\{([^A-Za-z_]|[A-Za-z_][A-Za-z0-9_]*($|[^A-Za-z0-9_}]))|[A-Za-z_][A-Za-z0-9_]*([$\\`{[(]|["'][^[:space:];|&)])))|\\\$)
 # Reading /proc/<pid>/environ dumps the environment. The PID segment is often a
 # shell variable ($$, $BASHPID) the deny-read glob cannot match, so accept any
 # non-space, non-slash segment here.

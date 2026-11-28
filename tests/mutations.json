@@ -3408,5 +3408,45 @@
     "tests": [
       "tests/deny-rule-characters.sh"
     ]
+  },
+  {
+    "id": "eval-indirect-name-tail",
+    "rule": "deny-bash-patterns eval line: an unbraced name followed by an expansion or a quote builds a name at run time",
+    "file": "plugins/agent-guard/config/deny-bash-patterns.txt",
+    "old": "(^|[[:space:];|&(])eval[[:space:]]([^;|&]*(\\$\\$|[^=;|&]\\\\\\$|\\\\\\$($|[^(A-Za-z_{]|\\(\\(|\\{([^A-Za-z_]|[A-Za-z_][A-Za-z0-9_]*($|[^A-Za-z0-9_}]))|[A-Za-z_][A-Za-z0-9_]*([$\\\\`{[(]|[\"'][^[:space:];|&)])))|\\\\\\$)",
+    "new": "(^|[[:space:];|&(])eval[[:space:]]([^;|&]*(\\$\\$|[^=;|&]\\\\\\$|\\\\\\$($|[^(A-Za-z_{]|\\(\\(|\\{([^A-Za-z_]|[A-Za-z_][A-Za-z0-9_]*($|[^A-Za-z0-9_}]))))|\\\\\\$)",
+    "tests": [
+      "tests/eval-deferred-capture.sh"
+    ]
+  },
+  {
+    "id": "eval-indirect-brace",
+    "rule": "deny-bash-patterns eval line: a brace that holds more than one literal name is an indirect read",
+    "file": "plugins/agent-guard/config/deny-bash-patterns.txt",
+    "old": "(^|[[:space:];|&(])eval[[:space:]]([^;|&]*(\\$\\$|[^=;|&]\\\\\\$|\\\\\\$($|[^(A-Za-z_{]|\\(\\(|\\{([^A-Za-z_]|[A-Za-z_][A-Za-z0-9_]*($|[^A-Za-z0-9_}]))|[A-Za-z_][A-Za-z0-9_]*([$\\\\`{[(]|[\"'][^[:space:];|&)])))|\\\\\\$)",
+    "new": "(^|[[:space:];|&(])eval[[:space:]]([^;|&]*(\\$\\$|[^=;|&]\\\\\\$|\\\\\\$($|[^(A-Za-z_{]|\\(\\(|[A-Za-z_][A-Za-z0-9_]*([$\\\\`{[(]|[\"'][^[:space:];|&)])))|\\\\\\$)",
+    "tests": [
+      "tests/eval-deferred-capture.sh"
+    ]
+  },
+  {
+    "id": "eval-indirect-arithmetic",
+    "rule": "deny-bash-patterns eval line: a deferred arithmetic expansion reads the variables it names",
+    "file": "plugins/agent-guard/config/deny-bash-patterns.txt",
+    "old": "(^|[[:space:];|&(])eval[[:space:]]([^;|&]*(\\$\\$|[^=;|&]\\\\\\$|\\\\\\$($|[^(A-Za-z_{]|\\(\\(|\\{([^A-Za-z_]|[A-Za-z_][A-Za-z0-9_]*($|[^A-Za-z0-9_}]))|[A-Za-z_][A-Za-z0-9_]*([$\\\\`{[(]|[\"'][^[:space:];|&)])))|\\\\\\$)",
+    "new": "(^|[[:space:];|&(])eval[[:space:]]([^;|&]*(\\$\\$|[^=;|&]\\\\\\$|\\\\\\$($|[^(A-Za-z_{]|\\{([^A-Za-z_]|[A-Za-z_][A-Za-z0-9_]*($|[^A-Za-z0-9_}]))|[A-Za-z_][A-Za-z0-9_]*([$\\\\`{[(]|[\"'][^[:space:];|&)])))|\\\\\\$)",
+    "tests": [
+      "tests/eval-deferred-capture.sh"
+    ]
+  },
+  {
+    "id": "eval-deferred-outside-assignment",
+    "rule": "deny-bash-patterns eval line: a deferred expansion that is not an assignment value runs a command the text never names",
+    "file": "plugins/agent-guard/config/deny-bash-patterns.txt",
+    "old": "(^|[[:space:];|&(])eval[[:space:]]([^;|&]*(\\$\\$|[^=;|&]\\\\\\$|\\\\\\$($|[^(A-Za-z_{]|\\(\\(|\\{([^A-Za-z_]|[A-Za-z_][A-Za-z0-9_]*($|[^A-Za-z0-9_}]))|[A-Za-z_][A-Za-z0-9_]*([$\\\\`{[(]|[\"'][^[:space:];|&)])))|\\\\\\$)",
+    "new": "(^|[[:space:];|&(])eval[[:space:]]([^;|&]*(\\$\\$|\\\\\\$($|[^(A-Za-z_{]|\\(\\(|\\{([^A-Za-z_]|[A-Za-z_][A-Za-z0-9_]*($|[^A-Za-z0-9_}]))|[A-Za-z_][A-Za-z0-9_]*([$\\\\`{[(]|[\"'][^[:space:];|&)])))|\\\\\\$)",
+    "tests": [
+      "tests/eval-deferred-capture.sh"
+    ]
   }
 ]
