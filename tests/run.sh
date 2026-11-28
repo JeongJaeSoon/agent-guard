@@ -3784,6 +3784,8 @@ run_expect 0 "runtime environment objects and jq interpolation leave out no prot
   sh "$ROOT/tests/runtime-global-text.sh"
 run_expect 0 "CLAUDE_JOB_DIR lookups pass while ORCA_ lookups and secret dumps stay blocked" \
   sh "$ROOT/tests/env-lookup-allowlist.sh"
+run_expect 0 "eval of a deferred substitution or one named variable passes; indirect names and secret sources stay blocked" \
+  sh "$ROOT/tests/eval-deferred-capture.sh"
 run_expect 0 "a Codex or review session stays out of listed container stacks and database clients while a plain session keeps them" \
   sh "$ROOT/tests/container-session-boundary.sh"
 run_expect 0 "cat/tee here-document bodies leave out no protected read" \
