@@ -10,6 +10,7 @@ on:
   pull_request:
     paths:
       - plugins/agent-guard/bin/agent-guard
+      - plugins/agent-guard/config/deny-bash-patterns.txt
       - tests/mutations.json
       - tests/mutation-check.sh
       - .github/workflows/mutation-check.yml
@@ -23,6 +24,7 @@ on:
       - tests/colon-assignment-equivalence.sh
       - tests/container-session-boundary.sh
       - tests/deny-rule-characters.sh
+      - tests/eval-deferred-capture.sh
       - tests/gh-jq-option.sh
       - tests/gh-program-segments.sh
       - tests/gitleaks-helper-install.sh

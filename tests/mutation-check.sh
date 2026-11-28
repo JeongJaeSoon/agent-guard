@@ -2,8 +2,9 @@
 # Hand-written mutation check for the core detection rules (#590 item 5).
 #
 # Each entry of tests/mutations.json is one literal edit that loosens a rule in
-# plugins/agent-guard/bin/agent-guard: "old" must occur exactly once in the bin
-# and is replaced by "new". The edit goes to a temporary copy of the tree,
+# plugins/agent-guard/bin/agent-guard, or in the policy file an optional "file"
+# names under plugins/agent-guard/config: "old" must occur exactly once in that
+# file and is replaced by "new". The edit goes to a temporary copy of the tree,
 # never to the checkout, and at least one of the entry's "tests" must then
 # fail. Before any edit, the same tests must pass on an unmutated copy, so a
 # test that fails for an unrelated reason cannot make a mutation look caught.
@@ -88,11 +89,15 @@ jq -e '
     and (.old | type == "string" and length > 0)
     and (.new | type == "string")
     and .old != .new
+    and (.file == null or (.file | type == "string" and test("^plugins/agent-guard/config/[A-Za-z0-9_-]+[.]txt$")))
     and (.tests | type == "array" and length > 0
          and all(.[]; type == "string" and test("^tests/[A-Za-z0-9_.-]+[.]sh$"))))
   and ((map(.id) | unique | length) == length)
 ' "$LIST" >/dev/null || die "invalid mutation list: $LIST"
 
+for mutated_rel in $(jq -r '[.[].file // empty] | unique | .[]' "$LIST"); do
+  grep -qxF "      - $mutated_rel" "$WORKFLOW" || die "$mutated_rel is missing from the paths of $WORKFLOW"
+done
 for test_path in $(jq -r '[.[].tests[]] | unique | .[]' "$LIST"); do
   [ -f "$ROOT/$test_path" ] || die "listed test does not exist: $test_path"
   # The workflow runs only when a listed test changes, so it must list each.
@@ -119,8 +124,11 @@ if [ "$lint" -eq 1 ]; then
 fi
 
 ORIG=$ROOT/$BIN_REL
-# jq carries the bin as a string; it must come back byte for byte.
-jq -j -Rs . "$ORIG" | cmp -s - "$ORIG" || die "jq does not reproduce $BIN_REL byte for byte"
+# jq carries each mutated file as a string; it must come back byte for byte.
+for mutated_rel in $(jq -r --arg bin "$BIN_REL" '[.[] | .file // $bin] | unique | .[]' "$LIST"); do
+  [ -f "$ROOT/$mutated_rel" ] || die "mutated file does not exist: $mutated_rel"
+  jq -j -Rs . "$ROOT/$mutated_rel" | cmp -s - "$ROOT/$mutated_rel" || die "jq does not reproduce $mutated_rel byte for byte"
+done
 
 if [ -n "$group" ]; then
   set -- $(group_ids "$group")
@@ -197,13 +205,14 @@ mutation_worker() {
   : >"$WORK/result.$1"
   while IFS= read -r mw_i; do
     mw_id=$(jq -r --argjson i "$mw_i" '.[$i].id' "$LIST")
+    mw_rel=$(jq -r --argjson i "$mw_i" --arg bin "$BIN_REL" '.[$i].file // $bin' "$LIST")
     if ! jq -j -Rs --slurpfile m "$LIST" --argjson i "$mw_i" '
         $m[0][$i] as $x | split($x.old) as $p
         | if ($p | length) == 2 then $p | join($x.new)
           else error("the old text occurs \(($p | length) - 1) times, not once") end
-      ' "$ORIG" >"$mw_tree/$BIN_REL" 2>"$WORK/apply.$1"; then
+      ' "$ROOT/$mw_rel" >"$mw_tree/$mw_rel" 2>"$WORK/apply.$1"; then
       printf 'error %s %s\n' "$mw_id" "$(tr '\n' ' ' <"$WORK/apply.$1")" >>"$WORK/result.$1"
-      cp "$ORIG" "$mw_tree/$BIN_REL"
+      cp "$ROOT/$mw_rel" "$mw_tree/$mw_rel"
       continue
     fi
     mw_verdict="survived $mw_id"
@@ -221,7 +230,7 @@ mutation_worker() {
       esac
     done
     printf '%s\n' "$mw_verdict" >>"$WORK/result.$1"
-    cp "$ORIG" "$mw_tree/$BIN_REL"
+    cp "$ROOT/$mw_rel" "$mw_tree/$mw_rel"
   done <"$WORK/list.$1"
 }
 

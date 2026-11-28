@@ -574,7 +574,7 @@ jq -r '[.[].tests[]] | unique | .[]' "$ROOT/tests/mutations.json" > "$mutation_l
 mutation_workflow="$ROOT/.github/workflows/mutation-check.yml"
 mutation_paths=$(awk '/^  pull_request:$/ { on = 1; next } on && /^  [a-z_]+:/ { exit } on && /^      - / { sub(/^      - /, ""); gsub(/\047/, ""); print }' "$mutation_workflow" \
   | grep -Fxv -f "$mutation_listed" | LC_ALL=C sort)
-expected_mutation_paths=$(printf '%s\n' plugins/agent-guard/bin/agent-guard tests/mutations.json tests/mutation-check.sh \
+expected_mutation_paths=$(printf '%s\n' plugins/agent-guard/bin/agent-guard plugins/agent-guard/config/deny-bash-patterns.txt tests/mutations.json tests/mutation-check.sh \
   .github/workflows/mutation-check.yml 'tests/*.sh' 'tests/*.py' 'tests/helpers/**' tests/fixtures/mock-gitleaks | LC_ALL=C sort)
 [ "$mutation_paths" = "$expected_mutation_paths" ] \
   || fail "mutation check pull request paths are exactly the code paths: $mutation_paths"
