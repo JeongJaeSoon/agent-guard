@@ -114,7 +114,7 @@ scan_case() {
   fi
 }
 
-# Prints the rules that fire on $2 without judging it (MEASURE=1 only).
+# Prints the rules that fire on $2 without judging it (--measure only).
 measure() {
   printf '%s\n' "$2" >"$CASE/in"
   rm -f "$CASE/report.json"
@@ -128,7 +128,7 @@ measure() {
 EN_BODY="## Summary
 Fix the $P refresh race in the MCP client.
 
-- Head commit for the $P fix: $SHA1
+- $P refresh fix commit: $SHA1
 - Rotated the $AP $K handling, merge commit: $SHA1.
 - $AU fix head: \`$SHA2\`"
 KO_BODY="## 요약
@@ -146,7 +146,9 @@ TABLE_BODY="| 변경 | 커밋 |
 | $P fix commit: | $SHA1 |
 | $AU rev: | \`$SHA1\` |"
 
-if [ "${MEASURE:-0}" = 1 ]; then
+# An argument, not a variable: an inherited variable would turn the suite into
+# a run that checks nothing and still passes.
+if [ "${1-}" = --measure ]; then
   measure 'en: commit before the keyword' "- Head commit for the $P fix: $SHA1"
   measure 'en: commit after the keyword' "Fix $AU commit: $SHA1"
   measure 'ko: Korean between keyword and colon' "- $P 수정 커밋: $SHA1"
@@ -176,14 +178,15 @@ write_case 0 'markdown table of commits' "$TABLE_BODY"
 write_case 0 'Korean words between the keyword and the colon' "- $P 수정 커밋: $SHA1"
 write_case 0 'issue-key branch name after a credential word' "$EN_BODY
 
-Branch for the $P change: $BRANCH"
+$P change branch: $BRANCH"
+write_case 2 'branch word earlier in the clause than the last word' "Branch for the $P change: $BRANCH"
 write_case 0 'numbered dummy credential in a test description' "The test sends $AP-$K=dummy-$K-12345 and expects a block."
 write_case 0 'numbered example credential' "$P=example_$P-123456"
 
 # Real-looking secrets keep blocking, alone and inside the same drafts.
 write_case 2 '40 hex under a credential name without a git word' "$P: $SHA1"
 write_case 2 '40 hex after a credential sentence without a git word' "- Rotated the $AP $K: $SHA1"
-write_case 2 'draft with a second keyword assignment on the commit line' "- Head commit for the $P fix: $SHA1, api_$P=$OTHER"
+write_case 2 'draft with a second keyword assignment on the commit line' "- $P fix commit: $SHA1, api_$P=$OTHER"
 write_case 2 'draft with a high-entropy name=value line' "$EN_BODY
 api_$P=$MIXED"
 write_case 2 'draft with a GitHub token shape on the commit line' "- $AU fix commit: $SHA1 uses $GH_SHAPE"
@@ -201,7 +204,9 @@ $PK_HEAD
 $PK_BODY
 $PK_FOOT"
 
-scan_case 0 'commit word before the keyword' "- Head commit for the $P fix: $SHA1"
+scan_case 1 'git word earlier in the clause than the last word' "- Head commit for the $P fix: $SHA1"
+scan_case 1 'credential label that starts with a git word' "commit signing $K: $SHA1"
+scan_case 1 'credential label between a git word and the colon' "merge bot $P: $SHA1"
 scan_case 0 'commit word after the keyword' "Fix $AU commit: $SHA1"
 scan_case 0 'sha word' "$P fix sha: $SHA1"
 scan_case 0 'rev word' "$AU rev: $SHA1"

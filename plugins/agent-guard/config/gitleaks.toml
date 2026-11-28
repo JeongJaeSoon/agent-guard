@@ -249,20 +249,24 @@ regexes = [
 # and the value as a labelled secret, so drafts were blocked (#599). Both
 # have an entropy above 3.5; a branch name passes the stopword list only when
 # one of its words happens to be a stopword. As in the force-with-lease
-# allowlist above, the match starts at the credential word, and a word before
-# it ("Head commit for the token fix:") is outside the match, so this anchors
-# the LINE, and a line allowlist excuses every generic-api-key finding on it.
+# allowlist above, the match can start at a keyword inside a longer name and
+# cannot show what else the line holds, so this anchors the LINE, and a line
+# allowlist excuses every generic-api-key finding on it.
 # The line is excused only when:
 # - the clause right before the value is plain words: the start of the line,
 #   or a separator, blanks and a first word of at most 9 token characters; no
 #   quote, backtick or word that starts with `-` and a letter, so a shell
 #   option and a quoted commit message (`git commit -m "token: <hex>"`) are
 #   not prose;
-# - one of those words, standing alone between blanks (optionally in `(`,
-#   `*` or `[`), is commit, commits, committed, sha, sha1, sha256, rev,
-#   revision, merge, merged, merges or head before an object id, or branch or
-#   branches before a branch name, in any case (`deploy-key-commit`,
-#   `token_commit` and `headroom` are field names, not such a word);
+# - the last of those words, right before the colon and standing alone
+#   (optionally in `(`, `*` or `[`), is commit, commits, committed, sha,
+#   sha1, sha256, rev, revision, merge, merged, merges or head before an object
+#   id, or branch or branches before a branch name, in any case. The word
+#   names what the value is: in `commit signing key:` it is key, so the value
+#   is a credential; `deploy-key-commit`, `token_commit` and `headroom` are
+#   field names, not such a word. Prose that names the commit earlier ("Head
+#   commit for the token fix:") keeps its finding; write "token fix, head
+#   commit:" instead;
 # - a colon and at most three blanks follow, then the value alone or in
 #   backticks, optionally ending the sentence with a period: exactly 40 or 64
 #   lowercase hex, or an issue key of 2 to 10 uppercase letters or digits (or
@@ -282,8 +286,8 @@ description = "Git object ids and issue-key branch names named as such in prose 
 targetRules = ["generic-api-key"]
 regexTarget = "line"
 regexes = [
-  '''^\n?(?:[ \t]*(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+)[ \t]+)*[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}(?:[ \t]+(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+))*[ \t]*|[^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*[=:>,|?][ \t]+(?:[\w.=+/][\w.=+/-]{0,8}[ \t]+(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+)[ \t]+)*[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}(?:[ \t]+(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+))*[ \t]*|[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}[ \t]*)):[ \t]{0,3}\x60?(?:[0-9a-f]{40}|[0-9a-f]{64})\x60?\.?(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*\r?$''',
-  '''^\n?(?:[ \t]*(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+)[ \t]+)*[(*\[]{0,2}(?i:branch(?:es)?)[)*\]]{0,2}(?:[ \t]+(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+))*[ \t]*|[^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*[=:>,|?][ \t]+(?:[\w.=+/][\w.=+/-]{0,8}[ \t]+(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+)[ \t]+)*[(*\[]{0,2}(?i:branch(?:es)?)[)*\]]{0,2}(?:[ \t]+(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+))*[ \t]*|[(*\[]{0,2}(?i:branch(?:es)?)[)*\]]{0,2}[ \t]*)):[ \t]{0,3}\x60?(?:[0-9A-Z]{2,10}|[0-9][0-9a-z]{1,9})-[0-9]{1,6}(?:-[a-z]{2,20}){2,}\x60?\.?(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*\r?$'''
+  '''^\n?(?:[ \t]*(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+)[ \t]+)*[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}[ \t]*|[^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*[=:>,|?][ \t]+(?:[\w.=+/][\w.=+/-]{0,8}[ \t]+(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+)[ \t]+)*[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}[ \t]*|[(*\[]{0,2}(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[)*\]]{0,2}[ \t]*)):[ \t]{0,3}\x60?(?:[0-9a-f]{40}|[0-9a-f]{64})\x60?\.?(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*\r?$''',
+  '''^\n?(?:[ \t]*(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+)[ \t]+)*[(*\[]{0,2}(?i:branch(?:es)?)[)*\]]{0,2}[ \t]*|[^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*[=:>,|?][ \t]+(?:[\w.=+/][\w.=+/-]{0,8}[ \t]+(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+)[ \t]+)*[(*\[]{0,2}(?i:branch(?:es)?)[)*\]]{0,2}[ \t]*|[(*\[]{0,2}(?i:branch(?:es)?)[)*\]]{0,2}[ \t]*)):[ \t]{0,3}\x60?(?:[0-9A-Z]{2,10}|[0-9][0-9a-z]{1,9})-[0-9]{1,6}(?:-[a-z]{2,20}){2,}\x60?\.?(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*\r?$'''
 ]
 
 # Directory scans skip these exact lockfile names, then agent-guard rescans
