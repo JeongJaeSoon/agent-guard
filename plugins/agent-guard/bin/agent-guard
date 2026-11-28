@@ -8355,40 +8355,34 @@ AWK_RECORD_SEPARATOR='
     function fd_dup_amp(r, prev) { return r == "3&" && prev ~ /[<>]$/ }'
 
 # Print the record numbers (git_command_records) of message values the
-# command sends as data: the subject and body of `orca orchestration
-# send|reply|ask` (and the question of `ask`), the text options of `orca bot
-# item set|add|comment` and `orca bot reply` (their `-file` twins, `--file`
-# and the `--note` of `bot reply`, which names a path, are not listed), the
-# title and body of `gh pr|issue create|comment|edit` and
-# `gh pr review`, and the message of `git commit`. These CLIs open no file the
-# text names; their file-taking forms (--body-file, -F) are not listed. As in
+# command sends as data: the title and body of `gh pr|issue
+# create|comment|edit` and `gh pr review`, and the message of `git commit`.
+# These CLIs open no file the text names; their file-taking forms
+# (--body-file, -F) are not listed. An option of any other command is read
+# as written. As in
 # search_operand_spans, a segment qualifies only when it starts with the bare
 # command name and every segment before it is an inert command without a
 # redirection, so nothing earlier on the line can change what the name runs.
-# Two more segments may come before it. An orca message command of this table
-# made of literal words, whose only redirections are `2>&1` and /dev/null:
-# what comes first already vouched for its name, and it only sends its text.
-# And, before `git commit` alone, `git add` or `git status` in literal words
-# with no redirection, as heredoc_body_rewrite accepts before a commit message
-# read from stdin.
+# One more segment may come before `git commit` alone: `git add` or
+# `git status` in literal words with no redirection, as heredoc_body_rewrite
+# accepts before a commit message read from stdin.
 # A value that starts with `-` is one only when a blank follows the dash (a
 # list item): no option is written that way, and a word shaped like an option
 # may be read as one.
 # Prints nothing when the line may hide a command (heredoc, group, eval).
 # With `files` as $2, print instead the record numbers of the files such a
-# segment reads as a body: the --body-file of `orca orchestration send|reply`,
-# the --spec-file of `orca orchestration worker-start`, the --comment-file of
-# `orca bot item set`, the --text-file of `orca bot item comment`, and the
-# --body-file or -F of the gh commands above.
+# segment reads as a body: the --body-file or -F of the gh commands above.
 # With `words` as $2, print nothing and succeed when the word $3 occurs in
 # the text $4, and each occurrence is the command word of a segment either
-# list accepts, read as `orca` (orca_cli_words_as_orca). With `gate` as $2,
-# the same for the commit/push gate, which only asks what the word runs: the
-# segment may hold any orca subcommand in literal words, behind the same
-# segments, unless it relays what it is given (relays).
+# list accepts, read as `orca` (orca_cli_words_as_orca): neither list names
+# an orca command, so no word is. With `gate` as $2, the commit/push gate
+# only asks what the word runs: each occurrence must be the command word of
+# a segment that holds any orca subcommand in literal words and does not
+# relay what it is given (relays), behind the same segments or another such
+# segment whose only redirections are `2>&1` and /dev/null.
 message_value_records() {
   printf '%s\n' "$1" | MV_CLI_WORD=${3-} MV_CLI_TEXT=${4-} LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
-    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR$AWK_INERT_COMMAND"'
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" -v writer_mark="$HEREDOC_WRITER_MARK" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR$AWK_INERT_COMMAND"'
     # In END a bare exit would end with status 0 before the last line there.
     function bail() { failed = 1; exit (ending && (mode == "words" || mode == "gate")) }
     # git commit operands are pathspecs it reads, so pair a message option
@@ -8441,22 +8435,12 @@ message_value_records() {
     }
     # The options of this segment whose value is text the command sends.
     function text_options() {
-      if (word[1] == "orca" && word[2] == "orchestration" && word[3] ~ /^(send|reply)$/) return "|--subject|--body|"
-      if (word[1] == "orca" && word[2] == "orchestration" && word[3] == "ask") return "|--subject|--body|--question|"
-      if (word[1] == "orca" && word[2] == "bot" && word[3] == "item" && word[4] == "set") return "|--comment|--title|--description|--done-means|--note|--reason|--ask|--option|"
-      if (word[1] == "orca" && word[2] == "bot" && word[3] == "item" && word[4] == "add") return "|--title|--description|--done-means|"
-      if (word[1] == "orca" && word[2] == "bot" && word[3] == "item" && word[4] == "comment") return "|--text|"
-      if (word[1] == "orca" && word[2] == "bot" && word[3] == "reply") return "|--text|"
       if (gh_message()) return "|-t|--title|-b|--body|"
       if (gc && word[gc] == "commit") return "|-m|--message|"
       return ""
     }
     # The options of this segment whose value is a file it sends as a body.
     function file_options() {
-      if (word[1] == "orca" && word[2] == "orchestration" && word[3] ~ /^(send|reply)$/) return "|--body-file|"
-      if (word[1] == "orca" && word[2] == "orchestration" && word[3] == "worker-start") return "|--spec-file|"
-      if (word[1] == "orca" && word[2] == "bot" && word[3] == "item" && word[4] == "set") return "|--comment-file|"
-      if (word[1] == "orca" && word[2] == "bot" && word[3] == "item" && word[4] == "comment") return "|--text-file|"
       if (gh_message()) return "|-F|--body-file|"
       return ""
     }
@@ -8544,6 +8528,10 @@ message_value_records() {
     function finish(bound,   j, w, topts, fopts, all, lit, fixed, before, commit, cli, known, lw, opt) {
       if (mode == "gate" && loop_segment(bound)) return
       if (n == 0) return
+      # heredoc_file_is_document judges a here-document file as the hook
+      # finds it, so its writer may follow inert commands only: any other
+      # may have changed what the path names.
+      if (mode == "files" && !ok && word[2] == writer_mark) bail()
       cli = (mode == "words" || mode == "gate") && kind[1] == "0" && word[1] == ENVIRON["MV_CLI_WORD"]
       if (cli) word[1] = "orca"
       all = 1; lit = 1; fixed = 1
@@ -8586,7 +8574,7 @@ message_value_records() {
       }
       # What this segment leaves for the ones after it.
       if (all && inert()) ;
-      else if (all && kind[1] == "0" && word[1] == "orca" && (topts != "" || known) && quiet()) ;
+      else if (known && quiet()) ;
       else if (lit && word[1] == "git" && word[2] ~ /^(add|status)$/ && quiet_none()) ok = 0
       else { ok = 0; ok_commit = 0 }
       pipe_target = bound == "0|" && (pipe_target || length(out) > before || known)
@@ -8741,7 +8729,7 @@ orca_cli_words_as_orca() {
   printf '%s' "$1"
 }
 
-# Succeed when a command named git, gh or orca holds an unquoted glob
+# Succeed when a command named git or gh holds an unquoted glob
 # character. The records show a glob word as a literal, but its expansion can
 # add words (files named `--` or `-m`) and turn a message value into a
 # pathspec. `^` and `#` are globs under zsh EXTENDED_GLOB.
@@ -8760,7 +8748,7 @@ message_command_has_glob() {
       if (c == "\047") { q = 1; started = 1; continue }
       if (c == "\"") { q = 2; started = 1; continue }
       if (c ~ /[;&|\n]/) {
-        if (glob && fw ~ /^(git|gh|orca)$/) exit 0
+        if (glob && fw ~ /^(git|gh)$/) exit 0
         fw = ""; inw = 1; started = 0; glob = 0
         continue
       }
@@ -8768,7 +8756,7 @@ message_command_has_glob() {
       if (c ~ /[*?[^#]/) glob = 1
       if (inw) { fw = fw c; started = 1 }
     }
-    exit !(glob && fw ~ /^(git|gh|orca)$/)
+    exit !(glob && fw ~ /^(git|gh)$/)
   }'
 }
 
@@ -9209,12 +9197,11 @@ bash_strip_message_values() (
   set -f
   mv_cmd=$1
   # Every message option starts with `-` and follows the command words.
-  case "$mv_cmd" in *orca*orchestration*-*|*orca*bot*-*|*gh*-*|*git*commit*-*) ;; *) printf '%s' "$mv_cmd"; exit 0 ;; esac
+  case "$mv_cmd" in *gh*-*|*git*commit*-*) ;; *) printf '%s' "$mv_cmd"; exit 0 ;; esac
   if bash_uses_last_argument "$mv_cmd"; then
     printf '%s' "$mv_cmd"
     exit 0
   fi
-  mv_cmd=$(orca_cli_words_as_orca "$mv_cmd")
   case "$mv_cmd" in
     *'"$('*cat*'<<'*)
       if mv_masked=$(message_heredoc_placeholders "$mv_cmd") \
@@ -11368,8 +11355,11 @@ bash_neutralize_runtime_globals() (
 # With `gate` as $3 the view keeps each writer's own words in place of
 # `true`, so the commit/push gate judges them as on a line with no
 # here-document.
+# The word the view puts after the `true` of a writer, so a reader can tell
+# it from a `true` the command holds.
+HEREDOC_WRITER_MARK=%:%
 heredoc_body_rewrite() {
-  LC_ALL=C awk -v neutral="${1:-0}" -v reuse="${2-}" -v reader="${3-}" '
+  LC_ALL=C awk -v neutral="${1:-0}" -v reuse="${2-}" -v reader="${3-}" -v mark="$HEREDOC_WRITER_MARK" '
     function reject() { bad = 1; exit 1 }
     # The words of s, quoted text replaced by Q, in w[1..]; returns the count.
     function words(s, w) {
@@ -11487,7 +11477,7 @@ heredoc_body_rewrite() {
         # Only a writer with plain `>`, `>>` or tee targets stands aside: the
         # names listed below are then all it writes.
         if (!writer || piped != "" || rest ~ /[0-9][<>]/ || rest ~ /[<>]&/) reject()
-        view[nk] = lead (reader == "gate" ? pre : " true") post
+        view[nk] = lead (reader == "gate" ? pre : " true " mark) post
       }
       if (!writer) {
         # A message body read from stdin: the line must be the first, the
@@ -11513,11 +11503,14 @@ heredoc_body_rewrite() {
         else if (tee && w[k] !~ /^[-<>&;]/) name = w[k]
         else if (w[k] ~ />/) reject()
         if (w[k] ~ /^(&&|;)$/) tee = 0
+        # The word without its quotes; one cut at a quoted blank is no path.
+        raw = name; sub(/<<.*/, "", raw)
+        if (gsub(/["\047]/, "", raw) % 2) raw = "?"
         gsub(/["\047]/, "", name); sub(/<<.*/, "", name)
         if (name ~ /[<>]/) reject()
         if (name == "/dev/null") continue
         sub(/.*\//, "", name)
-        if (name != "") target[++nt] = name
+        if (name != "") { target[++nt] = name; written[nt] = raw }
       }
     }
     END {
@@ -11539,10 +11532,12 @@ heredoc_body_rewrite() {
       }
       if (text ~ /(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|ruby|perl|php|lua|deno|bun|awk|gawk|mawk|osascript|tclsh|Rscript|swift|java|jshell)([^A-Za-z0-9_-]|$)/) exit 1
       if (reuse == "view") {
-        # The written names on one line, then the text with each writer as
-        # `true` and no delimiter line.
+        # The written names on one line, followed there by the word each
+        # was written as, quotes removed, then the text with each writer as `true` and the
+        # mark, and no delimiter line.
         s = ""
         for (k = 1; k <= nt; k++) s = s (k > 1 ? "/" : "") target[k]
+        for (k = 1; k <= nt; k++) s = s " " written[k]
         print s
         for (k = 1; k <= nk; k++) if (!(k in ended)) print (k in view ? view[k] : kept[k])
         exit 0
@@ -11563,6 +11558,10 @@ heredoc_body_rewrite() {
 # be able to change what its name runs. Any other mention of the file (an
 # operand, a second option, a later `sh`) fails, as does a value that is not
 # one literal word ending in that name, or a `$_` anywhere in the command.
+# A file the same command may run is no document either: each written file
+# must pass heredoc_file_is_document, behind inert commands only
+# (message_value_records). A relative one is placed in the directory of this
+# scan, so the command may hold no cd.
 heredoc_reused_as_body_file() {
   case "$1" in *-file*|*' -F '*) ;; *) return 1 ;; esac
   # `$_` can hand the file on to a later command without naming it.
@@ -11573,6 +11572,8 @@ heredoc_reused_as_body_file() {
   hr_text=${hr_view#*"
 "}
   [ -n "$hr_names" ] && [ "$hr_text" != "$hr_view" ] || return 1
+  hr_written=${hr_names#* }
+  hr_names=${hr_names%% *}
   ! bash_command_sources_script "$hr_text" || return 1
   ! message_command_has_glob "$hr_text" || return 1
   hr_records=$(git_command_records "$hr_text")
@@ -11602,7 +11603,41 @@ heredoc_reused_as_body_file() {
     }
     exit !(total > 0)
   }' </dev/null || return 1
+  case "
+$hr_records
+" in
+    *"
+0cd
+"*) hr_placed=0 ;;
+    *) hr_placed=1 ;;
+  esac
+  for hr_file in $hr_written; do
+    heredoc_file_is_document "$hr_file" "$hr_placed" || return 1
+  done
   printf '%s\n' "$1" | heredoc_body_rewrite 0 skip
+}
+
+# Succeed when the file a here-document is written to as $1 is one nothing
+# runs under another name: the word is a literal path, and the file is not
+# there yet or is a regular file with one name and no execute bit. A link, a
+# second name of a file or an executable file may be what a later command
+# name runs, whatever the command spells. A relative path is judged only
+# when $2 is 1 and this scan runs in the event workdir, so the path names
+# here the file the command writes.
+heredoc_file_is_document() {
+  case "$1" in ''|-*|*[!A-Za-z0-9_./@%+,:=-]*) return 1 ;; esac
+  case "$1" in
+    /*) ;;
+    *) [ "$2" = 1 ] && exception_workdir_is_here "${input-}" || return 1 ;;
+  esac
+  [ ! -L "$1" ] || return 1
+  [ -e "$1" ] || return 0
+  [ -f "$1" ] || return 1
+  hr_entry=$(file_stat entry -P "$1") || return 1
+  hr_entry=${hr_entry#*:}
+  case "${hr_entry%%:*}" in *[1357]*) return 1 ;; esac
+  hr_entry=${hr_entry#*:}
+  [ "${hr_entry%%:*}" = 1 ]
 }
 
 bash_strip_heredoc_bodies() (
@@ -11612,7 +11647,6 @@ bash_strip_heredoc_bodies() (
     *'<<'*) ;;
     *) printf '%s' "$hd_cmd"; exit 0 ;;
   esac
-  hd_cmd=$(orca_cli_words_as_orca "$hd_cmd" heredoc)
   hd_new=$(printf '%s\n' "$hd_cmd" | heredoc_body_rewrite)
   hd_status=$?
   case "$hd_status" in
