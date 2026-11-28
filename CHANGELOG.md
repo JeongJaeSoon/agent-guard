@@ -1,3 +1,9 @@
+## v3.16.2 - 2026-11-28
+
+- fix(deny): eval로 DB 조회 결과를 변수에 넣는 대입은 막지 않는다 (#723)
+- fix(bash): ORCA_* 환경 변수 조회를 deny 패턴 예외에서 뺀다 (#720)
+- chore(scan): Orca 전용 gitleaks allowlist 두 개를 제거한다 (#721)
+
 ## v3.16.1 - 2026-11-28
 
 - fix(git-gate): here-document를 파일에 쓰는 앞 명령이 있으면 Orca CLI 단어를 확정하지 않는다 (#718)
