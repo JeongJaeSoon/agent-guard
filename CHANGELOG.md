@@ -1,3 +1,9 @@
+## v3.16.1 - 2026-11-28
+
+- fix(git-gate): here-document를 파일에 쓰는 앞 명령이 있으면 Orca CLI 단어를 확정하지 않는다 (#718)
+- fix(cli): Orca CLI 단어 앞의 printf와 리터럴 파일 쓰기에 git 미해결 경고를 내지 않는다 (#717)
+- perf(cli): PostToolUse의 jq 실행과 Bash PreToolUse의 awk 실행을 줄인다 (#716)
+
 ## v3.16.0 - 2026-11-27
 
 - perf(cli): dash가 있으면 CLI를 dash로 실행한다 (#698)
