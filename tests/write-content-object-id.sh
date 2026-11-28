@@ -5,9 +5,10 @@ set -u
 # 64 in a SHA-256 repository) near a credential word ("the token fix, merge
 # commit: <id>") reads to generic-api-key as a keyword-labelled secret, so the
 # Write PreToolUse check blocked drafts in the agent's own scratchpad (#599).
-# Only a line that names the id as a commit (commit, sha, rev, merge, head in
-# the clause right before it) and holds no other value-length run after a
-# separator may pass. A 40-hex value under a credential name without that git
+# Only a line that names the id as a commit (commit, sha, rev, merge, head as
+# a word of the plain clause right before it), or an issue-key branch name as a
+# branch, and holds no other value-length run after a separator may pass;
+# numbered dummy/example placeholders pass too. A 40-hex value under a credential name without that git
 # word (the old GitHub token shape), a second assignment on the line, a value
 # on the next line, other lengths or uppercase, vendor token shapes, a
 # high-entropy name=value and a private key keep their findings.
@@ -209,7 +210,11 @@ scan_case 0 'HEAD word with a 64-hex id' "$P HEAD: $SHA2"
 scan_case 0 'id in backticks' "$P fix commit: \`$SHA1\`"
 scan_case 0 'id ending the sentence' "$P fix commit: $SHA1."
 scan_case 0 'id followed by prose with short words' "$P fix commit: $SHA1 (see: ok, done)"
-scan_case 0 'hyphen-joined git word' "$AU-fix-commit: $SHA1"
+scan_case 0 'bold git word' "**$P fix commit**: $SHA1"
+scan_case 1 'hyphen-joined field name ending in commit' "$AU-fix-commit: $SHA1"
+scan_case 1 'credential field name ending in commit, assigned' "deploy-$K-commit=$SHA1"
+scan_case 1 'git word then an equals sign' "$P fix commit = $SHA1"
+scan_case 1 'git word then a comma' "$P fix commit, $SHA1"
 scan_case 1 '40 hex under a credential name' "$P: $SHA1"
 scan_case 1 '40 hex under an underscore name ending in commit' "${P}_commit: $SHA1"
 scan_case 1 'git word glued to a longer word' "$P headroom: $SHA1"
@@ -242,6 +247,10 @@ scan_case 1 'long hyphenated first word after a separator' "$P, $TWELVE-head fix
 scan_case 0 'branch name as a value' "$P branch: $BRANCH"
 scan_case 0 'digit-led lowercase issue key' "$P branch: $(printf '%s' "$BRANCH" | tr 'A-Z' 'a-z')"
 scan_case 1 'mixed-case key with words (a password shape)' "pass$(printf w)ord: Summer-2024-winter-sale"
+scan_case 1 'branch-shaped password' "pass$(printf w)ord: $BRANCH"
+scan_case 1 'branch shape under a credential name without the branch word' "$P: $BRANCH"
+scan_case 1 'branch word then an equals sign' "$P branch=$BRANCH"
+scan_case 1 'branch word glued to a field name' "$P-branch: $BRANCH"
 scan_case 1 'branch shape with a digit in a word' "$P branch: 94S-2515-mcp-k3x9q2-lenient"
 scan_case 1 'branch shape with an uppercase word' "$P branch: 94S-2515-mcp-Oidc-lenient"
 scan_case 1 'branch shape with one word' "$P branch: 94S-2515-mcpoidckind"
@@ -249,6 +258,7 @@ scan_case 1 'branch shape with a token tail' "$P branch: 94S-2515-mcp-oidc_$TWEL
 # Numbered placeholders: only the dummy/example credential words and digits.
 scan_case 0 'dummy key with a number' "$AP-$K=dummy-$K-12345"
 scan_case 1 'dummy key with a random tail' "$AP-$K=dummy-$K-$TWELVE"
+scan_case 1 'dummy key with a number and an adjacent tail' "$AP-$K=dummy-$K-123$TWELVE"
 scan_case 1 'dummy key with a number and a random tail' "$AP-$K=dummy-$K-123-$TWELVE"
 
 printf '%s write object id checks, %s failed\n' "$((pass + fail))" "$fail"
