@@ -99,8 +99,8 @@ description = "Obvious dummy placeholders"
 # vendor prefix like `sk-proj-` carries a hyphen the alnum decoration cannot
 # span, so the embedded-substring bypass is closed).
 regexes = [
-  '''(?i)^[a-z0-9]*example[_-]?(token|key|secret|password)[a-z0-9]*$''',
-  '''(?i)^[a-z0-9]*dummy[_-]?(token|key|secret|password)[a-z0-9]*$''',
+  '''(?i)^[a-z0-9]*example[_-]?(token|key|secret|password)(?:[_-][0-9]{1,12})?[a-z0-9]*$''',
+  '''(?i)^[a-z0-9]*dummy[_-]?(token|key|secret|password)(?:[_-][0-9]{1,12})?[a-z0-9]*$''',
   '''(?i)^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$''',
   '''(?i)^redacted$''',
   '''(?i)^your(?:[-_](?:your|my|the|a|an|api|access|auth|bearer|client|app|user|id|key|keys|pass|password|secret|secrets|token|tokens|value|personal|private|refresh|session|here))+[-_]here$''',
@@ -240,6 +240,55 @@ targetRules = ["generic-api-key"]
 regexTarget = "line"
 regexes = [
   '''^\n?(?:[^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*[ \t])?--force-with-lease=[\w.\/@+-]+:(?:[0-9a-f]{40}|[0-9a-f]{64})(?:[ \t]+[\w.-]+[ \t]+\+?HEAD:[\w.\/@+-]+)?(?:[ \t][^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*)?\r?$'''
+]
+
+# A PR body, review reply or note names a full git object id (40 hex, or 64 in
+# a SHA-256 repository) as a commit near a credential word: "the token fix,
+# merge commit:" and the id. generic-api-key reads the credential word, the
+# colon and the id as a labelled secret, so drafts were blocked (#599). As in
+# the force-with-lease allowlist above, the match starts at the credential
+# word, and a git word before it ("Head commit for the token fix:") is outside
+# the match, so this anchors the LINE, and a line allowlist excuses every
+# generic-api-key finding on it. The line is excused only when:
+# - the clause right before the id is plain words: the start of the line, or
+#   a separator, blanks and a first word of at most 9 token characters; no
+#   quote, backtick or word that starts with `-` and a letter, so a shell
+#   option and a quoted commit message (`git commit -m "token: <hex>"`) are
+#   not prose;
+# - one of those words is commit, commits, committed, sha, sha1, sha256, rev,
+#   revision, merge, merged, merges or head, in any case, bounded by blanks or
+#   punctuation (`token_commit` and `headroom` are not);
+# - the id follows `:`, `=` or `,` and at most three blanks, alone or in
+#   backticks, and is exactly 40 or 64 lowercase hex, optionally ending the
+#   sentence with a period;
+# - every other separator on the line is followed by blanks or quotes and then
+#   at most 9 token characters, or by a character outside that set (the same
+#   CHUNK as the force-with-lease regex), so no second value-length run can
+#   hide on the line.
+# A 40-hex value under a credential name with no git word in that clause keeps
+# its finding: some real credentials are 40 hex. So do a value on the next
+# line, quotes, uppercase hex, other lengths, and any vendor rule finding.
+[[allowlists]]
+description = "Full git object ids named as a commit in prose (#599)"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = [
+  '''^\n?(?:[ \t]*(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+)[ \t]+)*(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*[^\w\n=:>,|?'"\x60 \t]|[^\w\n=:>,|?'"\x60 \t-])?(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)(?:[^\w\n=:>,|?'"\x60 \t][^\n=:>,|?'"\x60 \t]*)?(?:[ \t]+(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+))*[ \t]*|[^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*[=:>,|?][ \t]+(?:[\w.=+/][\w.=+/-]{0,8}[ \t]+(?:(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+)[ \t]+)*(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*[^\w\n=:>,|?'"\x60 \t]|[^\w\n=:>,|?'"\x60 \t-])?(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)(?:[^\w\n=:>,|?'"\x60 \t][^\n=:>,|?'"\x60 \t]*)?(?:[ \t]+(?:[^\n=:>,|?'"\x60 \t-][^\n=:>,|?'"\x60 \t]*|-+))*[ \t]*|(?i:commits?|committed|sha(?:1|256)?|rev(?:ision)?|merge[ds]?|head)[ \t]*))[:=,][ \t]{0,3}\x60?(?:[0-9a-f]{40}|[0-9a-f]{64})\x60?\.?(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*\r?$'''
+]
+
+# A branch name made from an issue key and words, as Orca and Linear name
+# them, after a credential word ("branch for the token change:"). Its words
+# give it an entropy above 3.5, and it passes the stopword list only when one
+# of its words happens to be a stopword. Anchored to the whole secret: an
+# issue key of 2 to 10 uppercase letters or digits (or digit-led lowercase),
+# a number of 1 to 6 digits, then at least two words of 2 to 20 lowercase
+# letters, all joined by `-`. A mixed-case key, a word with a digit or an
+# uppercase letter, and any other separator keep their findings.
+[[allowlists]]
+description = "Issue-key branch names (#599)"
+targetRules = ["generic-api-key"]
+regexes = [
+  '''^(?:[0-9A-Z]{2,10}|[0-9][0-9a-z]{1,9})-[0-9]{1,6}(?:-[a-z]{2,20}){2,}$'''
 ]
 
 # Directory scans skip these exact lockfile names, then agent-guard rescans
