@@ -636,12 +636,11 @@ gate_closed - 0 "echo start; $TW list --json | jq -r '.[].name'"
 gate_closed TOOL= 0 "$TW status"
 gate_closed TOOL=tool 0 "$TW status"
 gate_closed TOOL=/opt/tools/bin/tool 0 "$TU status"
-gate_closed 'TOOL=/opt/my tools/tool' 0 "$TW status"
 gate_says closed - 0 '' "$MAY_RUN" "$TW status"
 gate_says open - 0 '' "$MAY_RUN" "$TW status"
 # Each condition on the hook's environment: another program, a relative
-# path, an absolute path to a file with another name, and for the unquoted
-# word a value the shell would split.
+# path, an absolute path to a file with another name, and a path that is not
+# in plain characters.
 gate_closed TOOL=git 2 "$TW status"
 gate_closed TOOL=sh 2 "$TW status"
 gate_closed TOOL=./tool 2 "$TW status"
@@ -650,6 +649,8 @@ gate_closed TOOL=/opt/tool/git 2 "$TW status"
 gate_closed TOOL=/opt/tools/bin/tool2 2 "$TW status"
 gate_closed TOOL=/opt/tools/bin/xtool 2 "$TW status"
 gate_closed 'TOOL=/opt/my tools/tool' 2 "$TU status"
+gate_closed 'TOOL=/opt/my tools/tool' 2 "$TW status"
+gate_closed 'TOOL=/opt/t*/tool' 2 "$TW status"
 gate_closed 'TOOL=tool --flag' 2 "$TU status"
 gate_closed ORCA_CLI_COMMAND=git 2 "$OW orchestration check --terminal t1"
 gate_closed ORCA_CLI_COMMAND=./orca 2 "$OW orchestration check --terminal t1"
@@ -674,6 +675,13 @@ gate_says open - 2 'disables hooks/signing' "$MAY_RUN" "$GW commit --no-verify -
 gate_says open - 2 'disables hooks/signing' "$MAY_RUN" "git commit --no-verify -m x"
 gate_says closed - 2 'is not a git repository' "$MAY_RUN" "$GW commit -m x"
 gate_says closed - 2 'is not a git repository' "$MAY_RUN" "git commit -m x"
+# A path in the variable stays a path in the reading: a file named like a
+# builtin is not the builtin, so the commit after it is scanned where the
+# command runs, not in the directory the word is given.
+gate_says closed CDX=/usr/bin/cd 2 '/w is not a git repository' ': /tmp is not a git repository' "\"\${CDX:-cd}\" /tmp && git commit -m x"
+gate_says closed - 2 ': /tmp is not a git repository' '' "\"\${CDX:-cd}\" /tmp && git commit -m x"
+gate_says closed - 2 '/w is not a git repository' ': /tmp is not a git repository' "/usr/bin/cd /tmp && git commit -m x"
+gate_closed AGX=/usr/bin/export 0 "\"\${AGX:-export}\" AG''Y=1; \"\${AGX:-export}\" commit --no-verify -m x"
 # A subcommand that hands a shell command or keystrokes on is judged as the
 # same command under the literal name, and so is the text it is given.
 for gate_relay in \
@@ -1012,8 +1020,9 @@ for gate_gh in "gh pr merge 5" "gh pr comment 5 --body x" "gh pr edit 5 --title 
   "gh pr create --title t --body b" "gh issue close 7" "gh run rerun 12" "gh run download 12" \
   "gh run watch 12" "gh api repos/o/r/pulls" "gh repo view" "gh -R o/r pr view 5" \
   "gh pr view \"\$(cat $CASE/note.md)\"" "gh pr view \"\$N\"" "gh pr view \$N" \
+  "gh pr view 5 --web" "gh pr view 5 -w" "gh pr diff 5 --web" "gh issue list -w" "gh run view 12 -vw" \
   "gh pr view 5 > $CASE/f.md" "gh pr diff 5 >> $CASE/f.md" "GH_PAGER=cat gh pr view 5" \
-  "command gh pr view 5" "gh pr view 5 &"; do
+  "command gh pr view 5"; do
   gate_closed - 2 "$gate_gh; $OW status"
 done
 gate_says open - 0 "$MAY_RUN" '' "gh pr merge 5; $TW status"

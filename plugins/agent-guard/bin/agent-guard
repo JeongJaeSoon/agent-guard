@@ -8408,10 +8408,12 @@ message_value_records() {
     }
     # For the gate, a gh command that only asks the API and prints: `gh
     # pr|issue|run view|list|checks|status|diff` in literal words, so no
-    # expansion can turn out to be another subcommand.
+    # expansion can turn out to be another subcommand, and without -w or
+    # --web, which starts a browser.
     function gh_reads(   j) {
       if (word[1] != "gh" || word[2] !~ /^(pr|issue|run)$/ || word[3] !~ /^(view|list|checks|status|diff)$/) return 0
       for (j = 1; j <= n; j++) if (kind[j] != "0") return 0
+      for (j = 4; j <= n; j++) if (word[j] ~ /^(--web|-[A-Za-z]*w[A-Za-z]*)$/) return 0
       return 1
     }
     function gate_printf(   f) {
@@ -8651,19 +8653,20 @@ SHELL_STARTUP_VARIABLES_ERE='^(DIRSTACK|SHELL|SHELLOPTS|TERM|POSIXLY_CORRECT|CPU
 SHELL_BUILTIN_NAMES_ERE='^(alarm|alias|autoload|bg|bind|bindkey|break|builtin|bye|caller|chdir|command|compadd|comparguments|compcall|compctl|compdescribe|compfiles|compgen|compgroups|complete|compopt|compquote|compset|comptags|comptry|compvalues|continue|declare|dirs|disable|disown|echotc|echoti|emulate|enable|enum|eval|exec|exit|export|fc|fg|float|functions|getln|getopts|hash|help|hist|history|integer|jobs|kill|let|limit|local|log|login|logout|mapfile|nameref|newgrp|noglob|popd|print|printf|private|pushd|pushln|r|read|readarray|readonly|rehash|return|sched|set|setopt|shift|shopt|source|suspend|test|times|trap|ttyctl|type|typeset|ulimit|umask|unalias|unfunction|unhash|unlimit|unset|unsetopt|vared|vmap|vpath|wait|whence|where|which|zcompile|zformat|zle|zmodload|zparseopts|zregexparse|zstyle)$'
 
 # The start of the word that stands for one default-value command word while
-# the commit/push gate judges it; the name follows.
+# the commit/push gate judges it; what the word runs follows.
 DEFAULT_WORD_MARK=__agent_guard_default_word__
 
 # Print $1 with each word `"${VAR:-name}"`, with or without the quotes, that
-# runs name replaced by $DEFAULT_WORD_MARK and the name; fail when there is
-# none. The word runs name while this hook's environment, which the command
-# inherits, leaves VAR unset or empty or holds name or an absolute path whose
-# last component is name, and the command spells VAR nowhere else (an
-# assignment, unset, read or another expansion would change what the word
-# runs). VAR is an upper-case name no shell sets itself. name is a plain
+# runs name replaced by $DEFAULT_WORD_MARK and what it runs; fail when there
+# is none. The word runs name while this hook's environment, which the
+# command inherits, leaves VAR unset or empty or holds name, and the command
+# spells VAR nowhere else (an assignment, unset, read or another expansion
+# would change what the word runs). It runs a path that VAR holds when that
+# is absolute, in plain characters, with name as its last component: the
+# path stays in the reading, since a file named like a builtin is not the
+# builtin. VAR is an upper-case name no shell sets itself. name is a plain
 # word and no reserved word: a shell runs what a word expands to as a
-# command, never as a keyword. The unquoted word also needs a value the
-# shell cannot split or expand.
+# command, never as a keyword.
 default_word_mark() {
   case "$1" in *"$DEFAULT_WORD_MARK"*) return 1 ;; esac
   DW_CMD=$1 LC_ALL=C awk -v mark="$DEFAULT_WORD_MARK" -v shellset="$SHELL_SET_VARIABLES_ERE" -v startup="$SHELL_STARTUP_VARIABLES_ERE" 'BEGIN {
@@ -8677,12 +8680,12 @@ default_word_mark() {
       before = a > 1 ? substr(s, a - 1, 1) : (out == "" ? " " : substr(out, length(out), 1))
       after = substr(s, a + len, 1)
       val = ENVIRON[var]
+      path = substr(val, 1, 1) == "/" && substr(val, length(val) - length(name)) == "/" name && val ~ /^[A-Za-z0-9_.\/@%+,:=-]+$/
       if (before ~ /[ \t\n;&|]/ && (after == "" || after ~ /[ \t\n]/) \
           && var !~ shellset && var !~ startup \
           && name !~ /^(if|then|else|elif|fi|case|esac|for|select|while|until|do|done|in|function|time|coproc|foreach|end|repeat|nocorrect)$/ \
-          && (val == "" || val == name || substr(val, 1, 1) == "/" && substr(val, length(val) - length(name)) == "/" name) \
-          && (quoted || val ~ /^[A-Za-z0-9_.\/@%+,:=-]*$/)) {
-        out = out substr(s, 1, a - 1) mark name; rest = rest substr(s, 1, a - 1) " "
+          && (val == "" || val == name || path)) {
+        out = out substr(s, 1, a - 1) mark (path ? val : name); rest = rest substr(s, 1, a - 1) " "
         vars[var] = 1; found = 1
       } else {
         out = out substr(s, 1, a + len - 1); rest = rest substr(s, 1, a + len - 1)
