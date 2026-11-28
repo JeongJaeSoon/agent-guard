@@ -602,7 +602,7 @@ exec "$REAL_JQ" "\$@"
 EOF
 chmod 755 "$CASE/bin/jq"
 # An earlier case leaves a staged secret behind; Bash runs the work-tree backstop.
-(cd "$CASE/repo" && git reset -q --hard && git clean -qfd) || exit 1
+git --git-dir="$CASE/repo/.git" --work-tree="$CASE/repo" reset -q --hard || exit 1
 # A prefix assignment before a function call outlives it in some shells.
 export AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_LOG_MODE=on
 post_jq_runs() { # $1 json -> status of one PostToolUse; jq runs counted
