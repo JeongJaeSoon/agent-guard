@@ -13270,11 +13270,13 @@ git_command_records_to() {
   fi
   GCR_OUT=$(git_command_records "$1" "${2:-}")
   gcr_memo_status=$?
+  # A failed run is not kept: the next caller runs the tokenizer again.
+  [ "$gcr_memo_status" -eq 0 ] || return "$gcr_memo_status"
   gcr_memo_text=$1
   gcr_memo_gate=${2:-}
   gcr_memo_out=$GCR_OUT
   gcr_memo_set=1
-  return "$gcr_memo_status"
+  return 0
 }
 
 shell_command_words_to() {
@@ -13284,10 +13286,11 @@ shell_command_words_to() {
   fi
   SCW_OUT=$(shell_command_words "$1")
   scw_memo_status=$?
+  [ "$scw_memo_status" -eq 0 ] || return "$scw_memo_status"
   scw_memo_text=$1
   scw_memo_out=$SCW_OUT
   scw_memo_set=1
-  return "$scw_memo_status"
+  return 0
 }
 # Only this run's answers count: a memo inherited from the environment would
 # stand in for the tokenizer.

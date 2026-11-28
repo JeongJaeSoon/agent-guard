@@ -705,6 +705,31 @@ memo_ok=$(
 )
 check "memoized tokenizers match the command substitution they replace" [ "$memo_ok" = done ]
 
+# A failed tokenizer run is not memoized: the next call runs it again, as the
+# separate command substitutions did.
+memo_retry=$(
+  for f in git_command_records git_command_records_to shell_command_words shell_command_words_to; do
+    # shellcheck disable=SC1090
+    . "$CASE/fn/$f.sh"
+  done
+  awk() {
+    if [ ! -e "$CASE/awk-failed-once" ]; then : >"$CASE/awk-failed-once"; return 2; fi
+    command awk "$@"
+  }
+  rm -f "$CASE/awk-failed-once"
+  git_command_records_to 'echo fresh-a'; first=$?
+  git_command_records_to 'echo fresh-a'; second=$?
+  { [ "$first" -ne 0 ] && [ "$second" -eq 0 ] && [ "$GCR_OUT" = "$(printf '0echo\n0fresh-a')" ]; } \
+    || printf 'gcr failure memoized\n'
+  rm -f "$CASE/awk-failed-once"
+  shell_command_words_to 'echo fresh-b'; first=$?
+  shell_command_words_to 'echo fresh-b'; second=$?
+  { [ "$first" -ne 0 ] && [ "$second" -eq 0 ] && [ "$SCW_OUT" = "$(printf 'echo\nfresh-b')" ]; } \
+    || printf 'scw failure memoized\n'
+  printf 'done\n'
+)
+check "a failed tokenizer run is not memoized" [ "$memo_retry" = done ]
+
 # The memo lives in shell variables: one inherited from the environment must
 # never stand in for the tokenizer, whole or in part (set -u).
 memo_env_case() { # $1 label, then env assignments
