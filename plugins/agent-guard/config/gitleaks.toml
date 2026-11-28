@@ -301,17 +301,17 @@ regexes = [
 # alphanumeric run, so they stop at the separator before the number (#599).
 # Anchored to the end of the match, which ends one character past the value:
 # dummy or example, a credential word, then `-` or `_` and 1 to 12 digits,
-# after a separator and blanks, ended by a blank, `;` or the line end. The
-# value may not be quoted or end at a quote: in a shell word such as
-# `dummy-key-123"abc"` the quote does not end the value, though gitleaks
-# stops there. Only generic-api-key is targeted, so a vendor rule (a Google
+# after a separator and blanks, ended by a blank, `;`, LF or the line end. The
+# value may not be quoted or end at a quote, a CR or an escaped `\n`: in a
+# shell word such as `dummy-key-123"abc"` none of them ends the value, though
+# gitleaks stops there. A CRLF line keeps its finding. Only generic-api-key is targeted, so a vendor rule (a Google
 # API key that embeds the same text) keeps its finding.
 [[allowlists]]
 description = "Numbered dummy and example credentials (#599)"
 targetRules = ["generic-api-key"]
 regexTarget = "match"
 regexes = [
-  '''(?i)[=:>,|?][ \t]*(?:dummy|example)[_-]?(?:token|key|secret|password)[_-][0-9]{1,12}(?:[ \t\r\n;]|\\[nr])?$'''
+  '''(?i)[=:>,|?][ \t]*(?:dummy|example)[_-]?(?:token|key|secret|password)[_-][0-9]{1,12}[ \t\n;]?$'''
 ]
 
 # Directory scans skip these exact lockfile names, then agent-guard rescans
