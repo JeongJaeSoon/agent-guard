@@ -11374,7 +11374,7 @@ HEREDOC_WRITER_MARK=%:%
 # named again or not, the word each file is written as, one on a line,
 # as the shell reads it, for heredoc_files_are_documents: `?` stands for a
 # word that names no path here (one cut at a quoted blank, a `~` beside a
-# quote) and for a tee word that may be a file the line does not name.
+# quote) and for a tee word before `--` that may be a file.
 # With `gate` as $3 the view keeps each writer's own words in place of
 # `true`, so the commit/push gate judges them as on a line with no
 # here-document.
@@ -11527,18 +11527,20 @@ heredoc_body_rewrite() {
       # file descriptor number before it, and the operands of tee. Any other
       # word with a > in it, and a target that holds another redirection,
       # cannot be named with confidence; /dev/null is no file.
-      m = split(rest, w, /[ \t]+/); tee = 0
+      m = split(rest, w, /[ \t]+/); tee = 0; operands = 0
       for (k = 1; k <= m; k++) {
         name = ""
         if (w[k] ~ /^[0-9]*>>?$/) name = w[k + 1]
         else if (w[k] ~ /^[0-9]*>>?[^>]/) { name = w[k]; sub(/^[0-9]*>>?/, "", name) }
         else if (w[k] == "tee") { tee = 1; continue }
-        else if (tee && w[k] !~ /^[-<>&;]/) name = w[k]
+        else if (tee && w[k] !~ /^[<>&;]/ && (operands || w[k] !~ /^-/)) name = w[k]
         else if (w[k] ~ />/) reject()
-        # A tee word that starts with a dash and is no option tee knows may
-        # be a file (`tee -- -x`), so the files are then not all named.
-        if (tee && w[k] ~ /^-/ && w[k] !~ /^(-[ai]+|--append|--ignore-interrupts)$/) unnamed = 1
-        if (w[k] ~ /^&&$|;$/) tee = 0
+        # After `--` every tee word is a file. Before it, a word that starts
+        # with a dash and is no option tee knows may be one, so the files
+        # are then not all named.
+        if (tee && !operands && w[k] == "--") operands = 1
+        else if (tee && !operands && w[k] ~ /^-/ && w[k] !~ /^(-[ai]+|--append|--ignore-interrupts)$/) unnamed = 1
+        if (w[k] ~ /^&&$|;$/) { tee = 0; operands = 0 }
         raw = dequote(name)
         gsub(/["\047]/, "", name); sub(/<<.*/, "", name)
         if (name ~ /[<>]/) reject()
@@ -11658,23 +11660,25 @@ heredoc_files_are_documents() {
     case "$hf_word" in
       /*|'~/'*) ;;
       *)
+        # Read once: a command that changes directory returns at once. A
+        # command name follows a separator, a reserved word, an assignment
+        # or a word that runs its operand in this shell. Records that could
+        # not be read name no directory, so the word is then not placed.
         if [ -z "$hf_moves" ]; then
-          # A command name follows a separator, a reserved word, an
-          # assignment or a word that runs its operand in this shell.
-          if git_command_records "$2" | LC_ALL=C awk '
+          hf_records=$(git_command_records "$2") && [ -n "$hf_records" ] || return 1
+          printf '%s\n' "$hf_records" | LC_ALL=C awk '
             BEGIN { start = 1 }
             { k = substr($0, 1, 1); w = substr($0, 2) }
             k == "3" || $0 ~ /^0(;|&&|\|\||\|)$/ { start = 1; next }
             start && k == "0" && w ~ /^(cd|pushd|popd)$/ { found = 1; exit }
             k == "0" && w ~ /^([A-Za-z_][A-Za-z0-9_]*=.*|builtin|command|eval|time|!|if|then|else|elif|do|while|until|\{)$/ { next }
             { start = 0 }
-            END { exit !found }'; then
-            hf_moves=1
-          else
-            hf_moves=0
-          fi
+            END { exit found ? 3 : 0 }'
+          case "$?" in
+            0) hf_moves=0 ;;
+            *) return 1 ;;
+          esac
         fi
-        [ "$hf_moves" -eq 0 ] || return 1
         ;;
     esac
     heredoc_file_is_document "$hf_word" || return 1
