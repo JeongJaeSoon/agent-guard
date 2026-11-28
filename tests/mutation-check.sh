@@ -126,7 +126,7 @@ fi
 ORIG=$ROOT/$BIN_REL
 # jq carries each mutated file as a string; it must come back byte for byte.
 for mutated_rel in $(jq -r --arg bin "$BIN_REL" '[.[] | .file // $bin] | unique | .[]' "$LIST"); do
-  [ -f "$ROOT/$mutated_rel" ] || die "mutated file does not exist: $mutated_rel"
+  [ -f "$ROOT/$mutated_rel" ] && [ ! -L "$ROOT/$mutated_rel" ] || die "mutated file is not a regular file: $mutated_rel"
   jq -j -Rs . "$ROOT/$mutated_rel" | cmp -s - "$ROOT/$mutated_rel" || die "jq does not reproduce $mutated_rel byte for byte"
 done
 
