@@ -20095,14 +20095,16 @@ detect_output_secret_records() (
     <"$detector_strings" >"$detector_work_a" 2>/dev/null
   detector_status=$?
   case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
-  # The bearer values follow the JWT lines in work_a: one jq run encodes both.
+  jq -Rc 'select(length > 0)' <"$detector_work_a" \
+    >>"$detector_records" 2>/dev/null || detector_fail
+
   grep -Eio 'bearer[ \t]+[-A-Za-z0-9._~+/=]+' \
-    <"$detector_strings" >"$detector_work_b" 2>/dev/null
+    <"$detector_strings" >"$detector_work_a" 2>/dev/null
   detector_status=$?
   case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
   awk '{ tok = $2; if (length(tok) >= 8) print tok }' \
-    <"$detector_work_b" >>"$detector_work_a" 2>/dev/null || detector_fail
-  jq -Rc 'select(length > 0)' <"$detector_work_a" \
+    <"$detector_work_a" >"$detector_work_b" 2>/dev/null || detector_fail
+  jq -Rc 'select(length > 0)' <"$detector_work_b" \
     >>"$detector_records" 2>/dev/null || detector_fail
 
   if known_value_redact_enabled; then

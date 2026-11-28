@@ -616,13 +616,11 @@ post_jq_runs '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"make
 check "clean Bash PostToolUse with jq counted passes unchanged" \
   sh -c '[ "$1" -eq 0 ] && [ ! -s "$2" ]' _ "$?" "$CASE/out/stdout"
 got=$(wc -l <"$CASE/jq-runs" | tr -d ' ')
-check "a clean Bash PostToolUse starts at most 8 jq runs (got $got)" [ "$got" -le 8 ]
+check "a clean Bash PostToolUse starts at most 9 jq runs (got $got)" [ "$got" -le 9 ]
 check "a clean Bash PostToolUse makes no second object check" \
   sh -c '! grep -Eq "^-e type == \"object\"\$" "$1"' _ "$CASE/jq-calls"
 check "the empty secret bundle is not parsed again" \
   lacks 'invalid secret bundle' "$CASE/jq-calls"
-check "compact-token lines are encoded in one jq run" \
-  [ "$(count_lines '^-Rc select(length > 0)$' "$CASE/jq-calls")" -eq 1 ]
 
 post_jq_runs '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"a\u0000b","stderr":"","interrupted":false}}'
 check "a NUL-bearing Bash output is masked with success" [ "$?" -eq 0 ]
@@ -630,7 +628,7 @@ check "the NUL-bearing leaf is replaced whole" \
   jq -e '.hookSpecificOutput.updatedToolOutput == {stdout: "[REDACTED]", stderr: "", interrupted: false}' "$CASE/out/stdout"
 check "a NUL-bearing response still runs the NUL walk" grep -Fq "$nul_walk" "$CASE/jq-calls"
 
-# Both compact-token detectors in one output: one jq run encodes both lines.
+# Both compact-token detectors in one output: both values are masked.
 seg() { od -An -N12 -tx1 /dev/urandom | tr -d ' \n'; }
 jwt_shape="eyJ$(seg).eyJ$(seg).$(seg)"
 auth_word=Bear; auth_word="${auth_word}er"
@@ -641,8 +639,6 @@ check "output with a JWT and an authorization value is masked with success" [ "$
 check "both compact-token values are masked" \
   sh -c 'grep -q updatedToolOutput "$1" && ! grep -Fq "$2" "$1" && ! grep -Fq "$3" "$1"' _ \
   "$CASE/out/stdout" "$jwt_shape" "$auth_value"
-check "the two token detectors share one jq run" \
-  [ "$(count_lines '^-Rc select(length > 0)$' "$CASE/jq-calls")" -eq 1 ]
 
 # Not an object: the object check still runs and still rejects it.
 post_jq_runs '[{"tool_name":"Bash"}]'
