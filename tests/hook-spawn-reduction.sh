@@ -739,6 +739,25 @@ memo_retry=$(
 )
 check "a failed tokenizer run is not memoized" [ "$memo_retry" = done ]
 
+# Exported from the caller, the tokenizer outputs would keep that attribute and
+# hand the command's words to every child the check starts.
+mkdir -p "$CASE/envbin"
+REAL_GREP_FOR_ENV=$(command -v grep)
+cat >"$CASE/envbin/grep" <<EOF
+#!/bin/sh
+printf '[%s][%s]\n' "\${GCR_OUT-}" "\${SCW_OUT-}" >>"$CASE/child-env"
+exec "$REAL_GREP_FOR_ENV" "\$@"
+EOF
+chmod 755 "$CASE/envbin/grep"
+: >"$CASE/child-env"
+jq -nc '{session_id:"s",tool_name:"Bash",tool_input:{command:"ls word-q7z marker"}}' \
+  | (cd "$CASE/repo" && PATH="$CASE/envbin:$PATH" GCR_OUT=inherited SCW_OUT=inherited \
+      "$GUARD" hook-pre-tool >"$CASE/out/stdout" 2>"$CASE/out/stderr")
+check "a Bash command with exported tokenizer outputs is allowed" [ "$?" -eq 0 ]
+check "the check started a child that recorded its environment" [ -s "$CASE/child-env" ]
+check "no child sees the command's words through the tokenizer outputs" \
+  sh -c '! grep -q "word-q7z" "$1"' _ "$CASE/child-env"
+
 # The memo lives in shell variables: one inherited from the environment must
 # never stand in for the tokenizer, whole or in part (set -u).
 memo_env_case() { # $1 label, then env assignments

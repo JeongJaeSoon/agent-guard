@@ -13293,9 +13293,10 @@ shell_command_words_to() {
   return 0
 }
 # Only this run's answers count: a memo inherited from the environment would
-# stand in for the tokenizer.
-unset gcr_memo_set gcr_memo_text gcr_memo_gate gcr_memo_out \
-  scw_memo_set scw_memo_text scw_memo_out
+# stand in for the tokenizer, and an exported output would hand the command's
+# words to every child.
+unset gcr_memo_set gcr_memo_text gcr_memo_gate gcr_memo_out gcr_status GCR_OUT \
+  scw_memo_set scw_memo_text scw_memo_out scw_status SCW_OUT
 
 # Print the words of $1 one per line, split where the shell splits them: at
 # blanks and at the operators `;`, `|`, `||`, `&&` and a lone `&` (not the
