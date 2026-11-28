@@ -703,6 +703,39 @@ gate_closed - 2 "echo x > $CASE/commhard; $OW x"
 gate_closed "$CASE/obin/orca" 2 "echo x > $CASE/phard; orca orchestration send --to lead --body x; $OW x"
 gate_closed - 2 "tee $CASE/plink <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
 gate_closed - 2 "cat <<'EOF' > $CASE/f.md${nl}x${nl}EOF${nl}$OW x"
+# A here-document written to a file before the word leaves it unknown by the
+# same rule. The command that takes the here-document is read by its own
+# words, as on a line with none: tee writes its operands, wherever they
+# stand, so it is never accepted, and cat only with no redirection. A loop
+# body runs again, so a write after the word there comes before it too.
+gate_closed - 2 "tee $CASE/plink <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "tee -a $CASE/plink <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "tee $CASE/plink <<EOF${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "tee <<'EOF' $CASE/plink${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "tee<<'EOF' $CASE/plink${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "tee -- -x <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "tee /dev/null <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "tee <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "true; tee $CASE/plink <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "cat > $CASE/plink <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "cat >$CASE/plink <<-'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "cat >> $CASE/plink <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "tee $CASE/plink <<'EOF'${nl}x${nl}EOF${nl}$OW commit --no-verify -m x"
+gate_closed - 2 "for d in a b; do $OW x; tee $CASE/plink <<'EOF'${nl}x${nl}EOF${nl}done"
+gate_closed - 2 "for d in a b; do $OW x; cat > $CASE/plink <<'EOF'${nl}x${nl}EOF${nl}done"
+# Any other command that takes a here-document keeps the word unknown.
+gate_closed - 2 "dd of=$CASE/plink <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "sponge $CASE/plink <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "cp /dev/stdin $CASE/plink <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 2 "install /dev/stdin $CASE/plink <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+# A here-document cat only prints, or one written after the word, leaves
+# the word as it was.
+gate_closed - 0 "cat <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 0 "cat -n <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 0 "cat $CASE/note.md <<'EOF'${nl}x${nl}EOF${nl}$OW x"
+gate_closed - 0 "cat <<'EOF'${nl}x${nl}EOF${nl}$OW commit --no-verify -m x"
+gate_closed - 0 "$OW x${nl}tee $CASE/plink <<'EOF'${nl}x${nl}EOF"
+gate_closed - 0 "$OW x${nl}cat > $CASE/f.md <<'EOF'${nl}x${nl}EOF"
 gate_closed - 2 "echo x > $CASE/pbin/note.md; $OW x"
 gate_closed - 2 "cd $CASE/pbin && echo x > note.md && $OW x"
 gate_closed - 2 "cd $CASE/pbin; echo x > note.md; $OW x"
@@ -769,9 +802,13 @@ gate_closed - 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --bod
 gate_closed - 2 "'for' d in a b; do $OW orchestration send --to dispatch:\$d --body 'x'; done"
 gate_closed - 2 "for d in a b; do $OW orchestration send --to dispatch:\$d --body 'x'; 'done'; done"
 gate_closed - 2 "for d in a b; $OW orchestration send --to dispatch:\$d --body 'x'"
-# A here-document that only writes a document stands aside; one that writes a
-# file named like the command a later word runs is read as what may run.
-gate_closed - 0 "cat > $CASE/note.md <<'EOF'${nl}never pass --no-verify to git commit${nl}EOF${nl}$OW orchestration send --to lead --body-file $CASE/note.md"
+# A here-document written to a file before the Orca CLI word leaves the word
+# unknown, the same rule as a redirection with no here-document: bots write
+# such files with their file tool. Before the literal name the document
+# stands aside; one that writes a file named like the command a later word
+# runs is read as what may run.
+gate_closed - 2 "cat > $CASE/note.md <<'EOF'${nl}never pass --no-verify to git commit${nl}EOF${nl}$OW orchestration send --to lead --body-file $CASE/note.md"
+gate_closed - 0 "cat > $CASE/note.md <<'EOF'${nl}never pass --no-verify to git commit${nl}EOF${nl}orca orchestration send --to lead --body-file $CASE/note.md"
 gate_closed "$CASE/orca" 2 "cat > $CASE/orca <<'EOF'${nl}git commit --no-verify -m x${nl}EOF${nl}$OW orchestration send --to lead --body 'done'"
 gate_closed - 2 "cat > $CASE/gh <<'EOF'${nl}git commit --no-verify -m x${nl}EOF${nl}gh pr view 5"
 # A body that only mentions the name of a later command is prose.
@@ -829,7 +866,37 @@ for ow_shell in sh bash dash zsh ksh; do
     *) bad "control: $ow_shell runs git for a loop value that names it" ;;
   esac
 done
-rm -rf "$W/obin" "$W/reader"
+# Ground truth for the here-document rows: each shell writes the body through
+# a link to the orca on PATH, with tee or with a cat redirection, and the word
+# then runs that body, so the gate leaves the word unknown. The control only
+# prints the same body and the word runs the orca on PATH, which proves the
+# harness can tell the two apart.
+ln -s "$W/obin/orca" "$W/olink"
+hd_body="#!/bin/sh${nl}printf 'body-ran\\n'"
+hd_tee="tee olink <<'EOF'${nl}$hd_body${nl}EOF${nl}$OW x"
+hd_cat="cat > olink <<'EOF'${nl}$hd_body${nl}EOF${nl}$OW x"
+hd_ctl="cat <<'EOF'${nl}$hd_body${nl}EOF${nl}$OW x"
+gate_closed - 2 "$hd_tee"
+gate_closed - 2 "$hd_cat"
+gate_closed - 0 "$hd_ctl"
+for ow_shell in sh bash dash zsh ksh; do
+  command -v "$ow_shell" >/dev/null 2>&1 || continue
+  for hd_cmd in "$hd_tee" "$hd_cat"; do
+    printf '#!/bin/sh\nprintf "orca-ran %%s\\n" "$*"\n' >"$W/obin/orca"
+    ow_got=$(cd "$W" && PATH="$W/obin:$PATH" "$ow_shell" -c "$hd_cmd" 2>/dev/null)
+    case "$ow_got" in
+      body-ran|*"${nl}body-ran") ok "$ow_shell runs the here-document body for the word after ${hd_cmd%% *} wrote it" ;;
+      *) bad "$ow_shell runs the here-document body for the word after ${hd_cmd%% *} wrote it: $ow_got" ;;
+    esac
+  done
+  printf '#!/bin/sh\nprintf "orca-ran %%s\\n" "$*"\n' >"$W/obin/orca"
+  ow_got=$(cd "$W" && PATH="$W/obin:$PATH" "$ow_shell" -c "$hd_ctl" 2>/dev/null)
+  case "$ow_got" in
+    *"${nl}orca-ran x") ok "control: $ow_shell runs the orca on PATH after a here-document cat only prints" ;;
+    *) bad "control: $ow_shell runs the orca on PATH after a here-document cat only prints: $ow_got" ;;
+  esac
+done
+rm -rf "$W/obin" "$W/reader" "$W/olink"
 
 # With a relative PATH entry, a cd changes which file a later `git` runs.
 # PATH is changed only for the hook, in a subshell.
