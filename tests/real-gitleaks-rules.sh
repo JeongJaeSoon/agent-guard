@@ -80,6 +80,7 @@ run_suite 'HTTP routes after a secret label pass while secret shapes stay blocke
 run_suite 'modal prose after a secret label passes while secret shapes stay blocked' prompt-prose-reference.sh
 run_suite 'prefixed-UUID keys are found while sdk- package names stay clean' prefixed-uuid-key.sh
 run_suite 'force-with-lease expectations pass while keyword assignments stay found' force-with-lease-sha.sh
+run_suite 'git object ids named as commits pass in Write content while secrets stay blocked' write-content-object-id.sh
 
 printf '1..%s\n' "$((pass + fail))"
 [ "$fail" -eq 0 ]
