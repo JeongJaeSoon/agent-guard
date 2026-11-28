@@ -634,9 +634,11 @@ gate_closed - 2 "$OW orchestration check --terminal \"\$T\""
 gate_closed - 2 "$OW worktree create --name w1 \"\$FLAG\""
 gate_closed - 0 "$OW orchestration send --to lead --body \"done now\""
 # A printf whose format is a literal that starts with no dash writes only
-# to its output: it cannot assign (-v) or take an option (--). A %n
-# conversion assigns too in bash and zsh, and the shell takes a
-# redirection out before it, so a later word may be the format.
+# to its output: it cannot assign (-v) or take an option (--). Only string
+# conversions are read: %n assigns in bash and zsh, and zsh evaluates the
+# argument of a number conversion or a * width as arithmetic, which may
+# assign. The shell takes a redirection out before the format, so a later
+# word may be the format, and zsh expands a leading =.
 gate_closed - 0 "printf a && $OW x"
 gate_closed - 0 "printf '%s\\n' \"\$X\" && $OW status"
 gate_closed - 2 "printf -v ORCA_CLI_COMM''AND git; $OW commit -m x"
@@ -649,6 +651,10 @@ gate_closed - 2 "printf > $CASE/f.md -v X git; $OW x"
 gate_closed - 2 "printf 2>&1 -v X git; $OW x"
 gate_closed - 2 "cd $CASE && printf [-]v X git; $OW x"
 gate_closed - 2 "printf {-v,X} git; $OW x"
+gate_closed - 2 "printf %d 'PATH=1'; $OW x"
+gate_closed - 2 "printf '%*s' 'PATH=1' a; $OW x"
+gate_closed - 2 "printf =ls; $OW x"
+gate_closed - 0 "printf '%-10s|%.3s|%b|%%\\n' a b c && $OW x"
 gate_closed - 2 "printf a && \"\$G\" commit -m x"
 # Before the word, a segment may write a literal file that is not named
 # orca in any case, does not sit in a PATH directory and is not the file the

@@ -8402,9 +8402,10 @@ message_value_records() {
     }
     # A redirection may write a file a command name resolves to. The gate
     # also takes a printf whose format is a literal with no leading dash (so
-    # no -v assignment and no option) and no %n (which assigns in bash and
-    # zsh), written before any redirection (which the shell takes out of the
-    # words first), and a `> FILE`, `>> FILE` or `>FILE` to a literal file
+    # no -v assignment and no option, no zsh =name) whose conversions only
+    # print strings (%n assigns in bash and zsh, and zsh reads the argument
+    # of a number or a * width as arithmetic, which may assign), written
+    # before any redirection (which the shell takes out of the words first), and a `> FILE`, `>> FILE` or `>FILE` to a literal file
     # not named orca in any case, which gate_write keeps in seg_writes for
     # orca_cli_writes_safe; it needs every PATH entry absolute, as cd does,
     # and no_writes unset. A glob in the format may expand to an option.
@@ -8427,9 +8428,9 @@ message_value_records() {
       return 1
     }
     function gate_printf(   f) {
-      if (word[1] != "printf" || n < 2 || kind[2] != "0" || word[2] ~ /^-|[<>]|[][*?{}~^#]/) return 0
-      f = word[2]; gsub(/%%/, "", f)
-      return f !~ /%[^A-Za-z]*[hlLqjzt]*n/
+      if (word[1] != "printf" || n < 2 || kind[2] != "0" || word[2] ~ /^[-=]|[<>]|[][*?{}~^#]/) return 0
+      f = word[2]; gsub(/%%|%[-0-9.]*[sb]/, "", f)
+      return index(f, "%") == 0
     }
     # A write target the shell takes as written: no expansion, glob, tilde
     # or zsh =name, and a last step that is a name other than orca.
